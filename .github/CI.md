@@ -47,7 +47,8 @@ The rule for `main` is prepared for a supported paid plan (GitHub Pro for a pers
 repository; GitHub Team for an organization):
 
 - require a PR and one approval;
-- require code-owner review;
+- require code-owner review after upgrading (the checkbox is disabled on Free
+  and must be enabled separately);
 - dismiss stale approvals after changes;
 - require successful `CI result` and an up-to-date branch;
 - require conversation resolution;

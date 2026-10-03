@@ -1,0 +1,31 @@
+# Local secrets (commit templates only)
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Frontend outputs
+node_modules/
+dist/
+coverage/
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.sqlite3
+
+# Local Django runtime files
+/backend/media/
+/backend/staticfiles/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/

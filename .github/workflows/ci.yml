@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repository:
+    name: Repository checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      frontend: ${{ steps.detect.outputs.frontend }}
+      backend: ${{ steps.detect.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate GitHub Actions workflows
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color
+      - name: Check whitespace in changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$BASE_SHA" ] && ! [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            git diff --check "$BASE_SHA" HEAD
+          else
+            git show --format= --check HEAD
+          fi
+      - name: Detect project components
+        id: detect
+        run: |
+          frontend=false
+          backend=false
+          if [ -f frontend/package.json ]; then
+            if [ ! -f frontend/package-lock.json ]; then
+              echo "::error::Commit frontend/package-lock.json so npm ci is reproducible."
+              exit 1
+            fi
+            frontend=true
+          fi
+          if [ -f backend/manage.py ]; then
+            if [ ! -f backend/requirements.txt ]; then
+              echo "::error::Add backend/requirements.txt for the Django CI job."
+              exit 1
+            fi
+            backend=true
+          fi
+          echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Project components"
+            echo "- React/TypeScript detected: $frontend"
+            echo "- Django detected: $backend"
+            if [ "$frontend" = false ] || [ "$backend" = false ]; then
+              echo ""
+              echo "Missing components are skipped. Green CI does not verify components that have not been added yet. See .github/CI.md."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  frontend:
+    name: Frontend checks
+    needs: repository
+    if: needs.repository.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:ci
+      - run: npm run build
+
+  backend:
+    name: Backend checks
+    needs: repository
+    if: needs.repository.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DJANGO_SECRET_KEY: ci-only-not-for-production
+      DATABASE_URL: postgresql://neiroleptik:ci-only@localhost:5432/neiroleptik_ci
+      POSTGRES_DB: neiroleptik_ci
+      POSTGRES_USER: neiroleptik
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: neiroleptik_ci
+          POSTGRES_USER: neiroleptik
+          POSTGRES_PASSWORD: ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - run: python manage.py check
+      - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py test --noinput
+
+  result:
+    name: CI result
+    needs: [repository, frontend, backend]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Verify all active checks passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ',') }}
+        run: |
+          case ",$RESULTS," in
+            *,failure,*|*,cancelled,*)
+              echo "::error::A required CI job failed or was cancelled."
+              exit 1
+              ;;
+          esac
+          echo "All active CI checks passed."

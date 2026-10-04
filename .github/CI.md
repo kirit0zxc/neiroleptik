@@ -4,9 +4,9 @@ CI runs on pull requests into `main`, on pushes to `main`, and manually from Act
 
 ## Current state
 
-The application has not been created. CI currently validates workflow syntax and
-checks whitespace in changes. Missing frontend/backend jobs are explicitly skipped.
-A green run at this stage does not mean that an application or its API works.
+The frontend (`frontend/`) exists and its job runs typecheck, tests and build.
+The backend has not been created; its job is explicitly skipped. A green run
+does not mean that the backend or the API works.
 
 ## Expected project layout
 

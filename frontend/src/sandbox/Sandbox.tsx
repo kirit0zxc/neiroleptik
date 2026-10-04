@@ -91,10 +91,9 @@ export function Sandbox() {
   function playFile(f: AnimFile) {
     const r = core.getRenderer() as any;
     if (!r?.playFile) return;
-    // Сбрасываем разобранный клип, иначе после подмены файла
-    // проиграется то, что осталось в памяти с прошлого раза.
-    r.forgetFile?.(f.url);
-    r.playFile(f.url, { mask, loop: true });
+    // reload — перечитать файл: иначе после подмены файла проиграется
+    // то, что осталось в памяти с прошлого раза.
+    r.playFile(f.url, { mask, loop: true, reload: true });
     setPlaying(f.rel);
   }
 

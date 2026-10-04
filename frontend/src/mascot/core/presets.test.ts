@@ -50,3 +50,12 @@ describe('пресеты', () => {
     expect(STATES.thinking).toBe(BUILTIN_STATES.thinking);
   });
 });
+
+describe('пресеты из сети', () => {
+  it('ключ __proto__ через JSON.parse не становится пресетом', () => {
+    const raw = JSON.parse('{"__proto__": {"expression": "happy", "weight": 1, "glow": {"color": "#fff", "intensity": 1, "pulseHz": 0}}}');
+    const parsed = parsePresets(raw);
+    expect(Object.keys(parsed)).toEqual([]);
+    expect((parsed as Record<string, unknown>).expression).toBeUndefined();
+  });
+});

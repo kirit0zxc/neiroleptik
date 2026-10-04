@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parsePresets } from '../../core/presets';
 import { VrmRenderer } from './VrmRenderer';
 
 /**
@@ -15,7 +14,25 @@ type Inner = {
   frameCamera(snap?: boolean): void;
   followClipCamera(): void;
   evictVariants(keep: string): void;
+  switchTo(name: string, opts: { loop?: boolean; fadeMs?: number }): void;
 };
+
+/** Действие микшера-заглушка: любой метод возвращает само действие. */
+function fakeAction(): never {
+  const target = { getClip: () => ({ duration: 1 }), isRunning: () => true, loop: 0 };
+  const proxy: unknown = new Proxy(target, {
+    get: (obj, key) => (key in obj ? (obj as Record<string | symbol, unknown>)[key] : () => proxy),
+    set: () => true,
+  });
+  return proxy as never;
+}
+
+/** Рендерер «играет» клип key: действие в таблице и выбранный кадр. */
+function playing(inner: Inner, key: string) {
+  inner.actions.set(key, fakeAction());
+  inner.currentName = key;
+  inner.followClipCamera();
+}
 
 function setup(reducedMotion: boolean) {
   const r = new VrmRenderer({ reducedMotion });
@@ -62,14 +79,42 @@ describe('переезд к кадру клипа', () => {
     expect(inner.camKey).toBe(JSON.stringify(r.getCamera()));
   });
 
-  it('forgetFile камеру не трогает: файл сразу играют заново', () => {
+  it('смена клипа (switchTo) переезжает к его кадру', () => {
     const { r, inner, frame } = setup(false);
     r.setClipCamera('test-follow', { zoom: 2 });
-    inner.currentName = 'test-follow';
     inner.followClipCamera();
     frame.mockClear();
-    r.forgetFile('/mascot/anim/vrma/x.vrma');
-    expect(frame).not.toHaveBeenCalled();
+    inner.actions.set('test-follow', fakeAction());
+    inner.switchTo('test-follow', { loop: true });
+    expect(frame).toHaveBeenCalledWith(false);
+    expect(inner.camKey).toBe(JSON.stringify(r.getEffectiveCamera()));
+  });
+
+  it('forgetFile играющего файла возвращает общий кадр', () => {
+    const { r, inner, frame } = setup(false);
+    r.setClipCamera('anim/vrma/test-forget.vrma', { zoom: 2 });
+    try {
+      playing(inner, 'file:/mascot/anim/vrma/test-forget.vrma:inplace');
+      frame.mockClear();
+      r.forgetFile('/mascot/anim/vrma/test-forget.vrma');
+      expect(frame).toHaveBeenCalledTimes(1);
+      expect(inner.camKey).toBe(JSON.stringify(r.getCamera()));
+    } finally {
+      r.setClipCamera('anim/vrma/test-forget.vrma', null);
+    }
+  });
+
+  it('playFile с reload камеру сразу не трогает: клип заиграет снова', () => {
+    const { r, inner, frame } = setup(false);
+    r.setClipCamera('anim/vrma/test-forget.vrma', { zoom: 2 });
+    try {
+      playing(inner, 'file:/mascot/anim/vrma/test-forget.vrma:inplace');
+      frame.mockClear();
+      r.playFile('/mascot/anim/vrma/test-forget.vrma', { reload: true });
+      expect(frame).not.toHaveBeenCalled();
+    } finally {
+      r.setClipCamera('anim/vrma/test-forget.vrma', null);
+    }
   });
 });
 
@@ -83,14 +128,5 @@ describe('evictVariants', () => {
     }
     inner.evictVariants('anim/a@b.vrma@5-6');
     expect([...inner.actions.keys()]).toEqual(['anim/a@c.vrma@1-2', 'anim/a@b.vrma#legs@1-2']);
-  });
-});
-
-describe('пресеты из сети', () => {
-  it('ключ __proto__ через JSON.parse не становится пресетом', () => {
-    const raw = JSON.parse('{"__proto__": {"expression": "happy", "weight": 1, "glow": {"color": "#fff", "intensity": 1, "pulseHz": 0}}}');
-    const parsed = parsePresets(raw);
-    expect(Object.keys(parsed)).toEqual([]);
-    expect(Object.getPrototypeOf(parsed) === null || !('expression' in parsed)).toBe(true);
   });
 });

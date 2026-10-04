@@ -36,7 +36,7 @@ describe('parseClipCameras', () => {
       peace: { zoom: 99 },
       empty: {},
       broken: 'кадр',
-      __proto__: { zoom: 2 },
+      ...JSON.parse('{"__proto__": {"zoom": 2}}'),
     });
     expect(parsed['anim/vrma/67.vrma']).toEqual({ fit: 'full', zoom: 0.9 });
     expect(parsed.peace).toEqual({ zoom: 4 });

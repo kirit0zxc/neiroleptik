@@ -693,14 +693,27 @@ export class VrmRenderer implements MascotRenderer {
    * Проиграть файл напрямую, в обход реестра состояний.
    * Нужно для песочницы: бросила файл в папку — сразу проверила.
    */
-  playFile(url: string, opts: { mask?: ClipMask; loop?: boolean } = {}) {
+  playFile(url: string, opts: { mask?: ClipMask; loop?: boolean; reload?: boolean } = {}) {
     const mask = opts.mask ?? 'inplace';
     const key = `file:${url}:${mask}`;
+    // reload — перечитать файл с диска (его могли подменить). Камеру при
+    // этом не трогаем: клип сейчас же заиграет снова, и возврат к общему
+    // кадру с переездом обратно был бы лишним качанием.
+    if (opts.reload) this.dropFile(url);
     this.request(key, { loop: opts.loop ?? false, fadeMs: 250 }, { url, mask });
   }
 
-  /** Сбросить разобранный файл, чтобы перечитать его с диска заново. */
+  /**
+   * Сбросить разобранный файл, чтобы перечитать его с диска заново.
+   * Если он сейчас играл — клипа больше нет, камера возвращается к
+   * общему кадру.
+   */
   forgetFile(url: string) {
+    this.dropFile(url);
+    this.followClipCamera();
+  }
+
+  private dropFile(url: string) {
     forgetClip(resolveAsset(url, this.opts.assetsBase));
     for (const key of [...this.actions.keys()]) {
       if (key.startsWith(`file:${url}:`)) {
@@ -715,8 +728,6 @@ export class VrmRenderer implements MascotRenderer {
         if (this.baseName === key) this.baseName = '';
       }
     }
-    // Камеру не трогаем: файл сразу же играют заново, и возврат к общему
-    // кадру с переездом обратно был бы лишним качанием.
   }
 
   stopClip(fadeMs = 250) {
@@ -832,6 +843,9 @@ export class VrmRenderer implements MascotRenderer {
       .catch((err) => {
         // Клип не загрузился — маскот просто не сделает этот жест.
         console.warn(`[mascot] клип "${name}" не загрузился`, err);
+        // Ждали именно его, а прежний клип уже сброшен (перезагрузка файла) —
+        // камере не на чем держать кадр клипа.
+        if (this.wantedName === name && !this.current) this.followClipCamera();
       })
       .finally(() => { this.pending.delete(name); });
 

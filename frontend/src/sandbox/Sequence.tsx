@@ -8,7 +8,7 @@ import {
   isChainName, splitTransitionKey, transitionKey, type ChainStep, type TransitionsFile,
 } from '../mascot/core/transitions';
 import type { VrmRenderer } from '../mascot/renderers/vrm/VrmRenderer';
-import { fileLabel } from './fileLabel';
+import { fileLabel } from './labUtils';
 
 type Step = ChainStep & { id: number };
 

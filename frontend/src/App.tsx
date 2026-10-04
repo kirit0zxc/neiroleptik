@@ -6,8 +6,8 @@ import { WindowDemo } from './sandbox/WindowDemo';
 const Sandbox = lazy(() => import('./sandbox/Sandbox').then((m) => ({ default: m.Sandbox })));
 
 /**
- * Чанк лаборатории не загрузился (сеть, новая выкладка) — вместо пустой
- * страницы объясняем, что случилось, и даём перезагрузить.
+ * Чанк лаборатории не загрузился (сеть, новая выкладка) или она упала
+ * при отрисовке — вместо пустой страницы сообщение и перезагрузка.
  */
 class LabBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -20,7 +20,7 @@ class LabBoundary extends Component<{ children: ReactNode }, { failed: boolean }
     if (!this.state.failed) return this.props.children;
     return (
       <p style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>
-        Не удалось загрузить лабораторию.{' '}
+        Лаборатория не загрузилась или упала.{' '}
         <button type="button" onClick={() => window.location.reload()}>Перезагрузить</button>
       </p>
     );

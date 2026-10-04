@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { VRMLoaderPlugin, VRMUtils, type VRM } from '@pixiv/three-vrm';
-import { PRELOAD, resolveClip, type ClipMask, type ClipSpec } from '../../core/clips';
+import { CLIPS, PRELOAD, resolveClip, type ClipMask, type ClipSpec } from '../../core/clips';
 import type { FaceKey, GlowSpec, MascotRenderer, VrmExpression } from '../../core/types';
 import { faceKeyAt, sortKeys } from '../../core/faceTrack';
 import { forgetClip, loadClip } from './loadClip';
@@ -470,7 +470,12 @@ export class VrmRenderer implements MascotRenderer {
 
   /** Имя текущего клипа, как его знают состояния и файл кадров клипов. */
   private clipName(): string {
-    return clipCameraKey(clipOf(this.currentName), this.opts.assetsBase);
+    const key = clipCameraKey(clipOf(this.currentName), this.opts.assetsBase);
+    if (!this.currentName.startsWith('file:')) return key;
+    // Файл из реестра, запущенный из списка, — под логическим именем,
+    // на которое ссылаются состояния (Happy%20Idle.vrma → happyIdle).
+    for (const [name, spec] of Object.entries(CLIPS)) if (spec.url === key) return name;
+    return key;
   }
 
   /** Кадр с учётом своего кадра текущего клипа — то, что сейчас на экране. */
@@ -710,7 +715,8 @@ export class VrmRenderer implements MascotRenderer {
         if (this.baseName === key) this.baseName = '';
       }
     }
-    this.followClipCamera();
+    // Камеру не трогаем: файл сразу же играют заново, и возврат к общему
+    // кадру с переездом обратно был бы лишним качанием.
   }
 
   stopClip(fadeMs = 250) {

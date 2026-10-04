@@ -5,7 +5,7 @@
   "type": "module",
   "sideEffects": false,
   "engines": {
-    "node": ">=22.12"
+    "node": "^22.12 || ^24 || >=26"
   },
   "exports": {
     ".": {

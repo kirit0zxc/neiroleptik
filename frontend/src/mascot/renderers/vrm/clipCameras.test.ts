@@ -26,17 +26,26 @@ describe('clipCameraKey', () => {
     expect(clipCameraKey('anim/vrma/67.vrma', '/mascot/')).toBe('anim/vrma/67.vrma');
   });
 
-  it('файл из списка песочницы — путь от assetsBase, раскодированный', () => {
+  it('файл из списка песочницы — путь от assetsBase в кодировке реестра', () => {
     expect(clipCameraKey('file:/mascot/anim/vrma/Happy%20Idle.vrma:inplace', '/mascot/'))
-      .toBe('anim/vrma/Happy Idle.vrma');
-    // assetsBase без слэша на конце — тот же результат.
+      .toBe('anim/vrma/Happy%20Idle.vrma');
+    // assetsBase без слэша на конце — тот же результат; маска не важна.
     expect(clipCameraKey('file:/static/y/anim/a%23b.vrma:none', '/static/y'))
-      .toBe('anim/a#b.vrma');
+      .toBe('anim/a%23b.vrma');
   });
 
-  it('файл вне assetsBase и битая кодировка — без падения', () => {
+  it('ключ совпадает с путём, который пишут студия и цепочки', () => {
+    // Так кодируют путь реестр (clips.ts), студия и цепочки.
+    const studio = (rel: string) => 'anim/' + rel.split('/').map(encodeURIComponent).join('/');
+    for (const rel of ['vrma/Dwarf Idle.vrma', 'vrma/愛♡スクリ〜ム！.vrma', 'vrma/67_x(includeTPose).vrma']) {
+      const manifestUrl = '/mascot/' + studio(rel);
+      expect(clipCameraKey(`file:${manifestUrl}:inplace`, '/mascot/')).toBe(studio(rel));
+    }
+  });
+
+  it('адрес со схемой и битая кодировка — без падения', () => {
     expect(clipCameraKey('file:https://cdn.test/x.vrma:legs', '/mascot/')).toBe('https://cdn.test/x.vrma');
-    expect(clipCameraKey('file:/mascot/bad%E0.vrma:strict', '/mascot/')).toBe('bad%E0.vrma');
+    expect(clipCameraKey('file:/mascot/bad%E0.vrma:strict', '/mascot/')).toBe('bad%25E0.vrma');
   });
 });
 
@@ -63,12 +72,23 @@ describe('VrmRenderer: кадр клипа поверх общего', () => {
 
   it('файл из списка песочницы находит кадр, сохранённый по пути', () => {
     const r = make();
-    r.setClipCamera('anim/vrma/Test Clip.vrma', { pitch: -10 });
+    r.setClipCamera('anim/vrma/Test%20Clip.vrma', { pitch: -10 });
     try {
       (r as unknown as Inner).currentName = 'file:/mascot/anim/vrma/Test%20Clip.vrma:inplace';
       expect(r.getEffectiveCamera().pitch).toBe(-10);
     } finally {
-      r.setClipCamera('anim/vrma/Test Clip.vrma', null);
+      r.setClipCamera('anim/vrma/Test%20Clip.vrma', null);
+    }
+  });
+
+  it('файл из реестра, запущенный из списка, — под логическим именем', () => {
+    const r = make();
+    r.setClipCamera('happyIdle', { pitch: -12 });
+    try {
+      (r as unknown as Inner).currentName = 'file:/mascot/anim/vrma/Happy%20Idle.vrma:legs';
+      expect(r.getEffectiveCamera().pitch).toBe(-12);
+    } finally {
+      r.setClipCamera('happyIdle', null);
     }
   });
 

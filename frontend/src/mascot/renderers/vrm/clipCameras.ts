@@ -27,18 +27,34 @@ export function parseClipCameras(raw: unknown): ClipCameras {
 const FILE_KEY = /^file:(.*):(?:none|inplace|legs|strict)$/;
 
 /**
+ * Путь в той кодировке, в какой его пишут реестр, студия и цепочки:
+ * каждый сегмент — encodeURIComponent. Уже закодированный сегмент
+ * сначала раскодируется, поэтому функция идемпотентна.
+ */
+function canonicalPath(path: string): string {
+  return path.split('/').map((part) => {
+    let plain = part;
+    try { plain = decodeURIComponent(part); } catch { /* битая кодировка — кодируем как есть */ }
+    return encodeURIComponent(plain);
+  }).join('/');
+}
+
+/**
  * Под каким именем хранить кадр клипа. Обычно это имя клипа как есть.
  * Файл, запущенный из списка песочницы, играет под служебным ключом
  * `file:<url>:<маска>`, а состояния ссылаются на тот же файл путём от
- * assetsBase (`anim/vrma/X.vrma`). Ключ приводится к этому пути, иначе
- * сохранённый в песочнице кадр не совпал бы ни с одним состоянием.
+ * assetsBase в кодировке реестра (`anim/vrma/Happy%20Idle.vrma`). Ключ
+ * приводится к этому пути без маски, иначе сохранённый в песочнице кадр
+ * не совпал бы ни с одним состоянием. Если путь есть в реестре клипов,
+ * рендерер дополнительно заменяет его логическим именем.
  */
 export function clipCameraKey(name: string, assetsBase: string): string {
   const m = FILE_KEY.exec(name);
   if (!m) return name;
-  const url = m[1].split('/').map((part) => {
-    try { return decodeURIComponent(part); } catch { return part; }
-  }).join('/');
-  const base = assetsBase.endsWith('/') ? assetsBase : assetsBase + '/';
-  return url.startsWith(base) ? url.slice(base.length) : url;
+  const url = m[1];
+  // Адрес со схемой (https:, blob:) — не путь от assetsBase, оставляем.
+  if (/^[a-z][a-z\d+.-]*:/i.test(url)) return url;
+  const path = canonicalPath(url);
+  const base = canonicalPath(assetsBase.endsWith('/') ? assetsBase : assetsBase + '/');
+  return path.startsWith(base) ? path.slice(base.length) : path;
 }

@@ -201,7 +201,8 @@ function sandboxSaves(): Plugin {
             let raw: unknown
             try { raw = JSON.parse(body) } catch { throw new RequestError(400, 'тело — не JSON') }
             // null, массив или строка разобрались бы в пустой объект и молча
-            // затёрли бы весь файл данных.
+            // затёрли бы весь файл данных. Объект без годных записей (в том
+            // числе {}) — законное «очистить файл»: так его и сохраняет лаборатория.
             if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
               throw new RequestError(400, 'нужен JSON-объект')
             }

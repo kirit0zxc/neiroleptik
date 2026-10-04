@@ -9,8 +9,9 @@ export const DEFAULT_BACKDROP = 'bg/room.webp';
  * как модель и клипы), false — без фона.
  */
 export function backdropUrl(backdrop: boolean | string, assetsBase = '/mascot/'): string | null {
-  if (backdrop === false || backdrop === '') return null;
-  return resolveAsset(backdrop === true ? DEFAULT_BACKDROP : backdrop, assetsBase);
+  if (backdrop === false) return null;
+  const src = backdrop === true ? DEFAULT_BACKDROP : backdrop.trim();
+  return src ? resolveAsset(src, assetsBase) : null;
 }
 
 /**

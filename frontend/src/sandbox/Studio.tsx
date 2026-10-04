@@ -9,7 +9,7 @@ import { EXPRESSIONS, isPresetName, type Presets } from '../mascot/core/presets'
 import type { FaceKey, StateSpec, VrmExpression } from '../mascot/core/types';
 import { sortKeys } from '../mascot/core/faceTrack';
 import type { VrmRenderer } from '../mascot/renderers/vrm/VrmRenderer';
-import { fileLabel } from './fileLabel';
+import { fileLabel } from './labUtils';
 
 type ClipState = NonNullable<ReturnType<VrmRenderer['getClipState']>>;
 

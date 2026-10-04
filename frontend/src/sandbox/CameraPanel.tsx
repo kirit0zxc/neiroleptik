@@ -7,7 +7,7 @@ import {
 import { parseClipCameras, type ClipCameras } from '../mascot/renderers/vrm/clipCameras';
 import cameraFile from '../mascot/renderers/vrm/camera.json';
 import clipCamerasFile from '../mascot/renderers/vrm/clipCameras.json';
-import { fileLabel } from './fileLabel';
+import { fileLabel, stableJson } from './labUtils';
 
 type NumKey = keyof typeof CAMERA_LIMITS;
 
@@ -54,13 +54,6 @@ interface CameraPanelProps {
   stage: HTMLElement | null;
   /** Вкладка открыта: мышь и колесо крутят камеру только тогда. */
   active: boolean;
-}
-
-/** JSON с ключами по алфавиту — сравнение не зависит от порядка ключей. */
-function stableJson(value: unknown): string {
-  return JSON.stringify(value, (_key, v: unknown) => (v && typeof v === 'object' && !Array.isArray(v)
-    ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
-    : v));
 }
 
 /**

@@ -18,9 +18,10 @@ describe('backdropUrl', () => {
     expect(backdropUrl('bg/grid.webp', '/m/')).toBe('/m/bg/grid.webp');
   });
 
-  it('false и пустая строка — без фона', () => {
+  it('false, пустая строка и одни пробелы — без фона', () => {
     expect(backdropUrl(false)).toBeNull();
     expect(backdropUrl('')).toBeNull();
+    expect(backdropUrl('   ')).toBeNull();
   });
 });
 
@@ -33,7 +34,7 @@ describe('cssUrl', () => {
     expect(cssUrl('/a"b\\c\nd.webp')).toBe('url("/a\\"b\\\\c\\a d.webp")');
   });
 
-  it('экранированный адрес браузер разбирает обратно в тот же', () => {
+  it('адрес с кавычкой даёт действительное значение свойства', () => {
     const el = document.createElement('div');
     const tricky = '/a"b.webp';
     el.style.backgroundImage = cssUrl(tricky);

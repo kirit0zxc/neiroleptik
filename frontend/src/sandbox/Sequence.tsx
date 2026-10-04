@@ -8,6 +8,7 @@ import {
   isChainName, splitTransitionKey, transitionKey, type ChainStep, type TransitionsFile,
 } from '../mascot/core/transitions';
 import type { VrmRenderer } from '../mascot/renderers/vrm/VrmRenderer';
+import { fileLabel } from './fileLabel';
 
 type Step = ChainStep & { id: number };
 
@@ -37,7 +38,7 @@ const sleep = (ms: number, run: { cancelled: boolean }) => new Promise<void>((re
   tick();
 });
 
-const label = (name: string) => decodeURIComponent(name.split('/').pop() ?? name);
+const label = fileLabel;
 const withIds = (steps: ChainStep[]): Step[] => steps.map((s, i) => ({ ...s, id: Date.now() + i }));
 const withoutIds = (steps: Step[]): ChainStep[] => steps.map(({ id: _id, ...s }) => s);
 

@@ -160,20 +160,22 @@ const CSS = `
   --yumi-bg-size: 100%;
   /* Пропорции картинки фона. */
   --yumi-bg-ratio: 4 / 3;
-  background-color: #0b0626;
 }
 /* Фон крупнее сцены и центрирован в точке (--yumi-bg-x, --yumi-bg-y):
-   так центр картинки встаёт за голову Юми, а края не оголяются. */
+   так центр картинки встаёт за голову Юми. Минимальные размеры — от
+   центра до дальнего края сцены в обе стороны, поэтому края не
+   оголяются при любых значениях переменных и пропорциях окна. */
 .yumi-backdrop {
   position: absolute;
   left: var(--yumi-bg-x); top: var(--yumi-bg-y);
   width: var(--yumi-bg-size);
   aspect-ratio: var(--yumi-bg-ratio);
-  /* Не меньше, чем нужно, чтобы фон доставал до низа сцены (центр — в верхней половине). */
-  min-height: calc(2 * (100% - var(--yumi-bg-y)));
+  min-width: calc(2 * max(var(--yumi-bg-x), 100% - var(--yumi-bg-x)));
+  min-height: calc(2 * max(var(--yumi-bg-y), 100% - var(--yumi-bg-y)));
   transform: translate(-50%, -50%);
   pointer-events: none;
-  background: center / cover no-repeat;
+  /* Пока картинка грузится или если не загрузилась — тёмная сцена. */
+  background: #0b0626 center / cover no-repeat;
 }
 
 .yumi-bubble {
@@ -188,14 +190,6 @@ const CSS = `
   pointer-events: none;
 }
 @keyframes yumi-pop { from { transform: translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
-
-.yumi-placeholder {
-  position: absolute; inset: 0;
-  display: grid; place-items: center;
-  padding: 12px;
-  color: var(--yumi-title-text);
-  font-size: 15px; text-align: center;
-}
 
 /* ─── Вкладка свёрнутого окна ───────────────────────────── */
 

@@ -8,6 +8,7 @@ import { useMascot } from '../useMascot';
 import { MenuBar, type MenuSection } from './MenuBar';
 import { PipWindow } from './pip';
 import { WindowPlacement, type Placement, type WindowFit } from './placement';
+import { backdropUrl, cssUrl } from './backdrop';
 import { ensureWindowStyles } from './styles';
 
 export interface MascotWindowProps {
@@ -33,7 +34,8 @@ export interface MascotWindowProps {
   nonce?: string;
   /**
    * Фон сцены. По умолчанию — комната с экранами (bg/room.webp в папке
-   * ассетов), строка — свой адрес картинки, false — без фона.
+   * ассетов), строка — свой адрес картинки (относительный — от
+   * assetsBase), false — без фона.
    */
   backdrop?: boolean | string;
   /** Клик по Юми. По умолчанию она здоровается. */
@@ -204,8 +206,7 @@ export function MascotWindow({
   // menu() только собирает пункты; обработчики вызываются позже, по клику.
   const sections = typeof menu === 'function' ? menu(defaults) : menu ?? defaults;
 
-  const backdropUrl = typeof backdrop === 'string' ? backdrop
-    : backdrop ? `${rendererOptions?.assetsBase ?? '/mascot/'}bg/room.webp` : null;
+  const backdropSrc = backdropUrl(backdrop, rendererOptions?.assetsBase);
 
   const clickMascot = () => (onMascotClick ? onMascotClick(core) : core.setState('welcome'));
 
@@ -260,8 +261,8 @@ export function MascotWindow({
       <MenuBar sections={sections} />
 
       <div className="yumi-body">
-        {backdropUrl && (
-          <div className="yumi-backdrop" aria-hidden="true" style={{ backgroundImage: `url("${backdropUrl}")` }} />
+        {backdropSrc && (
+          <div className="yumi-backdrop" aria-hidden="true" style={{ backgroundImage: cssUrl(backdropSrc) }} />
         )}
         <div
           className="yumi-stage"

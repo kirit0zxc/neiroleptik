@@ -3,13 +3,16 @@ import { defineConfig, type Plugin } from 'vite'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readdirSync, writeFileSync, mkdirSync, statSync, copyFileSync } from 'node:fs'
 import { join, relative, dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parsePresets } from './src/mascot/core/presets.ts'
 import { parseTransitionsFile } from './src/mascot/core/transitions.ts'
 import { cameraDiff, parseCamera, CAMERA_DEFAULTS } from './src/mascot/renderers/vrm/camera.ts'
 import { parseClipCameras } from './src/mascot/renderers/vrm/clipCameras.ts'
 
-const PUB = 'public/mascot/anim'
-const DIST = 'dist/mascot/anim'
+/** Папка фронтенда: пути не зависят от того, откуда запущен Vite. */
+const ROOT = dirname(fileURLToPath(import.meta.url))
+const PUB = join(ROOT, 'public/mascot/anim')
+const DIST = join(ROOT, 'dist/mascot/anim')
 
 type Entry = {
   file: string          // имя файла
@@ -101,6 +104,15 @@ function deny(res: ServerResponse, status: number, message: string) {
 /** Больше — точно не пресеты: защита от случайной или злой огромной записи. */
 const MAX_BODY = 1024 * 1024
 
+/** Ошибка запроса с HTTP-статусом: тело слишком большое, не JSON и т. п. */
+class RequestError extends Error {
+  readonly status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
 /**
  * Прочитать тело целиком. Куски склеиваются как байты, а не строки:
  * иначе кириллический символ на границе куска превращался в «�», и
@@ -112,7 +124,8 @@ function readBody(req: IncomingMessage): Promise<string> {
     let size = 0
     req.on('data', (chunk: Buffer) => {
       size += chunk.length
-      if (size > MAX_BODY) { reject(new Error('слишком большое тело запроса')); req.destroy(); return }
+      // Отвечаем 413 и перестаём копить тело; соединение закроется после ответа.
+      if (size > MAX_BODY) { reject(new RequestError(413, 'слишком большое тело запроса')); req.pause(); return }
       chunks.push(chunk)
     })
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
@@ -148,10 +161,10 @@ function animManifest(): Plugin {
   }
 }
 
-const PRESETS_FILE = resolve('src/mascot/core/presets.json')
-const CAMERA_FILE = resolve('src/mascot/renderers/vrm/camera.json')
-const TRANSITIONS_FILE = resolve('src/mascot/core/transitions.json')
-const CLIP_CAMERAS_FILE = resolve('src/mascot/renderers/vrm/clipCameras.json')
+const PRESETS_FILE = resolve(ROOT, 'src/mascot/core/presets.json')
+const CAMERA_FILE = resolve(ROOT, 'src/mascot/renderers/vrm/camera.json')
+const TRANSITIONS_FILE = resolve(ROOT, 'src/mascot/core/transitions.json')
+const CLIP_CAMERAS_FILE = resolve(ROOT, 'src/mascot/renderers/vrm/clipCameras.json')
 
 /**
  * Сохранение из песочницы: пресеты студии и кадр по умолчанию.
@@ -185,16 +198,33 @@ function sandboxSaves(): Plugin {
             return deny(res, 415, 'нужен Content-Type: application/json')
           }
           readBody(req).then((body) => {
-            const data = parse(JSON.parse(body))
-            writeFileSync(file, JSON.stringify(data, null, 2) + '\n')
+            let raw: unknown
+            try { raw = JSON.parse(body) } catch { throw new RequestError(400, 'тело — не JSON') }
+            // null, массив или строка разобрались бы в пустой объект и молча
+            // затёрли бы весь файл данных.
+            if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+              throw new RequestError(400, 'нужен JSON-объект')
+            }
+            const data = parse(raw)
+            try {
+              writeFileSync(file, JSON.stringify(data, null, 2) + '\n')
+            } catch (error) {
+              throw new RequestError(500, 'не удалось записать файл: ' + String(error))
+            }
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify({ saved: data }))
-          }).catch((error) => deny(res, 400, String(error)))
+          }).catch((error) => {
+            if (res.headersSent || res.writableEnded) return
+            res.setHeader('Connection', 'close')
+            deny(res, error instanceof RequestError ? error.status : 500, error instanceof Error ? error.message : String(error))
+          })
         })
       }
     },
     // Песочница уже держит сохранённое в памяти — перезагрузка
     // страницы на каждое сохранение сбросила бы то, что на экране.
+    // Следствие: и ручная правка этих файлов в редакторе видна только
+    // после перезагрузки страницы.
     handleHotUpdate({ file }) {
       if (SAVES.some((s) => s.file === resolve(file))) return []
     },

@@ -23,3 +23,22 @@ export function parseClipCameras(raw: unknown): ClipCameras {
   }
   return out;
 }
+
+const FILE_KEY = /^file:(.*):(?:none|inplace|legs|strict)$/;
+
+/**
+ * Под каким именем хранить кадр клипа. Обычно это имя клипа как есть.
+ * Файл, запущенный из списка песочницы, играет под служебным ключом
+ * `file:<url>:<маска>`, а состояния ссылаются на тот же файл путём от
+ * assetsBase (`anim/vrma/X.vrma`). Ключ приводится к этому пути, иначе
+ * сохранённый в песочнице кадр не совпал бы ни с одним состоянием.
+ */
+export function clipCameraKey(name: string, assetsBase: string): string {
+  const m = FILE_KEY.exec(name);
+  if (!m) return name;
+  const url = m[1].split('/').map((part) => {
+    try { return decodeURIComponent(part); } catch { return part; }
+  }).join('/');
+  const base = assetsBase.endsWith('/') ? assetsBase : assetsBase + '/';
+  return url.startsWith(base) ? url.slice(base.length) : url;
+}

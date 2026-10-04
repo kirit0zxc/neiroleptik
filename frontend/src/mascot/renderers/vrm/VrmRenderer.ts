@@ -10,7 +10,7 @@ import { baseOf, fetchBuffer, resolveAsset } from '../../assets';
 import { prefersReducedMotion } from '../../motion';
 import { CAMERA_DEFAULTS, parseCamera, type CameraSettings } from './camera';
 import cameraFile from './camera.json';
-import { parseClipCameras, type ClipCameras } from './clipCameras';
+import { clipCameraKey, parseClipCameras, type ClipCameras } from './clipCameras';
 import clipCamerasFile from './clipCameras.json';
 
 /** Свой кадр для отдельных клипов (общий для всех рендереров, правится на лету). */
@@ -446,11 +446,16 @@ export class VrmRenderer implements MascotRenderer {
     this.applyCameraPose();
   }
 
-  /** Кадр клипа, который сейчас играет, сменился — переехать к нему. */
+  /**
+   * Сменился клип (или он остановлен) — переехать к его кадру, если тот
+   * отличается от текущего. Правку кадров клипов из другого рендерера
+   * на странице этот рендерер увидит при следующей смене клипа.
+   */
   private followClipCamera() {
     if (!this.bounds) return;
     const key = JSON.stringify(this.getEffectiveCamera());
-    if (key !== this.camKey) this.frameCamera(false);
+    // «Уменьшить движение» — кадр меняется сразу, без пролёта камеры.
+    if (key !== this.camKey) this.frameCamera(this.reducedMotion);
   }
 
   // ─── Камера ───────────────────────────────────────────────
@@ -463,9 +468,14 @@ export class VrmRenderer implements MascotRenderer {
     return { elapsed: this.elapsed, drawing: !this.offscreen && !this.contextLost && this.frame !== 0 };
   }
 
+  /** Имя текущего клипа, как его знают состояния и файл кадров клипов. */
+  private clipName(): string {
+    return clipCameraKey(clipOf(this.currentName), this.opts.assetsBase);
+  }
+
   /** Кадр с учётом своего кадра текущего клипа — то, что сейчас на экране. */
   getEffectiveCamera(): CameraSettings {
-    const own = CLIP_CAMERAS[clipOf(this.currentName)];
+    const own = CLIP_CAMERAS[this.clipName()];
     return own ? { ...this.getCamera(), ...own } : this.getCamera();
   }
 
@@ -487,7 +497,7 @@ export class VrmRenderer implements MascotRenderer {
     const parsed = camera ? parseCamera(camera) : {};
     if (Object.keys(parsed).length) CLIP_CAMERAS[clip] = parsed;
     else delete CLIP_CAMERAS[clip];
-    if (clipOf(this.currentName) === clip) this.frameCamera(true);
+    if (this.clipName() === clip) this.frameCamera(true);
   }
 
   /** Текущие настройки общего кадра. */
@@ -567,7 +577,7 @@ export class VrmRenderer implements MascotRenderer {
     const own = a.getClip().duration;
     const meta = this.clipMeta.get(this.currentName) ?? { start: 0, end: own, full: own };
     return {
-      name: clipOf(this.currentName),
+      name: this.clipName(),
       time: a.time + meta.start,
       duration: meta.full,
       start: meta.start,
@@ -700,6 +710,7 @@ export class VrmRenderer implements MascotRenderer {
         if (this.baseName === key) this.baseName = '';
       }
     }
+    this.followClipCamera();
   }
 
   stopClip(fadeMs = 250) {
@@ -708,6 +719,8 @@ export class VrmRenderer implements MascotRenderer {
     this.currentName = '';
     this.wantedName = '';
     this.baseName = '';
+    // Клипа больше нет — и его кадра тоже.
+    this.followClipCamera();
   }
 
   capabilities() {
@@ -825,7 +838,8 @@ export class VrmRenderer implements MascotRenderer {
    * каждая правка — новое действие; без уборки они копились бы в микшере.
    */
   private evictVariants(keep: string) {
-    const prefix = keep.split('@')[0] + '@';
+    // Отрезаем только суффикс обрезки с конца: в самом пути может быть @.
+    const prefix = keep.replace(/@[\d.]+-[\d.]+$/, '') + '@';
     for (const [key, action] of this.actions) {
       if (!key.startsWith(prefix) || key === keep) continue;
       if (key === this.currentName || key === this.baseName || key === this.wantedName) continue;

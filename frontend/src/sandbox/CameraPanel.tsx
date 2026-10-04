@@ -7,6 +7,7 @@ import {
 import { parseClipCameras, type ClipCameras } from '../mascot/renderers/vrm/clipCameras';
 import cameraFile from '../mascot/renderers/vrm/camera.json';
 import clipCamerasFile from '../mascot/renderers/vrm/clipCameras.json';
+import { fileLabel } from './fileLabel';
 
 type NumKey = keyof typeof CAMERA_LIMITS;
 
@@ -35,7 +36,7 @@ const clamp = (key: NumKey, v: number) => {
 };
 
 /** Имя клипа для людей: путь к файлу — только имя файла. */
-const clipLabel = (clip: string) => decodeURIComponent(clip.split('/').pop() ?? clip);
+const clipLabel = fileLabel;
 
 /** Настройки кадра строкой для кода: только то, что отличается от встроенного. */
 function codeFor(cam: CameraSettings) {
@@ -51,6 +52,15 @@ interface CameraPanelProps {
   ready: boolean;
   /** Сцена, на которой работают мышь и колесо. */
   stage: HTMLElement | null;
+  /** Вкладка открыта: мышь и колесо крутят камеру только тогда. */
+  active: boolean;
+}
+
+/** JSON с ключами по алфавиту — сравнение не зависит от порядка ключей. */
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) => (v && typeof v === 'object' && !Array.isArray(v)
+    ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : v));
 }
 
 /**
@@ -59,7 +69,7 @@ interface CameraPanelProps {
  * что играет сейчас. Мышью на сцене: колесо — приближение,
  * перетаскивание — поворот, Shift + перетаскивание — сдвиг.
  */
-export function CameraPanel({ core, ready, stage }: CameraPanelProps) {
+export function CameraPanel({ core, ready, stage, active }: CameraPanelProps) {
   const [scope, setScope] = useState<Scope>('all');
   const [clip, setClip] = useState<string | null>(null);
   const [cam, setCam] = useState<CameraSettings>(SAVED);
@@ -111,9 +121,10 @@ export function CameraPanel({ core, ready, stage }: CameraPanelProps) {
     }
   };
 
-  // Мышь и колесо на сцене.
+  // Мышь и колесо на сцене — только на открытой вкладке «Камера»,
+  // иначе перетаскивание на других вкладках незаметно крутило бы кадр.
   useEffect(() => {
-    if (!stage) return;
+    if (!stage || !active) return;
     let drag: { x: number; y: number; id: number } | null = null;
 
     const onDown = (e: PointerEvent) => {
@@ -163,7 +174,7 @@ export function CameraPanel({ core, ready, stage }: CameraPanelProps) {
       stage.removeEventListener('wheel', onWheel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage]);
+  }, [stage, active]);
 
   /** Записать в файл; при ошибке на экране остаётся прежнее. */
   async function post(route: string, body: unknown, message: string) {
@@ -206,8 +217,8 @@ export function CameraPanel({ core, ready, stage }: CameraPanelProps) {
     }
   }
 
-  const dirtyAll = JSON.stringify(cam) !== JSON.stringify(saved);
-  const dirtyClips = JSON.stringify(liveClips) !== JSON.stringify(savedClips);
+  const dirtyAll = stableJson(cam) !== stableJson(saved);
+  const dirtyClips = stableJson(liveClips) !== stableJson(savedClips);
   const ownClips = Object.keys(liveClips);
 
   return (
@@ -228,6 +239,13 @@ export function CameraPanel({ core, ready, stage }: CameraPanelProps) {
             только текущую
           </button>
         </div>
+        {scope === 'all' && clip && liveClips[clip] && (
+          <p className="sb__hint">
+            Сейчас играет <b>{clipLabel(clip)}</b> со своим кадром: его поля
+            ({Object.keys(liveClips[clip]).join(', ')}) на экране перекрывают общий
+            кадр. Чтобы видеть общий кадр, включите анимацию без своего кадра.
+          </p>
+        )}
         {scope === 'clip' && (
           <p className="sb__hint">
             {clip

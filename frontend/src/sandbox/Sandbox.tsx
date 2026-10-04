@@ -311,7 +311,7 @@ export function Sandbox() {
           <Studio core={core} files={files} onStatesChange={() => setStatesVersion((v) => v + 1)} />
         </div>
         <div hidden={tab !== 'camera'}>
-          <CameraPanel core={core} ready={ready} stage={stage} />
+          <CameraPanel core={core} ready={ready} stage={stage} active={tab === 'camera'} />
         </div>
         <div hidden={tab !== 'sequence'}>
           <Sequence core={core} stateNames={stateNames} files={files} />

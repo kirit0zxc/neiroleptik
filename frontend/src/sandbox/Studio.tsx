@@ -9,6 +9,7 @@ import { EXPRESSIONS, isPresetName, type Presets } from '../mascot/core/presets'
 import type { FaceKey, StateSpec, VrmExpression } from '../mascot/core/types';
 import { sortKeys } from '../mascot/core/faceTrack';
 import type { VrmRenderer } from '../mascot/renderers/vrm/VrmRenderer';
+import { fileLabel } from './fileLabel';
 
 type ClipState = NonNullable<ReturnType<VrmRenderer['getClipState']>>;
 
@@ -109,7 +110,7 @@ function fromSpec(s: StateSpec): Draft {
 /** Короткое описание связки для списка сохранённых. */
 function summary(s: StateSpec) {
   const clip = Array.isArray(s.action) ? 'случайный танец'
-    : typeof s.action === 'string' ? decodeURIComponent(s.action.split('/').pop()!) : 'без клипа';
+    : typeof s.action === 'string' ? fileLabel(s.action) : 'без клипа';
   const face = s.expression === 'neutral'
     ? EXPRESSION_LABELS.neutral
     : `${EXPRESSION_LABELS[s.expression]} ${Math.round(s.weight * 100)}%`;

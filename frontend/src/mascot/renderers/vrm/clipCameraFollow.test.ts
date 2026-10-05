@@ -227,4 +227,30 @@ describe('перезагрузка файла во время его загру�
       vi.mocked(loadClip).mockImplementation(async () => null);
     }
   });
+
+  it('старая загрузка завершилась позже новой — клип не перезапускается со старыми настройками', async () => {
+    const loads: Array<(clip: unknown) => void> = [];
+    vi.mocked(loadClip).mockImplementation(() => new Promise((resolve) => loads.push(resolve as never)));
+    const plays: Array<{ loop: unknown }> = [];
+    const r = new VrmRenderer();
+    const inner = r as unknown as Inner;
+    inner.vrm = {};
+    inner.mixer = {
+      clipAction: () => fakeAction(),
+      uncacheAction: () => {}, uncacheClip: () => {},
+    };
+    const switchTo = vi.spyOn(inner, 'switchTo');
+    try {
+      r.playFile('/mascot/anim/vrma/test-race.vrma', { loop: false });
+      r.playFile('/mascot/anim/vrma/test-race.vrma', { loop: true, reload: true });
+      loads[1]({ duration: 1 });   // новая версия раньше
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      loads[0]({ duration: 1 });   // старая позже
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      for (const call of switchTo.mock.calls) plays.push({ loop: call[1].loop });
+      expect(plays).toEqual([{ loop: true }]);
+    } finally {
+      vi.mocked(loadClip).mockImplementation(async () => null);
+    }
+  });
 });

@@ -117,6 +117,8 @@ export class VrmRenderer implements MascotRenderer {
   private clipMeta = new Map<string, { start: number; end: number; full: number }>();
   /** Последний запрошенный клип — только он имеет право включиться. */
   private wantedName = '';
+  /** Номер последнего запроса клипа: переключает только он. */
+  private requestSeq = 0;
   /** Зацикленный клип, к которому возвращаемся после разового жеста. */
   private baseName = '';
   private disposed = false;
@@ -665,6 +667,9 @@ export class VrmRenderer implements MascotRenderer {
    *
    * Клипы грузятся с разной скоростью: без этой проверки медленный
    * клип, запрошенный раньше, перебил бы тот, что попросили позже.
+   * Сверяется номер запроса, а не только имя: при перезагрузке файла
+   * два запроса одного клипа могут завершиться в обратном порядке, и
+   * устаревший не должен перезапустить клип со своими loop и fade.
    */
   private request(
     name: string, opts: { loop?: boolean; fadeMs?: number; returnTo?: string }, spec?: ClipSpec, range?: ClipRange,
@@ -672,8 +677,9 @@ export class VrmRenderer implements MascotRenderer {
     this.wantedName = name;
     if (opts.loop) this.baseName = name;
     else if (opts.returnTo) this.baseName = opts.returnTo;
+    const ticket = ++this.requestSeq;
     void this.ensureClip(name, spec, range).then(() => {
-      if (this.wantedName === name) this.switchTo(name, opts);
+      if (ticket === this.requestSeq && this.wantedName === name) this.switchTo(name, opts);
     });
   }
 

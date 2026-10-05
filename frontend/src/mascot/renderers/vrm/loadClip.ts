@@ -28,7 +28,10 @@ function parseVrma(url: string) {
       return animations?.[0] ?? null;
     })();
     // Неудачную загрузку не кешируем — следующая попытка пойдёт в сеть.
-    job.catch(() => parsed.delete(url));
+    // Удаляем только свою запись: после forgetClip там может лежать
+    // уже новая загрузка того же файла.
+    const mine = job;
+    job.catch(() => { if (parsed.get(url) === mine) parsed.delete(url); });
     parsed.set(url, job);
   }
   return job;

@@ -156,6 +156,37 @@ describe('перезагрузка файла не удалась', () => {
   }
 });
 
+describe('перезагрузка файла удалась', () => {
+  it('камера не качается: один переезд — к кадру клипа, после switchTo', async () => {
+    vi.mocked(loadClip).mockImplementationOnce(async () => ({ duration: 1 }) as never);
+    const { r, inner, frame } = setup(false);
+    inner.vrm = {};
+    inner.mixer = { clipAction: () => fakeAction(), uncacheAction: () => {}, uncacheClip: () => {} };
+    r.setClipCamera('anim/vrma/test-ok.vrma', { zoom: 2 });
+    try {
+      playing(inner, 'file:/mascot/anim/vrma/test-ok.vrma:inplace');
+      frame.mockClear();
+      r.playFile('/mascot/anim/vrma/test-ok.vrma', { reload: true });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      // Кадр клипа не изменился — камера вообще не должна была двигаться;
+      // без защиты в ensureClip она съездила бы к общему кадру и обратно.
+      expect(frame).not.toHaveBeenCalled();
+      expect(inner.currentName).toBe('file:/mascot/anim/vrma/test-ok.vrma:inplace');
+    } finally {
+      r.setClipCamera('anim/vrma/test-ok.vrma', null);
+    }
+  });
+
+  it('после dispose камера не трогается', () => {
+    const { r, inner, frame } = setup(false);
+    r.setClipCamera('test-follow', { zoom: 2 });
+    inner.currentName = 'test-follow';
+    r.dispose();
+    inner.followClipCamera();
+    expect(frame).not.toHaveBeenCalled();
+  });
+});
+
 describe('evictVariants', () => {
   it('@ в пути файла не задевает варианты соседнего клипа', () => {
     const r = new VrmRenderer();

@@ -43,10 +43,10 @@ describe('clipCameraKey', () => {
     }
   });
 
-  it('имя в NFD (архив из macOS) совпадает с NFC-путём реестра', () => {
+  it('форма юникода сохраняется — как у студии, которая берёт имя с диска', () => {
     const nfd = '愛♡スクリ〜ム！.vrma'.normalize('NFD');
-    const key = clipCameraKey(`file:/mascot/anim/vrma/${encodeURIComponent(nfd)}:inplace`, '/mascot/');
-    expect(key).toBe('anim/vrma/' + encodeURIComponent('愛♡スクリ〜ム！.vrma'.normalize('NFC')));
+    const studio = 'anim/vrma/' + encodeURIComponent(nfd);
+    expect(clipCameraKey(`file:/mascot/${studio}:inplace`, '/mascot/')).toBe(studio);
   });
 
   it('адрес со схемой и битая кодировка — без падения', () => {

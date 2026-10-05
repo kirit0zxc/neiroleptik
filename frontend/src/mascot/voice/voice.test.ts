@@ -73,6 +73,23 @@ describe('Voice', () => {
     expect(visemes.at(-1)).toEqual({});
   });
 
+  it('смена провайдера посреди речи закрывает рот, даже если старый не прислал onEnd', () => {
+    // lateProvider при отмене onEnd не шлёт — как записанные реплики или
+    // серверный TTS, которым контракт этого не предписывает.
+    const old = lateProvider();
+    const voice = new Voice({ provider: old });
+    const speaking: boolean[] = [];
+    voice.setSink({ visemes: () => {}, accent: () => {}, speaking: (a) => speaking.push(a) });
+    void voice.say('длинная реплика');
+    voice.setProvider(lateProvider());
+    expect(old.cancel).toHaveBeenCalled();
+    expect(voice.isSpeaking).toBe(false);
+    expect(speaking.at(-1)).toBe(false);
+    // Запоздавший конец старой реплики ничего не ломает.
+    old.handlers[0].onEnd?.();
+    expect(speaking.filter((a) => !a)).toHaveLength(1);
+  });
+
   it('пустая реплика ничего не запускает', async () => {
     const provider = lateProvider();
     const voice = new Voice({ provider });

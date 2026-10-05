@@ -714,6 +714,11 @@ export class VrmRenderer implements MascotRenderer {
   }
 
   private dropFile(url: string) {
+    // Начатая загрузка того же файла устарела: она отдала бы прежнее
+    // содержимое. Следующий запрос начнёт загрузку заново.
+    for (const key of [...this.pending.keys()]) {
+      if (key.startsWith(`file:${url}:`)) this.pending.delete(key);
+    }
     forgetClip(resolveAsset(url, this.opts.assetsBase));
     for (const key of [...this.actions.keys()]) {
       if (key.startsWith(`file:${url}:`)) {
@@ -821,9 +826,12 @@ export class VrmRenderer implements MascotRenderer {
     const spec = override ?? resolveClip(name);
     if (!spec || !this.vrm || !this.mixer) return Promise.resolve();
 
-    const job = loadClip({ ...spec, url: resolveAsset(spec.url, this.opts.assetsBase) }, this.vrm)
+    // Загрузка «своя», пока она записана в pending: dropFile вычёркивает
+    // её, и тогда догрузившаяся старая версия файла не попадёт в микшер.
+    const isLatest = () => this.pending.get(name) === job;
+    const job: Promise<void> = loadClip({ ...spec, url: resolveAsset(spec.url, this.opts.assetsBase) }, this.vrm)
       .then((clip) => {
-        if (!clip || !this.mixer || this.disposed) return;
+        if (!isLatest() || !clip || !this.mixer || this.disposed) return;
         const full = clip.duration;
         let played = clip;
         // Обрезка, начинающаяся за концом клипа, дала бы клип в один кадр:
@@ -845,6 +853,7 @@ export class VrmRenderer implements MascotRenderer {
         console.warn(`[mascot] клип "${name}" не загрузился`, err);
       })
       .finally(() => {
+        if (!isLatest()) return;
         this.pending.delete(name);
         // Ждали именно его, он так и не появился (ошибка загрузки или в
         // файле нет анимации), а прежний клип уже сброшен (перезагрузка

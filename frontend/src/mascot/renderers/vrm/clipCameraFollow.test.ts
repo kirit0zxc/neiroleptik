@@ -199,3 +199,32 @@ describe('evictVariants', () => {
     expect([...inner.actions.keys()]).toEqual(['anim/a@c.vrma@1-2', 'anim/a@b.vrma#legs@1-2']);
   });
 });
+
+describe('перезагрузка файла во время его загрузки', () => {
+  it('играет новая версия, а не догрузившаяся старая', async () => {
+    // Две загрузки, которые завершаем вручную в нужном порядке.
+    const loads: Array<(clip: unknown) => void> = [];
+    vi.mocked(loadClip).mockImplementation(() => new Promise((resolve) => loads.push(resolve as never)));
+    const made: unknown[] = [];
+    const r = new VrmRenderer();
+    const inner = r as unknown as Inner;
+    inner.vrm = {};
+    inner.mixer = {
+      clipAction: (clip: unknown) => { made.push(clip); return fakeAction(); },
+      uncacheAction: () => {}, uncacheClip: () => {},
+    };
+    try {
+      r.playFile('/mascot/anim/vrma/test-slow.vrma');                   // старая версия грузится
+      r.playFile('/mascot/anim/vrma/test-slow.vrma', { reload: true });  // файл подменили
+      expect(loads).toHaveLength(2);
+      const oldClip = { duration: 1, v: 'old' };
+      const newClip = { duration: 1, v: 'new' };
+      loads[0](oldClip);
+      loads[1](newClip);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(made).toEqual([newClip]);
+    } finally {
+      vi.mocked(loadClip).mockImplementation(async () => null);
+    }
+  });
+});

@@ -73,10 +73,17 @@ export class Voice {
     p.setOptions?.(next);
   }
 
-  /** Подменить источник голоса, не трогая всё остальное. */
+  /**
+   * Подменить источник голоса. Идущая реплика обрывается здесь же:
+   * контракт не обязывает провайдера присылать onEnd при отмене, и без
+   * этого Юми осталась бы «говорящей». Номер реплики сдвигается, чтобы
+   * запоздавший onEnd старого провайдера ничего не закрыл повторно.
+   */
   setProvider(provider: TTSProvider) {
+    this.seq++;
     this.provider.cancel();
     this.provider = provider;
+    this.stop();
   }
 
   get isSpeaking() { return this.plan !== null; }

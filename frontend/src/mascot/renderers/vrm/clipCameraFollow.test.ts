@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { VrmRenderer } from './VrmRenderer';
+import { loadClip } from './loadClip';
+
+// Загрузка клипа без сети: по умолчанию «в файле нет анимации».
+vi.mock('./loadClip', () => ({ loadClip: vi.fn(async () => null), forgetClip: vi.fn() }));
 
 /**
  * Поведение рендерера без three.js: frameCamera подменяется шпионом,
@@ -11,6 +15,8 @@ type Inner = {
   bounds: unknown;
   camKey: string;
   actions: Map<string, { stop(): void; getClip(): object }>;
+  vrm: unknown;
+  mixer: unknown;
   frameCamera(snap?: boolean): void;
   followClipCamera(): void;
   evictVariants(keep: string): void;
@@ -112,10 +118,42 @@ describe('переезд к кадру клипа', () => {
       frame.mockClear();
       r.playFile('/mascot/anim/vrma/test-forget.vrma', { reload: true });
       expect(frame).not.toHaveBeenCalled();
+      // Файл действительно сброшен — иначе сыграл бы устаревший клип.
+      expect(inner.actions.has('file:/mascot/anim/vrma/test-forget.vrma:inplace')).toBe(false);
+      expect(inner.currentName).toBe('');
     } finally {
       r.setClipCamera('anim/vrma/test-forget.vrma', null);
     }
   });
+});
+
+describe('перезагрузка файла не удалась', () => {
+  const key = 'file:/mascot/anim/vrma/test-broken.vrma:inplace';
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  for (const [title, impl] of [
+    ['в файле нет анимации', async () => null],
+    ['файл не загрузился', async () => { throw new Error('404'); }],
+  ] as const) {
+    it(`${title} — камера возвращается к общему кадру`, async () => {
+      vi.mocked(loadClip).mockImplementationOnce(impl as never);
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { r, inner, frame } = setup(false);
+      inner.vrm = {};
+      inner.mixer = { clipAction: () => fakeAction(), uncacheAction: () => {}, uncacheClip: () => {} };
+      r.setClipCamera('anim/vrma/test-broken.vrma', { zoom: 2 });
+      try {
+        playing(inner, key);
+        frame.mockClear();
+        r.playFile('/mascot/anim/vrma/test-broken.vrma', { reload: true });
+        await flush();
+        expect(frame).toHaveBeenCalledTimes(1);
+        expect(inner.camKey).toBe(JSON.stringify(r.getCamera()));
+      } finally {
+        r.setClipCamera('anim/vrma/test-broken.vrma', null);
+      }
+    });
+  }
 });
 
 describe('evictVariants', () => {

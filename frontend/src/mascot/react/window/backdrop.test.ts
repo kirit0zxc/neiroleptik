@@ -22,6 +22,8 @@ describe('backdropUrl', () => {
     expect(backdropUrl(false)).toBeNull();
     expect(backdropUrl('')).toBeNull();
     expect(backdropUrl('   ')).toBeNull();
+    // Из JS может прийти и null — без фона, а не падение.
+    expect(backdropUrl(null as never)).toBeNull();
   });
 });
 

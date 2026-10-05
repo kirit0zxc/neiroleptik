@@ -452,7 +452,7 @@ export class VrmRenderer implements MascotRenderer {
    * на странице этот рендерер увидит при следующей смене клипа.
    */
   private followClipCamera() {
-    if (!this.bounds) return;
+    if (!this.bounds || this.disposed) return;
     const key = JSON.stringify(this.getEffectiveCamera());
     // «Уменьшить движение» — кадр меняется сразу, без пролёта камеры.
     if (key !== this.camKey) this.frameCamera(this.reducedMotion);
@@ -843,11 +843,14 @@ export class VrmRenderer implements MascotRenderer {
       .catch((err) => {
         // Клип не загрузился — маскот просто не сделает этот жест.
         console.warn(`[mascot] клип "${name}" не загрузился`, err);
-        // Ждали именно его, а прежний клип уже сброшен (перезагрузка файла) —
-        // камере не на чем держать кадр клипа.
-        if (this.wantedName === name && !this.current) this.followClipCamera();
       })
-      .finally(() => { this.pending.delete(name); });
+      .finally(() => {
+        this.pending.delete(name);
+        // Ждали именно его, он так и не появился (ошибка загрузки или в
+        // файле нет анимации), а прежний клип уже сброшен (перезагрузка
+        // файла) — камере не на чем держать кадр клипа.
+        if (this.wantedName === name && !this.current && !this.actions.has(name)) this.followClipCamera();
+      });
 
     this.pending.set(name, job);
     return job;

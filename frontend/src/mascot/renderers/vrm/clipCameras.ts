@@ -35,7 +35,9 @@ function canonicalPath(path: string): string {
   return path.split('/').map((part) => {
     let plain = part;
     try { plain = decodeURIComponent(part); } catch { /* битая кодировка — кодируем как есть */ }
-    return encodeURIComponent(plain);
+    // NFC: имена из архивов macOS приходят разложенными (NFD), а реестр
+    // и студия пишут их в составной форме.
+    return encodeURIComponent(plain.normalize('NFC'));
   }).join('/');
 }
 

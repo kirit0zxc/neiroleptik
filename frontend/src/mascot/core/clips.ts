@@ -89,7 +89,9 @@ export const DANCES: readonly string[] = ['danceKawaii', 'danceMugi', 'danceSynt
  * и сразу можно поставить в состояние, не правя код.
  */
 export function resolveClip(name: string): ClipSpec | null {
-  const known = CLIPS[name];
+  // Только свои ключи: имя может прийти из сети или правил моста, и
+  // 'constructor' не должен найтись как клип.
+  const known = Object.prototype.hasOwnProperty.call(CLIPS, name) ? CLIPS[name] : undefined;
   if (known) return known;
   return /\.vrma$/i.test(name) ? { url: name, mask: 'inplace' } : null;
 }

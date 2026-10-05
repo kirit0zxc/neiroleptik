@@ -59,3 +59,12 @@ describe('пресеты из сети', () => {
     expect((parsed as Record<string, unknown>).expression).toBeUndefined();
   });
 });
+
+describe('реестр клипов', () => {
+  it('имена из прототипа не находятся как клипы', async () => {
+    const { resolveClip } = await import('./clips');
+    expect(resolveClip('constructor')).toBeNull();
+    expect(resolveClip('toString')).toBeNull();
+    expect(resolveClip('peace')).not.toBeNull();
+  });
+});

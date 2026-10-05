@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { VrmRenderer } from '../mascot/renderers/vrm/VrmRenderer';
 import { BrowserTTS } from '../mascot/voice/BrowserTTS';
+import { ServerTTS } from '../mascot/voice/ServerTTS';
 import { MascotWindow } from '../mascot/react/window/MascotWindow';
 import { useMascot } from '../mascot/react/useMascot';
 import { STATES } from '../mascot/core/states';
@@ -16,6 +17,11 @@ export function WindowDemo() {
   const diag = useDiagnostics(core);
   const [phrase, setPhrase] = useState('Привет! Я Юми, буду рядом.');
   const names = Object.keys(STATES).filter((n) => !n.startsWith('__'));
+  useEffect(() => {
+    const provider = import.meta.env.VITE_TTS_PROVIDER === 'browser' ? new BrowserTTS() : new ServerTTS();
+    core.setVoiceProvider(provider);
+    return () => provider.cancel();
+  }, [core]);
 
   return (
     <div className="wd">
@@ -76,9 +82,10 @@ function useDiagnostics(core: ReturnType<typeof useMascot>['core']) {
   const [diag, setDiag] = useState({ elapsed: '—', drawing: '—', pip: '—', voice: '…' });
   useEffect(() => {
     let voice = '…';
-    void BrowserTTS.loadVoices().then((list) => {
-      voice = BrowserTTS.choose(list)?.name ?? 'голосов нет';
-    });
+    if (import.meta.env.VITE_TTS_PROVIDER !== 'browser') voice = 'локальный голос Юми';
+    else void BrowserTTS.loadVoices().then((list) => {
+        voice = BrowserTTS.choose(list)?.name ?? 'голосов нет';
+      });
     const id = setInterval(() => {
       const r = core.getRenderer() as VrmRenderer | null;
       const s = r?.stats?.();

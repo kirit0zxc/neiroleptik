@@ -1,0 +1,56 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "neiroleptik: голос Юми", "version": "1.0.0"},
+  "paths": {
+    "/api/tts/csrf/": {
+      "get": {
+        "operationId": "ttsCsrf",
+        "description": "Установить CSRF-cookie для запросов с того же origin.",
+        "responses": {
+          "200": {"description": "CSRF-токен", "content": {"application/json": {"schema": {
+            "type": "object", "required": ["csrfToken"],
+            "properties": {"csrfToken": {"type": "string", "minLength": 1}}
+          }}}}
+        }
+      }
+    },
+    "/api/tts/": {
+      "post": {
+        "operationId": "ttsSynthesize",
+        "description": "Тело до 16 КиБ; размер проверяется первым, Content-Type до CSRF. Допустимые JSON-запросы требуют CSRF-cookie и токен.",
+        "parameters": [{"name": "X-CSRFToken", "in": "header", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {
+          "schema": {"$ref": "#/components/schemas/SpeechRequest"}
+        }}},
+        "responses": {
+          "200": {"description": "Речь в WAV, Cache-Control: no-store", "content": {"audio/wav": {"schema": {"type": "string", "format": "binary"}}}},
+          "400": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "405": {"$ref": "#/components/responses/Error"},
+          "413": {"$ref": "#/components/responses/Error"},
+          "415": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SpeechRequest": {
+        "type": "object", "additionalProperties": false, "required": ["text"],
+        "properties": {
+          "text": {"type": "string", "minLength": 1, "maxLength": 400, "description": "Длина исходной строки; внешние пробелы удаляются после проверки. Строка из одних пробелов запрещена."},
+          "rate": {"type": "number", "minimum": 0.5, "maximum": 2, "default": 1}
+        }
+      },
+      "Error": {
+        "type": "object", "required": ["error"],
+        "properties": {"error": {"type": "object", "required": ["code", "message"],
+          "properties": {"code": {"type": "string"}, "message": {"type": "string"}}}}
+      }
+    },
+    "responses": {
+      "Error": {"description": "Ошибка запроса или синтеза", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+    }
+  }
+}

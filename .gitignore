@@ -24,6 +24,8 @@ htmlcov/
 # Local Django runtime files
 /backend/media/
 /backend/staticfiles/
+/backend/voices/
+/backend/.env
 
 # OS/editor files
 .DS_Store

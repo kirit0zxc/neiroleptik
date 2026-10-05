@@ -24,6 +24,8 @@ export { getMascot, resetMascot } from './singleton';
 // ─── Голос ───────────────────────────────────────────────────
 export { Voice } from './voice/Voice';
 export { BrowserTTS, DEFAULT_PREFERRED_VOICES } from './voice/BrowserTTS';
+export { ServerTTS } from './voice/ServerTTS';
+export type { ServerTTSOptions } from './voice/ServerTTS';
 export { AudioLipSync } from './voice/AudioLipSync';
 export { planSpeech } from './voice/ruVisemes';
 export type { TTSProvider, TTSHandlers, Viseme, VisemeWeights } from './voice/types';

@@ -70,6 +70,8 @@ jobs:
               echo "Missing components are skipped. Green CI does not verify components that have not been added yet. See .github/CI.md."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Test CI result policy
+        run: python3 -m unittest discover -s scripts/tests
 
   frontend:
     name: Frontend checks
@@ -146,14 +148,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Verify all active checks passed
         env:
-          RESULTS: ${{ join(needs.*.result, ',') }}
-        run: |
-          case ",$RESULTS," in
-            *,failure,*|*,cancelled,*)
-              echo "::error::A required CI job failed or was cancelled."
-              exit 1
-              ;;
-          esac
-          echo "All active CI checks passed."
+          REPOSITORY_RESULT: ${{ needs.repository.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_ACTIVE: ${{ needs.repository.outputs.frontend }}
+          BACKEND_ACTIVE: ${{ needs.repository.outputs.backend }}
+        run: python3 scripts/check_ci_results.py

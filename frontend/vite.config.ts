@@ -232,4 +232,7 @@ function sandboxSaves(): Plugin {
   }
 }
 
-export default defineConfig({ plugins: [react(), animManifest(), sandboxSaves()] })
+export default defineConfig({
+  plugins: [react(), animManifest(), sandboxSaves()],
+  server: { proxy: { '/api': { target: 'http://127.0.0.1:8000' } } },
+})

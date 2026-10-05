@@ -29,6 +29,11 @@ export async function fetchBuffer(url: string): Promise<ArrayBuffer> {
   return res.arrayBuffer();
 }
 
+/** Запросы собственного голоса тоже обходят реакции моста. */
+export function fetchRaw(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return rawFetch().call(globalThis, input, init);
+}
+
 /** Папка файла — от неё GLTF ищет внешние текстуры и буферы. */
 export const baseOf = (url: string) => url.slice(0, url.lastIndexOf('/') + 1);
 

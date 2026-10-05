@@ -13,3 +13,10 @@ npm run dev
 ```
 
 Specs: `specs/mascot.md` (mascot module), `specs/architecture.md`.
+
+## Backend voice
+
+Django + local Piper TTS is connected to the start page. Setup and commands:
+[backend/README.md](backend/README.md). Run Django on port 8000 alongside
+Vite; the development proxy sends /api to it. API: [specs/openapi.json](specs/openapi.json).
+Voice models stay outside Git. The mascot lab keeps browser speech.

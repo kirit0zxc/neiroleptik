@@ -5,8 +5,12 @@ CI runs on pull requests into `main`, on pushes to `main`, and manually from Act
 ## Current state
 
 The frontend (`frontend/`) exists and its job runs typecheck, tests and build.
-The backend has not been created; its job is explicitly skipped. A green run
-does not mean that the backend or the API works.
+The backend exists: Django checks, migration checks and tests run against
+PostgreSQL 16. TTS tests use small WAV fixtures and mock model loading;
+large voice models are not downloaded by normal PR CI.
+CI result requires Repository checks and every detected component to succeed.
+Unknown statuses (including abandoned) fail. Skipped is allowed only for a
+component that is absent. The result policy has regression tests.
 
 ## Expected project layout
 
@@ -32,8 +36,10 @@ their own test database (the CI PostgreSQL user has it).
 ML checks run on CPU. Add focused tests and small test fixtures; full training and
 large model/dataset downloads should use a separate workflow.
 
-This initial workflow does not yet verify the API contract or a browser-to-backend
-scenario. Add those checks when the application and its API are defined.
+The API contract is specs/openapi.json. Backend tests check request boundaries,
+CSRF and playable WAV responses. Frontend tests check the ServerTTS transport,
+audio lifecycle and cancellation. A real browser with the installed Piper model
+must additionally verify audible playback; that is not replaced by these tests.
 
 ## Review and merge
 

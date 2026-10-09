@@ -1,0 +1,130 @@
+[
+  {
+    "profile_id": "p-web-panel",
+    "revision": 2,
+    "updated_at": "2026-10-09T10:00:00Z",
+    "revisions": [
+      {
+        "revision": 1,
+        "created_at": "2026-10-09T09:00:00Z",
+        "created_by": "operator"
+      },
+      {
+        "revision": 2,
+        "created_at": "2026-10-09T10:00:00Z",
+        "created_by": "operator"
+      }
+    ],
+    "config": {
+      "name": "Веб-панель служебного устройства",
+      "level": "low",
+      "services": [
+        {
+          "protocol": "http",
+          "port": 8080,
+          "banner": "lighttpd/1.4.59"
+        },
+        {
+          "protocol": "tcp",
+          "port": 23,
+          "banner": "BusyBox telnetd"
+        }
+      ],
+      "decoy_credentials": [],
+      "logging": {
+        "payload_limit_kb": 8,
+        "record_tty": false
+      },
+      "channel": {
+        "beacon_interval_s": 30,
+        "jitter_pct": 20
+      },
+      "legend": {
+        "hostname": "cam-gw-03",
+        "os": "BusyBox 1.31"
+      }
+    }
+  },
+  {
+    "profile_id": "p-linux-srv",
+    "revision": 4,
+    "updated_at": "2026-10-09T11:30:00Z",
+    "revisions": [
+      {
+        "revision": 4,
+        "created_at": "2026-10-09T11:30:00Z",
+        "created_by": "operator"
+      }
+    ],
+    "config": {
+      "name": "Тестовый Linux-сервер",
+      "level": "medium",
+      "services": [
+        {
+          "protocol": "ssh",
+          "port": 2222,
+          "banner": "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"
+        }
+      ],
+      "decoy_credentials": [
+        {
+          "username": "admin",
+          "password": "admin123"
+        }
+      ],
+      "logging": {
+        "payload_limit_kb": 8,
+        "record_tty": true
+      },
+      "channel": {
+        "beacon_interval_s": 30,
+        "jitter_pct": 20
+      },
+      "legend": {
+        "hostname": "db-prod-02",
+        "os": "Ubuntu 22.04"
+      }
+    }
+  },
+  {
+    "profile_id": "p-linux-vm",
+    "revision": 1,
+    "updated_at": "2026-10-09T11:00:00Z",
+    "revisions": [
+      {
+        "revision": 1,
+        "created_at": "2026-10-09T11:00:00Z",
+        "created_by": "admin"
+      }
+    ],
+    "config": {
+      "name": "Настоящая Linux VM",
+      "level": "high",
+      "services": [
+        {
+          "protocol": "ssh",
+          "port": 2224,
+          "banner": ""
+        }
+      ],
+      "decoy_credentials": [
+        {
+          "username": "deploy",
+          "password": "Deploy#2024"
+        }
+      ],
+      "logging": {
+        "payload_limit_kb": 8,
+        "record_tty": true
+      },
+      "channel": {
+        "beacon_interval_s": 30,
+        "jitter_pct": 20
+      },
+      "legend": {
+        "hostname": "build-srv-01",
+        "os": "Ubuntu 22.04"
+      }
+    }
+  }
+]

@@ -1,0 +1,8 @@
+[
+  { "deployment_id": "decoy-low-01", "host_id": "host-runtime-01", "interaction_level": "low",
+    "state": "running", "profile_id": "p-web-panel", "desired_revision": 2, "applied_revision": 2 },
+  { "deployment_id": "decoy-medium-01", "host_id": "host-runtime-01", "interaction_level": "medium",
+    "state": "running", "profile_id": "p-linux-srv", "desired_revision": 4, "applied_revision": 3 },
+  { "deployment_id": "decoy-high-01", "host_id": "host-runtime-02", "interaction_level": "high",
+    "state": "failed", "profile_id": "p-linux-vm", "desired_revision": 1, "applied_revision": 1 }
+]

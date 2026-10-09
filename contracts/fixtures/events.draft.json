@@ -1,0 +1,76 @@
+[
+  {
+    "event_id": "a33c4f71-0001",
+    "agent_id": "agent-runtime-01",
+    "deployment_id": "decoy-medium-01",
+    "instance_id": "cowrie-0003",
+    "session_id": "session-3b50",
+    "occurred_at": "2026-10-09T12:00:00.120Z",
+    "received_at": "2026-10-09T12:00:00.370Z",
+    "type": "auth.attempt",
+    "source": {
+      "ip": "192.0.2.23",
+      "port": 51342
+    },
+    "service": {
+      "protocol": "ssh",
+      "port": 2224
+    },
+    "data": {
+      "username": "root",
+      "password": "hunter2",
+      "success": true
+    },
+    "artifact_ids": [],
+    "profile_revision": 3
+  },
+  {
+    "event_id": "a33c4f71-0002",
+    "agent_id": "agent-runtime-01",
+    "deployment_id": "decoy-medium-01",
+    "instance_id": "cowrie-0003",
+    "session_id": "session-3b50",
+    "occurred_at": "2026-10-09T12:00:03.500Z",
+    "received_at": "2026-10-09T12:00:03.750Z",
+    "type": "session.command",
+    "source": {
+      "ip": "192.0.2.23",
+      "port": 51342
+    },
+    "service": {
+      "protocol": "ssh",
+      "port": 2224
+    },
+    "data": {
+      "input": "cat /etc/hostname",
+      "truncated": false
+    },
+    "artifact_ids": [],
+    "profile_revision": 3
+  },
+  {
+    "event_id": "a33c4f71-0003",
+    "agent_id": "agent-runtime-01",
+    "deployment_id": "decoy-low-01",
+    "instance_id": null,
+    "session_id": null,
+    "occurred_at": "2026-10-09T12:00:04.000Z",
+    "received_at": "2026-10-09T12:00:04.250Z",
+    "type": "http.request",
+    "source": {
+      "ip": "198.51.100.7",
+      "port": 40211
+    },
+    "service": {
+      "protocol": "http",
+      "port": 8080
+    },
+    "data": {
+      "method": "GET",
+      "path": "/<img src=x onerror=alert(1)>",
+      "truncated": false
+    },
+    "artifact_ids": [],
+    "profile_revision": 2
+  }
+]

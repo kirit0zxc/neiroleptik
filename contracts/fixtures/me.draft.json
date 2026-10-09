@@ -1,0 +1,6 @@
+{
+  "user_id": "u-1",
+  "login": "operator",
+  "role": "operator",
+  "csrf_token": "mock-csrf-token"
+}

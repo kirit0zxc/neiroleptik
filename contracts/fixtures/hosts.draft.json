@@ -1,0 +1,36 @@
+[
+  {
+    "host_id": "host-runtime-01",
+    "agent_id": "agent-runtime-01",
+    "status": "online",
+    "last_seen": "2026-10-09T12:00:05Z",
+    "backlog": 0,
+    "disk_free_mb": 61440,
+    "capabilities": [
+      "docker"
+    ]
+  },
+  {
+    "host_id": "host-runtime-02",
+    "agent_id": "agent-runtime-02",
+    "status": "degraded",
+    "last_seen": "2026-10-09T11:59:12Z",
+    "backlog": 340,
+    "disk_free_mb": 900,
+    "capabilities": [
+      "docker",
+      "kvm"
+    ]
+  },
+  {
+    "host_id": "host-runtime-03",
+    "agent_id": "agent-runtime-03",
+    "status": "offline",
+    "last_seen": "2026-10-09T09:00:00Z",
+    "backlog": 0,
+    "disk_free_mb": 20480,
+    "capabilities": [
+      "docker"
+    ]
+  }
+]

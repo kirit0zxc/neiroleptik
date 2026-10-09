@@ -155,8 +155,15 @@ class LowService:
             raise _SinkFailure from error
 
     async def _tcp(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        """Отправляет фиксированный баннер и собирает вход только до лимита или срока."""
-        writer.write(self.config.banner.encode("ascii"))
+        """Отправляет фиксированный баннер и собирает вход только до лимита или срока.
+
+        Строка баннера всегда завершается CRLF, даже если в конфигурации терминатора нет:
+        клиент протокола типа SSH ждёт конец строки.
+        """
+        banner = self.config.banner
+        if not banner.endswith("\r\n"):
+            banner += "\r\n"
+        writer.write(banner.encode("ascii"))
         await asyncio.wait_for(writer.drain(), timeout=self.config.read_timeout)
         payload = bytearray()
         try:

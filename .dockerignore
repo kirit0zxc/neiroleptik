@@ -1,0 +1,21 @@
+# Контекст сборки образа Low (compose.runtime.yml, контекст «.») не должен включать
+# секреты, историю git, окружения и код других компонентов: в образ копируется только honeypots/.
+.git
+.venv
+venv
+.env
+.env.*
+!.env.example
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+node_modules
+dist
+build
+backend
+frontend
+tests
+specs
+contracts

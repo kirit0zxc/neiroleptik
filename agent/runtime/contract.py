@@ -95,6 +95,8 @@ class Secret:
 
 @dataclass(frozen=True)
 class ServiceSpec:
+    """Сервис профиля: протокол, публичный порт и баннер (пустая строка — без баннера)."""
+
     protocol: ServiceProtocol
     port: int
     banner: str
@@ -102,23 +104,31 @@ class ServiceSpec:
 
 @dataclass(frozen=True)
 class CredentialSpec:
+    """Приманочная учётная запись; пароль скрыт в Secret."""
+
     username: str
     password: Secret
 
 
 @dataclass(frozen=True)
 class LoggingSpec:
+    """Ограничения журналирования: предел полезной нагрузки одного события в байтах."""
+
     max_payload_bytes: int
 
 
 @dataclass(frozen=True)
 class ChannelSpec:
+    """Параметры отправки событий сборщиком: интервал сброса и размер пачки."""
+
     flush_interval_ms: int
     batch_size: int
 
 
 @dataclass(frozen=True)
 class HighSpec:
+    """Параметры VM High: шаблон, срок жизни, число CPU и объём памяти."""
+
     template: str
     ttl_seconds: int
     cpu: int

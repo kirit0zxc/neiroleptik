@@ -43,3 +43,7 @@ Thumbs.db
 
 # Результаты локального и CI-тестирования
 /backend/test-results.xml
+
+# Локальные журналы и sidecar SQLite
+*.sqlite3-wal
+*.sqlite3-shm

@@ -1,0 +1,12 @@
+{
+  "batch_id": "00000000-0000-0000-0000-00000000000a",
+  "accepted_ids": [],
+  "rejected": [
+    {
+      "index": 0,
+      "event_id": null,
+      "code": "INVALID_EVENT",
+      "retryable": false
+    }
+  ]
+}

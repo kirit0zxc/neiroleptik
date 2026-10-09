@@ -90,6 +90,7 @@ class LowProfileTranslator:
 
     @staticmethod
     def container_name(deployment_id: str) -> str:
+        """Имя контейнера слота; префикс honeyforge- защищает чужие контейнеры."""
         return f"honeyforge-low-{deployment_id}"
 
     def blueprint(self, deployment: DeploymentSpec) -> LowBlueprint:
@@ -133,6 +134,7 @@ class LowProfileTranslator:
         )
 
     def container_spec(self, blueprint: LowBlueprint, instance_id: str) -> ContainerSpec:
+        """Описание запуска нового экземпляра: порты, метки, журнал и меры ограничения."""
         publish: list[PortPublish] = []
         if blueprint.tcp is not None:
             publish.append(

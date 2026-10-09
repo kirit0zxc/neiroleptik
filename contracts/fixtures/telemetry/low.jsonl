@@ -1,0 +1,1 @@
+{"occurred_at": "2026-10-09T12:00:00Z", "type": "http.request", "source": {"ip": "192.0.2.23", "port": 51342}, "service": {"protocol": "http", "port": 8080}, "data": {"method": "GET", "path": "/", "truncated": false}}

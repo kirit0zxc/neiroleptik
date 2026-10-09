@@ -1,0 +1,12 @@
+{
+  "batch_id": "00000000-0000-0000-0000-00000000000a",
+  "accepted_ids": [],
+  "rejected": [
+    {
+      "index": 0,
+      "event_id": "cbedf64d-96bc-5f0d-9be6-b514f8c4a543",
+      "code": "DEPLOYMENT_MISMATCH",
+      "retryable": false
+    }
+  ]
+}

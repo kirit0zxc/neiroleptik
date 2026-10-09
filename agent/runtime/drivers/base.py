@@ -18,12 +18,16 @@ from agent.runtime.contract import DeploymentSpec, Level
 
 
 class DriverState(StrEnum):
+    """Состояние слота: остановлен, работает или отказал (вход закрыт)."""
+
     STOPPED = "stopped"
     RUNNING = "running"
     FAILED = "failed"
 
 
 class DriverErrorCode(StrEnum):
+    """Коды ожидаемых отказов драйвера для локальной обработки Reconciler."""
+
     UNSUPPORTED_PROFILE = "UNSUPPORTED_PROFILE"
     INVALID_STATE = "INVALID_STATE"
     BACKEND_UNAVAILABLE = "BACKEND_UNAVAILABLE"

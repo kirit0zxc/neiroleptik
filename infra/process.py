@@ -27,7 +27,9 @@ class CommandResult:
 class Runner(Protocol):
     """Исполнитель принимает только готовый список аргументов команды, а не строку shell."""
 
-    def run(self, command: Sequence[str]) -> CommandResult: ...
+    def run(self, command: Sequence[str]) -> CommandResult:
+        """Выполняет команду и возвращает ограниченный результат; исключений не бросает."""
+        ...
 
 
 class BoundedRunner:
@@ -66,6 +68,12 @@ class BoundedRunner:
             pass
 
     def run(self, command: Sequence[str]) -> CommandResult:
+        """Запускает процесс без shell и ждёт его не дольше таймаута.
+
+        Вывод читается отдельным потоком и обрезается по лимиту; при превышении времени или
+        объёма процесс (на POSIX — вся группа) завершается. Ошибки запуска возвращаются
+        в поле error, а не исключением.
+        """
         try:
             process = subprocess.Popen(
                 list(command),

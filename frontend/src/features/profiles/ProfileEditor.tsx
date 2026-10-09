@@ -164,7 +164,7 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
               </div>
             ))}
             {/* Живой регион есть всегда: читалка объявит подсказку, когда кнопка «+ Сервис» пропадёт. */}
-            <p className={s.note} role="status">
+            <p className={s.note} aria-live="polite">
               {addProtocol || level === 'high' ? ''
                 : level === 'low' ? 'На Low — не больше одного TCP и одного HTTP.' : 'Не больше 8 сервисов.'}
             </p>

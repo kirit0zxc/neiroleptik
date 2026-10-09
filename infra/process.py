@@ -36,6 +36,7 @@ class BoundedRunner:
     """Ограничивает время и общий объём stdout/stderr, не используя shell."""
 
     def __init__(self, timeout: float = 5.0, output_limit: int = 8192) -> None:
+        """Таймаут 0–30 с и предел вывода 1–64 КиБ проверяются сразу."""
         if (
             isinstance(timeout, bool)
             or not isinstance(timeout, (int, float))

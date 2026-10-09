@@ -115,6 +115,7 @@ class RuntimePreflight:
         )
 
     def _command(self, name: str, binary: str | None, *args: str) -> CheckResult:
+        """Запускает диагностическую команду и переводит её исход в PASS, FAIL или UNKNOWN."""
         if binary is None:
             return CheckResult(name, "FAIL", "Не найден необходимый исполняемый файл")
         command = (binary, *args)

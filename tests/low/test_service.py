@@ -87,8 +87,10 @@ def test_http_static_responses(raw_request: bytes, status: int, expected_body: b
 def test_tcp_banner_and_binary_input_limit() -> None:
     async def scenario() -> None:
         stream = io.StringIO()
+        # Таймаут чтения 30 с: закрытие менее чем за секунду возможно только по лимиту ввода.
         service = LowService(
-            LowConfig(tcp_port=0, http_port=0, max_input_bytes=8), JsonLineEventSink(stream)
+            LowConfig(tcp_port=0, http_port=0, max_input_bytes=8, read_timeout=30),
+            JsonLineEventSink(stream),
         )
         await service.start()
         assert service.tcp_port is not None
@@ -97,7 +99,7 @@ def test_tcp_banner_and_binary_input_limit() -> None:
             assert await reader.readline() == service.config.banner.encode()
             writer.write(b"\x00\xff\n\r\x1babcEXCESS")
             await writer.drain()
-            assert await asyncio.wait_for(reader.read(), timeout=2) == b""
+            assert await asyncio.wait_for(reader.read(), timeout=1) == b""
             events = [json.loads(line) for line in stream.getvalue().splitlines()]
             assert len(events) == 2
             assert base64.b64decode(events[1]["payload_b64"]) == b"\x00\xff\n\r\x1babc"
@@ -159,9 +161,10 @@ def test_tcp_idle_timeout_and_http_total_deadline() -> None:
 
 def test_connection_limit_and_stop_close_active_clients() -> None:
     async def scenario() -> None:
+        stream = io.StringIO()
         service = LowService(
             LowConfig(tcp_port=0, http_port=0, max_connections=1, read_timeout=30),
-            JsonLineEventSink(io.StringIO()),
+            JsonLineEventSink(stream),
         )
         await service.start()
         ports = service.tcp_port, service.http_port
@@ -176,6 +179,9 @@ def test_connection_limit_and_stop_close_active_clients() -> None:
             assert await reader.readline() == service.config.banner.encode()
             assert await asyncio.wait_for(rejected_reader.read(), timeout=1) == b""
             assert service.active_connections == 1
+            # Отклонённое по лимиту соединение в журнал не попадает (runtime-d1.md, раздел Low).
+            events = [json.loads(line) for line in stream.getvalue().splitlines()]
+            assert [(e["event"], e["protocol"]) for e in events] == [("connection", "tcp")]
             await asyncio.wait_for(service.stop(), timeout=0.5)
             assert await asyncio.wait_for(reader.read(), timeout=0.5) == b""
             assert service.active_connections == 0
@@ -305,6 +311,30 @@ def test_banner_without_terminator_is_sent_with_crlf() -> None:
             assert await asyncio.wait_for(reader.readline(), timeout=2) == b"SSH-2.0-X\r\n"
         finally:
             await close_client(writer)
+            await service.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("request_bytes", "status"),
+    [
+        pytest.param(b"GET / HTTP/1.1\r\n\r\n", 400, id="http11-without-host"),
+        pytest.param(b"GET / HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n", 400, id="two-hosts"),
+        pytest.param(b"GET / HTTP/1.1\r\nhOsT: a\r\n\r\n", 200, id="host-any-case"),
+        pytest.param(b"GET / HTTP/1.0\r\n\r\n", 200, id="http10-without-host"),
+    ],
+)
+def test_http11_requires_exactly_one_host(request_bytes: bytes, status: int) -> None:
+    """HTTP/1.1 без единственного Host получает 400, как у обычного сервера (RFC 9112)."""
+
+    async def scenario() -> None:
+        service = LowService(LowConfig(tcp_port=0, http_port=0), JsonLineEventSink(io.StringIO()))
+        await service.start()
+        try:
+            response = await http_exchange(service, request_bytes)
+            assert response.startswith(f"HTTP/1.1 {status} ".encode())
+        finally:
             await service.stop()
 
     asyncio.run(scenario())

@@ -71,3 +71,15 @@ class ShortWrite(io.StringIO):
 def test_jsonl_does_not_hide_incomplete_write(stream: io.StringIO) -> None:
     with pytest.raises(OSError):
         JsonLineEventSink(stream).emit({"event": "connection"})
+
+
+@pytest.mark.parametrize("banner", ["a" * 254, "a" * 254 + "\r\n"], ids=["254-bare", "254-crlf"])
+def test_banner_longer_than_rfc_4253_limit_is_rejected(banner: str) -> None:
+    """Регрессия: 254 символа без CRLF проходили, а в сеть уходило 256 с терминатором."""
+    with pytest.raises(ValueError):
+        LowConfig(banner=banner)
+
+
+@pytest.mark.parametrize("banner", ["a" * 253, "a" * 253 + "\r\n"], ids=["253-bare", "253-crlf"])
+def test_banner_at_rfc_4253_limit_is_accepted(banner: str) -> None:
+    assert LowConfig(banner=banner).banner == banner

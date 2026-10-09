@@ -120,7 +120,9 @@ class LowService:
                 await self._tcp(reader, writer)
             else:
                 await self._http(reader, writer)
-        except (_SinkFailure, ConnectionError, TimeoutError):
+        except (_SinkFailure, OSError):
+            # OSError охватывает обрывы, таймауты и прочие ошибки транспорта (например,
+            # WinError 64): соединение закрывается, задача не завершается исключением.
             pass
         finally:
             writer.close()
@@ -242,6 +244,7 @@ class LowService:
         ):
             return 400, False
         head = method == b"HEAD"
+        hosts = 0
         for line in lines[1:]:
             name, separator, value = line.partition(b":")
             if (
@@ -250,4 +253,10 @@ class LowService:
                 or any(byte < 32 and byte != 9 or byte == 127 for byte in value)
             ):
                 return 400, head
+            if name.lower() == b"host":
+                hosts += 1
+        # HTTP/1.1 требует ровно один заголовок Host (RFC 9112); обычный сервер отвечает 400,
+        # и ловушка не должна выделяться иным поведением.
+        if version == b"HTTP/1.1" and hosts != 1:
+            return 400, head
         return (200 if method in (b"GET", b"HEAD") else 405), head

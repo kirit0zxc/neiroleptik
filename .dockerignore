@@ -19,3 +19,9 @@ frontend
 tests
 specs
 contracts
+agent
+infra
+artifacts
+*.qcow2
+*.img
+*.iso

@@ -86,9 +86,6 @@ uv run --frozen python -m honeypots.low
 Журнал JSONL выводится в stdout; это диагностический формат, не согласованный
 Event центра и не устойчивый spool. Ctrl-C завершает сервис.
 
-Файловый журнал для сборщика телеметрии (поколения, ротация, образец) описан в
-[specs/low-journal-v1.md](specs/low-journal-v1.md).
-
 При работающем Docker Engine:
 
 ```text

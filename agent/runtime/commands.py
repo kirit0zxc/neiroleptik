@@ -34,7 +34,11 @@ class CommandStatus(StrEnum):
 
 
 class JournalErrorCode(StrEnum):
-    """Коды ожидаемых отказов журнала, совпадающие с предложенным контрактом runtime."""
+    """Коды ожидаемых отказов журнала.
+
+    COMMAND_CONFLICT, STALE_GENERATION и BUSY входят в предложенный контракт runtime;
+    UNKNOWN_COMMAND и RESULT_CONFLICT — локальные и центру не передаются.
+    """
 
     COMMAND_CONFLICT = "COMMAND_CONFLICT"
     STALE_GENERATION = "STALE_GENERATION"

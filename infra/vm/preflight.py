@@ -54,7 +54,9 @@ class Probe(Protocol):
 class Runner(Protocol):
     """Исполнитель принимает только готовый список аргументов диагностической команды."""
 
-    def run(self, command: Sequence[str]) -> CommandResult: ...
+    def run(self, command: Sequence[str]) -> CommandResult:
+        """Выполняет команду и возвращает ограниченный результат; исключений не бросает."""
+        ...
 
 
 class SystemProbe:
@@ -81,6 +83,7 @@ class BoundedRunner:
     """Ограничивает время и общий объём stdout/stderr, не используя shell."""
 
     def __init__(self, timeout: float = 5.0, output_limit: int = 8192) -> None:
+        """Таймаут 0–30 с и предел вывода 1–64 КиБ проверяются сразу."""
         if (
             isinstance(timeout, bool)
             or not isinstance(timeout, (int, float))
@@ -113,6 +116,12 @@ class BoundedRunner:
             pass
 
     def run(self, command: Sequence[str]) -> CommandResult:
+        """Запускает процесс без shell и ждёт его не дольше таймаута.
+
+        Вывод читается отдельным потоком и обрезается по лимиту; при превышении времени
+        или объёма процесс (на POSIX — вся группа) завершается. Ошибки запуска
+        возвращаются в поле error, а не исключением.
+        """
         try:
             process = subprocess.Popen(
                 list(command),
@@ -231,6 +240,7 @@ class RuntimePreflight:
         )
 
     def _command(self, name: str, binary: str | None, *args: str) -> CheckResult:
+        """Запускает диагностическую команду и переводит её исход в PASS, FAIL или UNKNOWN."""
         if binary is None:
             return CheckResult(name, "FAIL", "Не найден необходимый исполняемый файл")
         command = (binary, *args)

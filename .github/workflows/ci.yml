@@ -196,7 +196,7 @@ jobs:
           uv run --frozen ruff check agent honeypots infra tests
           uv run --frozen ruff format --check agent honeypots infra tests
           uv run --frozen mypy
-          uv run --frozen pytest tests/low tests/runtime tests/preflight tests/infra
+          uv run --frozen pytest tests --ignore=tests/telemetry
           uv build --wheel
       - name: Validate runtime Compose configuration
         run: docker compose -f compose.runtime.yml config --quiet

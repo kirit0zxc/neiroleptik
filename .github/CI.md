@@ -27,7 +27,7 @@ CI использует одноразовые тестовые ключи и Б
 Job `Runtime checks` проверяет код runtime и ловушек: `agent`, `honeypots`, `infra`
 и `tests`. Python 3.12, зависимости и версии инструментов из общего `uv.lock`
 (`uv sync --frozen`). Выполняются Ruff (ошибки и форматирование), строгий mypy,
-pytest для `tests/low`, `tests/runtime`, `tests/preflight` и `tests/infra`, сборка
+pytest по каталогу `tests`, кроме `tests/telemetry` (их запускает задача телеметрии), сборка
 wheel (`uv build --wheel`) и `docker compose -f compose.runtime.yml config --quiet`.
 Последняя команда проверяет только синтаксис Compose-конфигурации: контейнеры не
 запускаются. Root-конфигурация Ruff исключает `backend`, `frontend` и `scripts`,

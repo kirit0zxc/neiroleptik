@@ -54,10 +54,11 @@ uv run --env-file ../.env --frozen uvicorn honeyforge.main:create_app --factory 
 
 ## Runtime ловушек (участник 3)
 
-Реализуется локальный блок D1: ограниченная Low-ловушка, журнал команд и
-неразрушающий preflight Linux/KVM. Клиент центра, Medium и High в runtime пока не
-реализованы; локальные тесты не подтверждают сквозной сценарий или изоляцию
-реальной VM. Runtime не зависит от backend и не имеет зависимостей времени выполнения.
+Реализуется локальный блок D1: ограниченная Low-ловушка, журнал команд, неразрушающий
+preflight Linux/KVM, разбор конфигурации центра и драйвер Low (контейнер по профилю).
+Клиент центра, Reconciler, Medium и High в runtime пока не реализованы; локальные тесты
+не подтверждают работу с настоящим Docker, сквозной сценарий или изоляцию реальной VM.
+Runtime не зависит от backend и не имеет зависимостей времени выполнения.
 
 Требуется Python 3.12. Команды выполняются из корня репозитория:
 
@@ -115,7 +116,7 @@ python -m infra.vm.preflight
 - [Frontend: сессии, stream и replay](specs/frontend-protocol-v1.md).
 - [Передача интерфейсов участникам](specs/integration-handoff.md).
 - [Серверный стенд](specs/server-checklist.md), [CI](.github/CI.md).
-- Runtime: [требования D1](specs/runtime-d1.md),
+- Runtime: [требования D1](specs/runtime-d1.md), [драйверы](specs/runtime-drivers.md),
   [предложения общих контрактов](specs/runtime-contract-proposal.md) (ожидают
   согласования участников 2 и 4), [подготовка runtime и Cowrie spike](infra/runtime/README.md).
 - Правила изменений, ревью и человеческого одобрения: [AGENTS.md](AGENTS.md).

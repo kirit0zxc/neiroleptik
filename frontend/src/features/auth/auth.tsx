@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { api, ApiError, setCsrfToken, setUnauthorizedHandler } from '../../shared/api/client';
 import type { Auth, Role } from '../../shared/api/types';
 import { Loading, ui, WindowTitle } from '../../shared/ui';
+import { Terrain } from '../../shared/ui/Terrain';
 import s from './auth.module.css';
 
 /** Сессия оператора (F1–F3). Источник — `GET /api/v1/auth/me` (AuthRead). */
@@ -76,6 +77,7 @@ export function LoginPage() {
 
   return (
     <main className={s.wrap}>
+      <Terrain />
       <form className={`win ${s.card}`} onSubmit={form.handleSubmit((v) => login.mutate(v))} noValidate aria-labelledby="login-title">
         <WindowTitle title="honeyforge — вход" id="login-title" />
         <div className={s.inner}>

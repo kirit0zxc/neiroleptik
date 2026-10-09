@@ -1,0 +1,333 @@
+{
+  "files": [
+    {
+      "file": "001_motion_pose.vrma",
+      "group": "vrma",
+      "rel": "vrma/001_motion_pose.vrma",
+      "bytes": 308664,
+      "mtime": 1791454380386.267,
+      "url": "/mascot/anim/vrma/001_motion_pose.vrma"
+    },
+    {
+      "file": "67_hXBrhdpmbtpo6dwf3zVGyw(includeTPose).vrma",
+      "group": "vrma",
+      "rel": "vrma/67_hXBrhdpmbtpo6dwf3zVGyw(includeTPose).vrma",
+      "bytes": 258856,
+      "mtime": 1791454380390.4255,
+      "url": "/mascot/anim/vrma/67_hXBrhdpmbtpo6dwf3zVGyw(includeTPose).vrma"
+    },
+    {
+      "file": "animation.vrma",
+      "group": "vrma",
+      "rel": "vrma/animation.vrma",
+      "bytes": 17284,
+      "mtime": 1791454380549.5151,
+      "url": "/mascot/anim/vrma/animation.vrma"
+    },
+    {
+      "file": "CC0animation3airplane05.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animation3airplane05.vrma",
+      "bytes": 448288,
+      "mtime": 1791454380397.045,
+      "url": "/mascot/anim/vrma/CC0animation3airplane05.vrma"
+    },
+    {
+      "file": "CC0animationhima01.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animationhima01.vrma",
+      "bytes": 200100,
+      "mtime": 1791454380402.6353,
+      "url": "/mascot/anim/vrma/CC0animationhima01.vrma"
+    },
+    {
+      "file": "CC0animationidle04.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animationidle04.vrma",
+      "bytes": 126120,
+      "mtime": 1791454380402.6353,
+      "url": "/mascot/anim/vrma/CC0animationidle04.vrma"
+    },
+    {
+      "file": "CC0animationkurukuru01.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animationkurukuru01.vrma",
+      "bytes": 193088,
+      "mtime": 1791454380407.9912,
+      "url": "/mascot/anim/vrma/CC0animationkurukuru01.vrma"
+    },
+    {
+      "file": "CC0animationother2.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animationother2.vrma",
+      "bytes": 183412,
+      "mtime": 1791454380407.9912,
+      "url": "/mascot/anim/vrma/CC0animationother2.vrma"
+    },
+    {
+      "file": "CC0animationrotate_left1.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animationrotate_left1.vrma",
+      "bytes": 236296,
+      "mtime": 1791454380421.1382,
+      "url": "/mascot/anim/vrma/CC0animationrotate_left1.vrma"
+    },
+    {
+      "file": "CC0animationrotate_right2.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animationrotate_right2.vrma",
+      "bytes": 296388,
+      "mtime": 1791454380425.1633,
+      "url": "/mascot/anim/vrma/CC0animationrotate_right2.vrma"
+    },
+    {
+      "file": "CC0animationrotate02.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animationrotate02.vrma",
+      "bytes": 182924,
+      "mtime": 1791454380412.768,
+      "url": "/mascot/anim/vrma/CC0animationrotate02.vrma"
+    },
+    {
+      "file": "CC0animationrotate7.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animationrotate7.vrma",
+      "bytes": 200024,
+      "mtime": 1791454380416.7922,
+      "url": "/mascot/anim/vrma/CC0animationrotate7.vrma"
+    },
+    {
+      "file": "CC0animationsmallwve.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animationsmallwve.vrma",
+      "bytes": 159180,
+      "mtime": 1791454380427.0723,
+      "url": "/mascot/anim/vrma/CC0animationsmallwve.vrma"
+    },
+    {
+      "file": "CC0animationstand01.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animationstand01.vrma",
+      "bytes": 217024,
+      "mtime": 1791454380428.8113,
+      "url": "/mascot/anim/vrma/CC0animationstand01.vrma"
+    },
+    {
+      "file": "CC0animationunknown3.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animationunknown3.vrma",
+      "bytes": 119632,
+      "mtime": 1791454380434.5498,
+      "url": "/mascot/anim/vrma/CC0animationunknown3.vrma"
+    },
+    {
+      "file": "CC0animationunknown4.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animationunknown4.vrma",
+      "bytes": 258148,
+      "mtime": 1791454380438.1455,
+      "url": "/mascot/anim/vrma/CC0animationunknown4.vrma"
+    },
+    {
+      "file": "CC0animationunwave.vrma",
+      "group": "vrma",
+      "rel": "vrma/CC0animationunwave.vrma",
+      "bytes": 190948,
+      "mtime": 1791454380440.3281,
+      "url": "/mascot/anim/vrma/CC0animationunwave.vrma"
+    },
+    {
+      "file": "Dismissing Gesture.vrma",
+      "group": "vrma",
+      "rel": "vrma/Dismissing Gesture.vrma",
+      "bytes": 70476,
+      "mtime": 1791454380444.569,
+      "url": "/mascot/anim/vrma/Dismissing%20Gesture.vrma"
+    },
+    {
+      "file": "Dwarf Idle.vrma",
+      "group": "vrma",
+      "rel": "vrma/Dwarf Idle.vrma",
+      "bytes": 99416,
+      "mtime": 1791454380445.966,
+      "url": "/mascot/anim/vrma/Dwarf%20Idle.vrma"
+    },
+    {
+      "file": "Happy Idle.vrma",
+      "group": "vrma",
+      "rel": "vrma/Happy Idle.vrma",
+      "bytes": 66144,
+      "mtime": 1791454380448.349,
+      "url": "/mascot/anim/vrma/Happy%20Idle.vrma"
+    },
+    {
+      "file": "Head Nod Yes.vrma",
+      "group": "vrma",
+      "rel": "vrma/Head Nod Yes.vrma",
+      "bytes": 71292,
+      "mtime": 1791454380451.1174,
+      "url": "/mascot/anim/vrma/Head%20Nod%20Yes.vrma"
+    },
+    {
+      "file": "Idle.vrma",
+      "group": "vrma",
+      "rel": "vrma/Idle.vrma",
+      "bytes": 291888,
+      "mtime": 1791454380452.5813,
+      "url": "/mascot/anim/vrma/Idle.vrma"
+    },
+    {
+      "file": "Kawaii Kaiwai.vrma",
+      "group": "vrma",
+      "rel": "vrma/Kawaii Kaiwai.vrma",
+      "bytes": 589260,
+      "mtime": 1791454380452.5813,
+      "url": "/mascot/anim/vrma/Kawaii%20Kaiwai.vrma"
+    },
+    {
+      "file": "Look Around.vrma",
+      "group": "vrma",
+      "rel": "vrma/Look Around.vrma",
+      "bytes": 244452,
+      "mtime": 1791454380469.3794,
+      "url": "/mascot/anim/vrma/Look%20Around.vrma"
+    },
+    {
+      "file": "Reacting.vrma",
+      "group": "vrma",
+      "rel": "vrma/Reacting.vrma",
+      "bytes": 78192,
+      "mtime": 1791454380469.3794,
+      "url": "/mascot/anim/vrma/Reacting.vrma"
+    },
+    {
+      "file": "Sad Idle.vrma",
+      "group": "vrma",
+      "rel": "vrma/Sad Idle.vrma",
+      "bytes": 52784,
+      "mtime": 1791454380469.3794,
+      "url": "/mascot/anim/vrma/Sad%20Idle.vrma"
+    },
+    {
+      "file": "Talking.vrma",
+      "group": "vrma",
+      "rel": "vrma/Talking.vrma",
+      "bytes": 112672,
+      "mtime": 1791454380469.3794,
+      "url": "/mascot/anim/vrma/Talking.vrma"
+    },
+    {
+      "file": "Thankful.vrma",
+      "group": "vrma",
+      "rel": "vrma/Thankful.vrma",
+      "bytes": 83896,
+      "mtime": 1791454380469.3794,
+      "url": "/mascot/anim/vrma/Thankful.vrma"
+    },
+    {
+      "file": "Thinking.vrma",
+      "group": "vrma",
+      "rel": "vrma/Thinking.vrma",
+      "bytes": 95052,
+      "mtime": 1791454380480.2048,
+      "url": "/mascot/anim/vrma/Thinking.vrma"
+    },
+    {
+      "file": "Victory Idle.vrma",
+      "group": "vrma",
+      "rel": "vrma/Victory Idle.vrma",
+      "bytes": 58784,
+      "mtime": 1791454380538.0552,
+      "url": "/mascot/anim/vrma/Victory%20Idle.vrma"
+    },
+    {
+      "file": "VRMA_01.vrma",
+      "group": "vrma",
+      "rel": "vrma/VRMA_01.vrma",
+      "bytes": 909872,
+      "mtime": 1791454380487.398,
+      "url": "/mascot/anim/vrma/VRMA_01.vrma"
+    },
+    {
+      "file": "VRMA_02.vrma",
+      "group": "vrma",
+      "rel": "vrma/VRMA_02.vrma",
+      "bytes": 600744,
+      "mtime": 1791454380502.7815,
+      "url": "/mascot/anim/vrma/VRMA_02.vrma"
+    },
+    {
+      "file": "VRMA_03.vrma",
+      "group": "vrma",
+      "rel": "vrma/VRMA_03.vrma",
+      "bytes": 873704,
+      "mtime": 1791454380506.7146,
+      "url": "/mascot/anim/vrma/VRMA_03.vrma"
+    },
+    {
+      "file": "VRMA_04.vrma",
+      "group": "vrma",
+      "rel": "vrma/VRMA_04.vrma",
+      "bytes": 747456,
+      "mtime": 1791454380524.3738,
+      "url": "/mascot/anim/vrma/VRMA_04.vrma"
+    },
+    {
+      "file": "VRMA_05.vrma",
+      "group": "vrma",
+      "rel": "vrma/VRMA_05.vrma",
+      "bytes": 423740,
+      "mtime": 1791454380526.144,
+      "url": "/mascot/anim/vrma/VRMA_05.vrma"
+    },
+    {
+      "file": "VRMA_06.vrma",
+      "group": "vrma",
+      "rel": "vrma/VRMA_06.vrma",
+      "bytes": 349392,
+      "mtime": 1791454380535.987,
+      "url": "/mascot/anim/vrma/VRMA_06.vrma"
+    },
+    {
+      "file": "VRMA_07.vrma",
+      "group": "vrma",
+      "rel": "vrma/VRMA_07.vrma",
+      "bytes": 520740,
+      "mtime": 1791454380538.0552,
+      "url": "/mascot/anim/vrma/VRMA_07.vrma"
+    },
+    {
+      "file": "Waving.vrma",
+      "group": "vrma",
+      "rel": "vrma/Waving.vrma",
+      "bytes": 36788,
+      "mtime": 1791454380547.7334,
+      "url": "/mascot/anim/vrma/Waving.vrma"
+    },
+    {
+      "file": "うい麦畑でつかまえて.vrma",
+      "group": "vrma",
+      "rel": "vrma/うい麦畑でつかまえて.vrma",
+      "bytes": 407564,
+      "mtime": 1791454380552.708,
+      "url": "/mascot/anim/vrma/%E3%81%86%E3%81%84%E9%BA%A6%E7%95%91%E3%81%A7%E3%81%A4%E3%81%8B%E3%81%BE%E3%81%88%E3%81%A6.vrma"
+    },
+    {
+      "file": "ハッピーシンセサイザ.vrma",
+      "group": "vrma",
+      "rel": "vrma/ハッピーシンセサイザ.vrma",
+      "bytes": 537240,
+      "mtime": 1791454380562.9858,
+      "url": "/mascot/anim/vrma/%E3%83%8F%E3%83%83%E3%83%94%E3%83%BC%E3%82%B7%E3%83%B3%E3%82%BB%E3%82%B5%E3%82%A4%E3%82%B6.vrma"
+    },
+    {
+      "file": "愛♡スクリ〜ム！.vrma",
+      "group": "vrma",
+      "rel": "vrma/愛♡スクリ〜ム！.vrma",
+      "bytes": 831372,
+      "mtime": 1791454380569.3748,
+      "url": "/mascot/anim/vrma/%E6%84%9B%E2%99%A1%E3%82%B9%E3%82%AF%E3%83%AA%E3%80%9C%E3%83%A0%EF%BC%81.vrma"
+    }
+  ],
+  "misplaced": []
+}

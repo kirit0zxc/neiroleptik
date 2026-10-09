@@ -1,0 +1,13 @@
+.wrap { min-height: 100%; display: grid; place-items: center; padding: 16px; }
+.card { width: min(360px, 100%); }
+.inner { display: grid; gap: 14px; padding: 16px 18px 18px; }
+.card h1 { margin: 0; }
+.sub { margin: -8px 0 4px; color: var(--text-dim); }
+.field { display: grid; gap: 4px; color: var(--text-dim); }
+.field input {
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 8px 10px; font: inherit;
+}
+.field input[aria-invalid="true"] { border-color: var(--bad); }
+.error { color: var(--bad); font-size: 13px; margin: 0; }

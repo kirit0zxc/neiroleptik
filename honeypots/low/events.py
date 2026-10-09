@@ -17,6 +17,7 @@ class JsonLineEventSink:
     """Пишет отдельную JSON-строку и передаёт ошибки записи или flush вызывающему коду."""
 
     def __init__(self, stream: TextIO) -> None:
+        """Пишет в переданный текстовый поток; закрывать его должен вызывающий."""
         self._stream = stream
 
     def emit(self, event: Mapping[str, object]) -> None:

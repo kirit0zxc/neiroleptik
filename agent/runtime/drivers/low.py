@@ -44,6 +44,7 @@ LABEL_LEVEL = "honeyforge.level"
 # Каталог журнала внутри контейнера: единственное место, куда ловушка может писать.
 JOURNAL_CONTAINER_DIR = "/journal"
 _MAX_BANNER_WITH_CRLF = 255
+_FOREIGN = "имя слота занято контейнером, не принадлежащим HoneyForge"
 
 
 @dataclass(frozen=True)
@@ -61,9 +62,18 @@ class LowSettings:
     start_timeout: float = 15.0
     probe_interval: float = 0.2
     probe_timeout: float = 1.0
+    # Секунды на мягкую остановку (SIGTERM) перед принудительной (SIGKILL).
+    stop_timeout: int = 10
 
     def __post_init__(self) -> None:
         ipaddress.ip_address(self.bind_address)
+        # Негодные образ или сеть обнаруживаются при настройке, а не после удаления
+        # работающего экземпляра.
+        ContainerSpec.check_image(self.image)
+        if self.network is not None:
+            ContainerSpec.check_network(self.network)
+        if type(self.stop_timeout) is not int or not 0 <= self.stop_timeout <= 25:
+            raise ValueError("stop_timeout должен быть целым от 0 до 25 секунд")
         if self.journal_root is not None:
             object.__setattr__(self, "journal_root", Path(self.journal_root))
             if not Path(self.journal_root).is_absolute():
@@ -246,16 +256,19 @@ class LowHealthCheck:
         deadline = loop.time() + self._timeout
         last = "проверка не выполнялась"
         while True:
-            # Проба не должна выходить за общий срок: ограничиваем её оставшимся временем.
-            probe_timeout = min(self._probe_timeout, max(deadline - loop.time(), 0.05))
             try:
-                await self._probe_once(targets, probe_timeout)
+                await self._probe_once(targets, deadline)
                 return
             except (OSError, EOFError, TimeoutError, HealthCheckFailed) as error:
                 last = self._describe(error)
             if loop.time() >= deadline:
                 raise HealthCheckFailed(last)
-            await asyncio.sleep(self._interval)
+            await asyncio.sleep(min(self._interval, max(deadline - loop.time(), 0.0)))
+
+    def _budget(self, deadline: float) -> float:
+        """Время на одну пробу: не больше probe_timeout и не дальше общего срока."""
+        remaining = deadline - asyncio.get_running_loop().time()
+        return min(self._probe_timeout, max(remaining, 0.05))
 
     @staticmethod
     def _describe(error: Exception) -> str:
@@ -270,11 +283,13 @@ class LowHealthCheck:
             return "соединение закрыто до ответа"
         return f"ошибка сети ({type(error).__name__})"
 
-    async def _probe_once(self, targets: HealthTargets, timeout: float) -> None:
+    async def _probe_once(self, targets: HealthTargets, deadline: float) -> None:
         if targets.tcp_port is not None and targets.banner is not None:
-            await self._probe_tcp(targets.host, targets.tcp_port, targets.banner, timeout)
+            await self._probe_tcp(
+                targets.host, targets.tcp_port, targets.banner, self._budget(deadline)
+            )
         if targets.http_port is not None:
-            await self._probe_http(targets.host, targets.http_port, timeout)
+            await self._probe_http(targets.host, targets.http_port, self._budget(deadline))
 
     async def _probe_tcp(self, host: str, port: int, expected: bytes, timeout: float) -> None:
         async with asyncio.timeout(timeout):
@@ -351,26 +366,28 @@ class LowDriver(Driver):
     async def _start(self, deployment: DeploymentSpec) -> DriverStatus:
         if self._state is not DriverState.STOPPED:
             raise DriverError(DriverErrorCode.INVALID_STATE, "start допустим только из STOPPED")
-        return await self._launch(self._translate(deployment))
+        prepared = self._prepare(self._translate(deployment))
+        await self._clear_slot(DriverErrorCode.START_FAILED)
+        return await self._launch(prepared)
 
     async def _apply_config(self, deployment: DeploymentSpec) -> DriverStatus:
         if self._state is DriverState.STOPPED:
             raise DriverError(DriverErrorCode.INVALID_STATE, "для остановленного слота нужен start")
-        # Профиль проверяется до удаления работающего экземпляра: негодный профиль
-        # не должен убивать исправную ловушку.
-        blueprint = self._translate(deployment)
-        await self._discard()
-        return await self._launch(blueprint)
+        # Профиль и параметры запуска проверяются до удаления работающего экземпляра:
+        # негодная ревизия или настройка не должна убивать исправную ловушку.
+        prepared = self._prepare(self._translate(deployment))
+        await self._clear_slot(DriverErrorCode.CLEANUP_FAILED)
+        return await self._launch(prepared)
 
     async def _reset(self) -> DriverStatus:
         if self._state is DriverState.STOPPED or self._blueprint is None:
             raise DriverError(DriverErrorCode.INVALID_STATE, "нет запущенного экземпляра и профиля")
-        blueprint = self._blueprint
-        await self._discard()
-        return await self._launch(blueprint)
+        prepared = self._prepare(self._blueprint)
+        await self._clear_slot(DriverErrorCode.CLEANUP_FAILED)
+        return await self._launch(prepared)
 
     async def _stop(self) -> DriverStatus:
-        await self._discard()
+        await self._clear_slot(DriverErrorCode.CLEANUP_FAILED)
         self._state = DriverState.STOPPED
         self._healthy = False
         self._revision = None
@@ -387,10 +404,17 @@ class LowDriver(Driver):
                 self._mark_failed("контейнер исчез")
             return self._status()
         if observed.labels.get(LABEL_MANAGED) != "true":
-            self._mark_failed("имя слота занято контейнером, не принадлежащим HoneyForge")
+            self._mark_failed(_FOREIGN)
             return self._status()
         if not observed.running:
-            self._mark_failed(f"контейнер остановился (код {observed.exit_code})")
+            if self._state is DriverState.RUNNING:
+                self._mark_failed(f"контейнер остановился (код {observed.exit_code})")
+            elif self._state is DriverState.STOPPED:
+                # Например, после перезагрузки хоста (restart=no): слот остаётся STOPPED,
+                # start заменит остаток прежнего запуска.
+                self._detail = (
+                    f"найден остановленный контейнер прежнего запуска (код {observed.exit_code})"
+                )
             return self._status()
         if self._state is DriverState.FAILED:
             # FAILED «липкий»: пока драйвер не выполнил успешную операцию, живой контейнер
@@ -406,8 +430,9 @@ class LowDriver(Driver):
         """Принимает работающий контейнер, которого этот драйвер не запускал.
 
         Так бывает после перезапуска агента. Внутреннее состояние становится RUNNING, но
-        здоровье не заявляется: этим драйвером оно не проверялось. Профиль неизвестен,
-        поэтому reset недоступен, а apply_config и stop работают.
+        здоровье не заявляется: этим драйвером оно не проверялось. instance_id и revision
+        берутся из меток контейнера. Профиль неизвестен, поэтому reset недоступен, а
+        apply_config и stop работают.
         """
         instance_id = observed.labels.get(LABEL_INSTANCE)
         revision = observed.labels.get(LABEL_REVISION)
@@ -428,31 +453,46 @@ class LowDriver(Driver):
             raise DriverError(DriverErrorCode.INVALID_STATE, "назначение относится к другому слоту")
         return self._translator.blueprint(deployment)
 
-    async def _launch(self, blueprint: LowBlueprint) -> DriverStatus:
-        """Создаёт новый экземпляр; при любой неудаче ресурсы удалены, состояние FAILED."""
-        self._blueprint = blueprint
+    def _prepare(self, blueprint: LowBlueprint) -> _PreparedLaunch:
+        """Готовит новый экземпляр до удаления прежнего: ошибки параметров — до удаления.
+
+        Единственный побочный эффект — идемпотентное создание каталога журнала слота:
+        недоступный каталог обнаруживается, пока исправный экземпляр ещё работает.
+        """
         instance_id = self._new_instance_id()
-        spec = self._translator.container_spec(blueprint, instance_id)
         try:
-            await self._free_slot()
-            self._prepare_journal_directory()
+            spec = self._translator.container_spec(blueprint, instance_id)
+        except ValueError as error:
+            raise DriverError(
+                DriverErrorCode.START_FAILED, f"недопустимые параметры запуска: {error}"
+            ) from error
+        self._prepare_journal_directory()
+        return _PreparedLaunch(blueprint, instance_id, spec)
+
+    async def _launch(self, prepared: _PreparedLaunch) -> DriverStatus:
+        """Создаёт подготовленный экземпляр; при неудаче ресурсы удалены, состояние FAILED."""
+        self._blueprint = prepared.blueprint
+        try:
             try:
-                await self._backend.run(spec)
+                await self._backend.run(prepared.spec)
             except BackendError as error:
-                await self._discard()
+                # docker run мог успеть создать контейнер: убираем его.
+                await self._cleanup_after(error.message)
                 raise self._driver_error(DriverErrorCode.START_FAILED, error) from error
             try:
-                await self._health.wait_until_healthy(self._translator.health_targets(blueprint))
+                await self._health.wait_until_healthy(
+                    self._translator.health_targets(prepared.blueprint)
+                )
             except HealthCheckFailed as error:
-                await self._discard()
+                await self._cleanup_after(str(error))
                 raise DriverError(DriverErrorCode.HEALTHCHECK_FAILED, str(error)) from error
         except DriverError as error:
             self._mark_failed(error.message or error.code.value)
             raise
         self._state = DriverState.RUNNING
         self._healthy = True
-        self._instance_id = instance_id
-        self._revision = blueprint.revision
+        self._instance_id = prepared.instance_id
+        self._revision = prepared.blueprint.revision
         self._detail = ""
         return self._status()
 
@@ -468,8 +508,8 @@ class LowDriver(Driver):
                 DriverErrorCode.START_FAILED, "каталог журнала недоступен для создания"
             ) from error
 
-    async def _free_slot(self) -> None:
-        """Перед запуском убирает остаток прежнего запуска; чужой контейнер не трогает."""
+    async def _clear_slot(self, foreign_code: DriverErrorCode) -> None:
+        """Убирает контейнер слота, если он есть; чужой контейнер с тем же именем не трогает."""
         try:
             existing = await self._backend.inspect(self._name)
         except BackendError as error:
@@ -477,19 +517,32 @@ class LowDriver(Driver):
         if existing is None:
             return
         if existing.labels.get(LABEL_MANAGED) != "true":
-            raise DriverError(
-                DriverErrorCode.START_FAILED,
-                "имя слота занято контейнером, не принадлежащим HoneyForge",
-            )
-        await self._discard()
+            self._mark_failed(_FOREIGN)
+            raise DriverError(foreign_code, _FOREIGN)
+        await self._remove()
 
-    async def _discard(self) -> None:
-        """Удаляет контейнер слота. Неудача — CLEANUP_FAILED и состояние FAILED."""
+    async def _remove(self) -> None:
+        """Мягкая остановка, затем удаление. Неудача удаления — CLEANUP_FAILED и FAILED.
+
+        SIGTERM даёт ловушке закрыть соединения и журнал; если мягкая остановка не удалась,
+        принудительное удаление всё равно завершает процесс.
+        """
+        with contextlib.suppress(BackendError):
+            await self._backend.stop(self._name, self._settings.stop_timeout)
         try:
             await self._backend.remove(self._name)
         except BackendError as error:
             self._mark_failed("не удалось удалить контейнер")
             raise DriverError(DriverErrorCode.CLEANUP_FAILED, error.message) from error
+
+    async def _cleanup_after(self, cause: str) -> None:
+        """Удаляет следы неудачного запуска; при отказе сохраняет исходную причину."""
+        try:
+            await self._remove()
+        except DriverError as error:
+            raise DriverError(
+                DriverErrorCode.CLEANUP_FAILED, f"{error.message}; исходная причина: {cause}"
+            ) from error
 
     def _mark_failed(self, detail: str) -> None:
         self._state = DriverState.FAILED
@@ -502,3 +555,12 @@ class LowDriver(Driver):
         if error.unavailable:
             return DriverError(DriverErrorCode.BACKEND_UNAVAILABLE, error.message)
         return DriverError(code, error.message)
+
+
+@dataclass(frozen=True)
+class _PreparedLaunch:
+    """Новый экземпляр, проверенный до побочных эффектов."""
+
+    blueprint: LowBlueprint
+    instance_id: str
+    spec: ContainerSpec

@@ -246,15 +246,27 @@ def test_rejected_entry_carries_deployment_id_only_when_it_is_valid() -> None:
     assert [r.deployment_id for r in result.rejected] == [DEPLOYMENT_ID, None, None]
 
 
-def test_duplicate_deployment_ids_keep_first_and_reject_the_rest() -> None:
+def test_repeated_deployment_ids_reject_every_occurrence() -> None:
+    """Повтор id неоднозначен: ни одна из записей с ним не принимается."""
     first = deployment(revision=1)
     second = deployment(revision=2)
 
     result = parse(response(first, second))
 
-    assert [d.revision for d in result.deployments] == [1]
-    assert len(result.rejected) == 1
-    assert "повторяется" in result.rejected[0].reason
+    assert result.deployments == ()
+    assert [r.deployment_id for r in result.rejected] == [DEPLOYMENT_ID, DEPLOYMENT_ID]
+    assert all("повторяется" in r.reason for r in result.rejected)
+
+
+def test_repeated_id_is_not_both_accepted_and_rejected() -> None:
+    """Регрессия: первая запись отклонена как некорректная, вторая с тем же id принималась."""
+    broken = deployment(revision=0)
+    valid = deployment(revision=2)
+
+    result = parse(response(broken, valid))
+
+    assert result.deployments == ()
+    assert {r.deployment_id for r in result.rejected} == {DEPLOYMENT_ID}
 
 
 def test_medium_and_high_consistency_rules() -> None:
@@ -429,3 +441,74 @@ def test_every_field_required_by_center_is_required_by_agent(
         else:
             with pytest.raises(ContractError):
                 parse(payload)
+
+
+# --- Пароли и ограничения, взятые из входной схемы центра -----------------------------------
+
+
+@pytest.mark.parametrize(
+    "password",
+    ["with\ttab", "x" * contract.MAX_PASSWORD_LENGTH, "пароль", "a b"],
+    ids=["tab", "max-length", "unicode", "space"],
+)
+def test_passwords_accepted_by_the_center_are_accepted(password: str) -> None:
+    config = medium_config()
+    config["credentials"] = [{"username": "admin", "password": password}]
+
+    [item] = parse(response(deployment(config))).deployments
+
+    assert item.config.credentials[0].password.reveal() == password
+
+
+@pytest.mark.parametrize(
+    "password",
+    ["", "x" * (contract.MAX_PASSWORD_LENGTH + 1), "two\nlines", "carriage\rreturn"],
+    ids=["empty", "too-long", "newline", "carriage-return"],
+)
+def test_empty_long_or_multiline_passwords_are_rejected(password: str) -> None:
+    config = medium_config()
+    config["credentials"] = [{"username": "admin", "password": password}]
+
+    assert len(parse(response(deployment(config))).rejected) == 1
+
+
+def test_username_longer_than_the_center_limit_is_rejected() -> None:
+    config = medium_config()
+    config["credentials"] = [{"username": "u" * 65, "password": "x"}]
+
+    assert len(parse(response(deployment(config))).rejected) == 1
+
+
+AGENT_REQUIRED = {
+    "AgentConfigRead": {"host_id", "deployments"},
+    "AgentDeployment": {"deployment_id", "profile_id", "revision", "state", "config"},
+    "AgentProfileConfig": {"interaction_level", "services", "credentials"},
+    "ServiceConfig": {"protocol", "port"},
+    "AgentCredential": {"username", "password"},
+    "HighConfig": set(),
+    "LoggingConfig": set(),
+    "ChannelConfig": set(),
+}
+
+
+@pytest.mark.parametrize("schema_name", sorted(AGENT_REQUIRED))
+def test_required_fields_match_the_center_in_both_directions(schema_name: str) -> None:
+    """Агент требует ровно то, что обязательно у центра: не больше и не меньше."""
+    assert set(schemas()[schema_name].get("required", [])) == AGENT_REQUIRED[schema_name]
+
+
+def test_patterns_nullability_and_input_limits_match_the_center() -> None:
+    known = schemas()
+    profile = known["AgentProfileConfig"]["properties"]
+    credential = known["CredentialInput"]["properties"]
+    credentials = known["ProfileConfigInput"]["properties"]["credentials"]["anyOf"][0]
+
+    assert profile["hostname"]["pattern"] == f"^{contract.HOSTNAME_PATTERN}$"
+    assert "$ref" in profile["logging"] and "anyOf" not in profile["logging"]
+    assert "$ref" in profile["channel"] and "anyOf" not in profile["channel"]
+    assert {"type": "null"} in profile["high"]["anyOf"]
+    assert known["ServiceConfig"]["properties"]["banner"]["default"] == ""
+    assert credential["username"]["pattern"] == f"^{contract.USERNAME_PATTERN}$"
+    assert credential["username"]["maxLength"] == contract.MAX_USERNAME_LENGTH
+    assert credential["password"]["maxLength"] == contract.MAX_PASSWORD_LENGTH
+    assert credentials["maxItems"] == contract.MAX_CREDENTIALS

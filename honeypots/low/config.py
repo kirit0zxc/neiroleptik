@@ -51,9 +51,11 @@ class LowConfig:
         if not isinstance(self.banner, str):
             raise ValueError("banner должен быть строкой ASCII")
         content = self.banner.removesuffix("\r\n")
+        # В сеть баннер всегда уходит с CRLF, а RFC 4253 ограничивает такую строку
+        # 255 символами вместе с CRLF: поэтому считается длина с терминатором.
         if (
             not content
-            or len(self.banner) > 255
+            or len(content) + 2 > 255
             or any(not 32 <= ord(character) <= 126 for character in content)
         ):
             raise ValueError("banner допускает ASCII без управляющих символов и завершающий CRLF")

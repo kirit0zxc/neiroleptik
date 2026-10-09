@@ -34,6 +34,24 @@ _MOUNT_SOURCE = re.compile(r"[A-Za-z0-9_.:/\\ +@()-]{1,512}")
 _MOUNT_TARGET = re.compile(r"/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*")
 _MAX_ARGUMENT = 1024
 _MAX_LABEL_VALUE = 256
+_LOG_SIZE = re.compile(r"[1-9][0-9]{0,4}[kmg]")
+# Сети, отключающие изоляцию или публикацию портов: контейнер ловушки в них не запускается.
+_FORBIDDEN_NETWORKS = frozenset({"host", "none"})
+# Признаки недоступного демона или сокета. Проверяются раньше признаков отсутствия
+# контейнера: «connect: no such file or directory» означает недоступный сокет, а не
+# отсутствие контейнера.
+_UNAVAILABLE_MARKERS = (
+    "cannot connect to the docker daemon",
+    "error during connect",
+    "is the docker daemon running",
+    "docker.sock",
+    "docker_engine",
+    "permission denied while trying to connect",
+)
+_MISSING_MARKERS = ("no such container", "no such object")
+# Компактный шаблон inspect: только состояние и метки, чтобы ответ не упирался в лимит
+# вывода и не зависел от прочих полей.
+_INSPECT_FORMAT = '{"State":{{json .State}},"Labels":{{json .Config.Labels}}}'
 
 
 class BackendError(Exception):
@@ -116,18 +134,26 @@ class ContainerSpec:
     memory_mb: int = 128
     cpus: float = 0.5
     pids_limit: int = 64
+    # Журнал контейнера ограничен так же, как в compose.runtime.yml: события Low в stdout
+    # не должны заполнить диск хоста.
+    log_max_size: str = "10m"
+    log_max_files: int = 3
 
     def __post_init__(self) -> None:
         if _NAME.fullmatch(self.name) is None:
             raise ValueError("имя контейнера должно начинаться с honeyforge-")
-        if _IMAGE.fullmatch(self.image) is None:
-            raise ValueError("недопустимое имя образа")
-        if self.network is not None and _NETWORK.fullmatch(self.network) is None:
-            raise ValueError("недопустимое имя сети")
+        self.check_image(self.image)
+        if self.network is not None:
+            self.check_network(self.network)
         if _USER.fullmatch(self.user) is None:
             raise ValueError("пользователь задаётся как uid:gid")
-        if self.user.startswith("0:") or self.user.endswith(":0"):
+        # Сравнение чисел, а не строк: «00:5» — тоже root.
+        if any(int(part) == 0 for part in self.user.split(":")):
             raise ValueError("контейнер не должен работать от root")
+        if _LOG_SIZE.fullmatch(self.log_max_size) is None:
+            raise ValueError("размер журнала контейнера задаётся как число с k, m или g")
+        if type(self.log_max_files) is not int or not 1 <= self.log_max_files <= 20:
+            raise ValueError("число файлов журнала контейнера должно быть от 1 до 20")
         if type(self.memory_mb) is not int or not 16 <= self.memory_mb <= 4096:
             raise ValueError("память должна быть от 16 до 4096 МиБ")
         if isinstance(self.cpus, bool) or not 0.1 <= self.cpus <= 8:
@@ -155,6 +181,20 @@ class ContainerSpec:
         if len(set(host_ports)) != len(host_ports):
             raise ValueError("публикуемые порты хоста повторяются")
 
+    @staticmethod
+    def check_image(image: str) -> None:
+        """Имя образа не может выглядеть как опция docker или содержать пробелы."""
+        if _IMAGE.fullmatch(image) is None:
+            raise ValueError("недопустимое имя образа")
+
+    @staticmethod
+    def check_network(network: str) -> None:
+        """Сеть задаёт оператор; host и none снимают изоляцию либо публикацию портов."""
+        if _NETWORK.fullmatch(network) is None:
+            raise ValueError("недопустимое имя сети")
+        if network.lower() in _FORBIDDEN_NETWORKS:
+            raise ValueError("сети host и none для ловушки запрещены")
+
 
 @dataclass(frozen=True)
 class ContainerObservation:
@@ -176,6 +216,10 @@ class ContainerBackend(Protocol):
 
     async def inspect(self, name: str) -> ContainerObservation | None:
         """Возвращает наблюдение либо None, если контейнера нет."""
+        ...
+
+    async def stop(self, name: str, timeout: int) -> None:
+        """Мягко останавливает контейнер (SIGTERM, затем SIGKILL по таймауту)."""
         ...
 
     async def remove(self, name: str) -> None:
@@ -214,6 +258,15 @@ class DockerCli:
             f"{spec.memory_mb}m",
             "--cpus",
             f"{spec.cpus:g}",
+            "--log-driver",
+            "local",
+            "--log-opt",
+            f"max-size={spec.log_max_size}",
+            "--log-opt",
+            f"max-file={spec.log_max_files}",
+            # Драйвер не скачивает образы: образ закрепляется и доставляется заранее.
+            "--pull",
+            "never",
         ]
         if spec.network is not None:
             argv += ["--network", spec.network]
@@ -236,18 +289,28 @@ class DockerCli:
         """Читает состояние контейнера слота; None, если контейнера нет."""
         self._require_managed_name(name)
         result = await self._execute(
-            [self._executable, "inspect", "--type", "container", "--format", "{{json .}}", name]
+            [self._executable, "inspect", "--type", "container", "--format", _INSPECT_FORMAT, name]
         )
-        if result.returncode not in (0, None) and "no such" in result.output.lower():
+        if self._is_missing(result):
             return None
         self._require_success(result, "docker inspect")
         return self._parse_observation(name, result.output)
+
+    async def stop(self, name: str, timeout: int) -> None:
+        """docker stop: SIGTERM процессу ловушки, SIGKILL через timeout секунд."""
+        self._require_managed_name(name)
+        if type(timeout) is not int or not 0 <= timeout <= 25:
+            raise BackendError("таймаут остановки должен быть от 0 до 25 секунд")
+        result = await self._execute([self._executable, "stop", "--time", str(timeout), name])
+        if self._is_missing(result):
+            return
+        self._require_success(result, "docker stop")
 
     async def remove(self, name: str) -> None:
         """Принудительно удаляет контейнер слота вместе с томами; отсутствующий — не ошибка."""
         self._require_managed_name(name)
         result = await self._execute([self._executable, "rm", "--force", "--volumes", name])
-        if result.returncode not in (0, None) and "no such" in result.output.lower():
+        if self._is_missing(result):
             return
         self._require_success(result, "docker rm")
 
@@ -256,13 +319,28 @@ class DockerCli:
         return await asyncio.to_thread(self._runner.run, argv)
 
     @staticmethod
+    def _is_unavailable(output: str) -> bool:
+        lowered = output.lower()
+        return any(marker in lowered for marker in _UNAVAILABLE_MARKERS)
+
+    @classmethod
+    def _is_missing(cls, result: CommandResult) -> bool:
+        """Контейнера нет — только по точной фразе docker и только при доступном демоне."""
+        if result.returncode in (0, None) or result.timed_out or result.truncated:
+            return False
+        if cls._is_unavailable(result.output):
+            return False
+        lowered = result.output.lower()
+        return any(marker in lowered for marker in _MISSING_MARKERS)
+
+    @staticmethod
     def _require_managed_name(name: str) -> None:
         """Агент никогда не трогает контейнеры, которые не принадлежат HoneyForge."""
         if _NAME.fullmatch(name) is None:
             raise BackendError("имя контейнера не принадлежит HoneyForge")
 
-    @staticmethod
-    def _require_success(result: CommandResult, action: str) -> None:
+    @classmethod
+    def _require_success(cls, result: CommandResult, action: str) -> None:
         if result.error is not None:
             raise BackendError(f"{action}: команда недоступна", unavailable=True)
         if result.timed_out:
@@ -271,20 +349,19 @@ class DockerCli:
             raise BackendError(f"{action}: превышен лимит вывода")
         if result.returncode != 0:
             tail = " ".join(result.output.split())[-200:]
-            lowered = result.output.lower()
-            daemon_down = "cannot connect" in lowered or (
-                "daemon" in lowered and "running" in lowered
-            )
             raise BackendError(
-                f"{action}: код {result.returncode}: {tail}", unavailable=daemon_down
+                f"{action}: код {result.returncode}: {tail}",
+                unavailable=cls._is_unavailable(result.output),
             )
 
     @staticmethod
     def _parse_observation(name: str, output: str) -> ContainerObservation:
         try:
-            data = json.loads(output)
+            # stderr docker слит с stdout: предупреждения CLI могут стоять до JSON-строки.
+            line = next(item for item in output.splitlines() if item.lstrip().startswith("{"))
+            data = json.loads(line)
             state = data["State"]
-            labels = data.get("Config", {}).get("Labels") or {}
+            labels = data.get("Labels") or {}
             if not isinstance(labels, dict) or not all(
                 isinstance(key, str) and isinstance(value, str) for key, value in labels.items()
             ):
@@ -297,5 +374,5 @@ class DockerCli:
                 exit_code=exit_code if type(exit_code) is int else None,
                 labels=labels,
             )
-        except (ValueError, KeyError, TypeError, AttributeError) as error:
+        except (StopIteration, ValueError, KeyError, TypeError, AttributeError) as error:
             raise BackendError("docker inspect: неожиданный формат ответа") from error

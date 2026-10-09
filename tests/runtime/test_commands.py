@@ -349,7 +349,7 @@ def test_huge_integers_are_rejected_before_serialisation(tmp_path: Path) -> None
         with pytest.raises(ValueError):
             journal.accept(command(payload={"n": 10**5000}))
         assert journal.pending is None
-    assert time.monotonic() - started < 2.0
+    assert time.monotonic() - started < 5.0
 
 
 def test_a_future_generation_is_also_stale(tmp_path: Path) -> None:

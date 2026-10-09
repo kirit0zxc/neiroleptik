@@ -93,7 +93,10 @@ class SpoolRepository:
         ):
             raise ValueError("Некорректные границы записи")
         # Повторная валидация защищает от изменения вложенного data после создания модели.
-        payload = Event.model_validate_json(record.event.canonical_json()).canonical_json()
+        event = Event.model_validate_json(record.event.canonical_json())
+        # Проверяем полный одиночный конверт до записи: иначе голова блокирует очередь.
+        Batch(events=[event])
+        payload = event.canonical_json()
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
             if self.checkpoint(record.source_id) != record.offset:

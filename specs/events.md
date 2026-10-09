@@ -28,6 +28,7 @@ Low adapter, SQLite WAL spool и локальный долговечный ка�
 Типы: `connection.opened`, `auth.attempt`, `session.command`, `session.output`,
 `http.request`, `artifact.observed`, `token.triggered`, `session.closed`,
 `runtime.state`. IP валидируется как IPv4/IPv6, source.port 0..65535, service.port 1..65535, protocol: tcp/http/ssh.
+`source.ip` принимается только строкой; числа, boolean и другие типы отклоняются.
 
 Batch: `batch_id` (UUID), `schema_version=1`, `events`; максимум 100 событий
 и 256 КиБ всего компактного UTF-8 JSON. Абсолютный request cap 2 МиБ относится
@@ -48,11 +49,17 @@ deployment/instance/revision поступает из доверенной кон
 незавершённый хвост. `source_seq` равен начальному байтовому offset в данном
 поколении источника. UUIDv5 детерминирован по agent/deployment/instance,
 source_id и начальному offset; повтор чтения даёт прежний ID.
+Повторяющиеся JSON-ключи на любой глубине, включая одинаковые значения и
+эквивалентные ключи с escape-последовательностями, отклоняются до создания записи.
 
 `SpoolRepository.append(record)` сохраняет событие и next_offset одной
 транзакцией. Начало записи должно равняться текущему checkpoint, иначе
 `OffsetConflict`; транзакция не меняет ни очередь, ни позицию. Первый offset=0.
 Один spool принадлежит одному агенту; попытка другого агента отклоняется.
+До записи проверяется, что весь Event помещается в одиночный batch вместе
+с конвертом в пределах 256 КиБ. Превышение возвращает ошибку без изменения
+pending и checkpoint; проверка действует для публичного append, независимо
+от ограничения исходной строки Low в 64 КиБ.
 Повторная доставка читает неизменный JSON. `acknowledge(batch, ack)` применяет
 только полный корректный ответ: accepted удаляются, временные отказы остаются,
 окончательные атомарно переносятся в карантин. Подробный контракт ниже заменяет

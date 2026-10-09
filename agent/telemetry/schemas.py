@@ -3,6 +3,7 @@
 import json
 import re
 from datetime import UTC, datetime
+from ipaddress import ip_address
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
@@ -11,10 +12,10 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    IPvAnyAddress,
     JsonValue,
     StrictBool,
     StrictInt,
+    StrictStr,
     field_validator,
     model_validator,
 )
@@ -58,8 +59,14 @@ class ContractModel(BaseModel):
 
 
 class Source(ContractModel):
-    ip: IPvAnyAddress
+    ip: Annotated[StrictStr, Field(json_schema_extra={"format": "ipvanyaddress"})]
     port: Annotated[StrictInt, Field(ge=0, le=65535)]
+
+    @field_validator("ip")
+    @classmethod
+    def validate_ip(cls, value: str) -> str:
+        """Строгая строка исключает преобразование boolean и чисел в выдуманный IP."""
+        return str(ip_address(value))
 
 
 class Service(ContractModel):

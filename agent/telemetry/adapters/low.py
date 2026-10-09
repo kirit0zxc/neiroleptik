@@ -39,7 +39,7 @@ class LowAdapter:
             raise ValueError("Нужна одна завершённая JSONL-строка")
         if len(line) > 64 * 1024:
             raise ValueError("Исходная строка превышает 64 КиБ")
-        payload = json.loads(line.decode("utf-8"))
+        payload = json.loads(line.decode("utf-8"), object_pairs_hook=self._unique_object)
         if not isinstance(payload, dict):
             raise ValueError("Low JSONL должен содержать объект")
         allowed = {"occurred_at", "type", "source", "service", "data", "session_id", "artifact_ids"}
@@ -68,3 +68,13 @@ class LowAdapter:
             }
         )
         return SourceRecord(source_id, offset, offset + len(line), event)
+
+    @staticmethod
+    def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        """Повторы на любой глубине неоднозначны и не должны терять исходные данные."""
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Low JSONL содержит повторяющиеся ключи JSON")
+            result[key] = value
+        return result

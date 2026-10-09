@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from agent.telemetry.adapters.low import LowAdapter
 from agent.telemetry.export_contracts import build_examples
-from agent.telemetry.schemas import Ack, Batch, Event, RejectedEvent
+from agent.telemetry.schemas import MAX_BATCH_BYTES, Ack, Batch, Event, RejectedEvent
 from agent.telemetry.spool import OffsetConflict, SpoolRepository
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -220,6 +220,88 @@ class TelemetryTests(unittest.TestCase):
             self.spool.append(record)
         self.assertEqual(self.spool.count(), 0)
         self.assertEqual(self.spool.checkpoint("low:g1"), 0)
+
+    def test_low_rejects_duplicate_keys_without_advancing_source(self) -> None:
+        """Проверяем исходные байты: dict уже потерял бы повторяющиеся ключи."""
+        for fragment in (
+            b'"data":{"x":1,"x":2}',
+            b'"data":{"x":1,"x":1}',
+            b'"data":{"x":1,"\\u0078":2}',
+            b'"data":{"nested":[{"x":1,"x":2}]}',
+            b'"data":{},"data":{"x":2}',
+            b'"source":{"ip":"192.0.2.23","ip":"192.0.2.24","port":1}',
+        ):
+            payload = json.loads(low_line())
+            del payload["source" if fragment.startswith(b'"source"') else "data"]
+            line = json.dumps(payload).encode()[:-1] + b"," + fragment + b"}\n"
+            with (
+                self.subTest(fragment=fragment),
+                self.assertRaisesRegex(ValueError, "повторяющиеся ключи"),
+            ):
+                self.adapter.parse_line(line, source_id="low:g1", offset=0)
+            self.assertEqual(self.spool.count(), 0)
+            self.assertEqual(self.spool.checkpoint("low:g1"), 0)
+        self.append(1)
+        self.assertEqual(self.spool.count(), 1)
+
+    def test_ip_requires_string_at_model_and_adapter_boundaries(self) -> None:
+        for value in (True, False, 1, 3232235777, 1.0, None, [], {}):
+            payload = json.loads(low_line())
+            payload["source"]["ip"] = value
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                self.adapter.parse_line(
+                    (json.dumps(payload) + "\n").encode(), source_id="low:g1", offset=0
+                )
+            event = self.adapter.parse_line(low_line(), source_id="low:g1", offset=0).event
+            raw = event.model_dump(mode="json")
+            raw["source"]["ip"] = value
+            with self.assertRaises(ValidationError):
+                Event.model_validate(raw)
+            self.assertEqual(self.spool.count(), 0)
+            self.assertEqual(self.spool.checkpoint("low:g1"), 0)
+        for ip in ("192.0.2.23", "2001:db8::1"):
+            raw = event.model_dump(mode="json")
+            raw["source"]["ip"] = ip
+            self.assertEqual(Event.model_validate(raw).model_dump(mode="json")["source"]["ip"], ip)
+
+    def test_append_enforces_exact_single_batch_size_before_checkpoint(self) -> None:
+        """Публичный append обязан учитывать artifact_ids и весь конверт пачки."""
+        record = self.adapter.parse_line(low_line(), source_id="large:g1", offset=0)
+        raw = record.event.model_dump(mode="json")
+        raw["artifact_ids"] = [str(UUID(int=index + 1)) for index in range(6600)]
+        raw["data"] = {"padding": ""}
+        event = Event.model_validate(raw)
+        # model_construct только измеряет заведомо непроверенный конверт для границы теста.
+        envelope = Batch.model_construct(batch_id=UUID(int=1), events=[event])
+        padding = MAX_BATCH_BYTES - len(envelope.to_bytes())
+        self.assertGreater(padding, 0)
+        raw["data"] = {"padding": "x" * padding}
+        exact = Event.model_validate(raw)
+        self.assertEqual(len(Batch(events=[exact]).to_bytes()), MAX_BATCH_BYTES)
+        raw["data"]["padding"] += "x"
+        oversized = Event.model_validate(raw)
+        self.append(1)
+        previous_count = self.spool.count()
+        with self.assertRaisesRegex(ValueError, "256 КиБ"):
+            self.spool.append(replace(record, event=oversized))
+        self.assertEqual(self.spool.count(), previous_count)
+        self.assertEqual(self.spool.checkpoint(record.source_id), 0)
+        self.spool.append(replace(record, event=exact))
+        self.assertEqual(self.spool.checkpoint(record.source_id), record.next_offset)
+        first = self.spool.next_batch()
+        assert first is not None
+        self.spool.acknowledge(
+            first,
+            Ack(
+                batch_id=first.batch_id,
+                accepted_ids=[e.event_id for e in first.events],
+                rejected=[],
+            ),
+        )
+        second = self.spool.next_batch()
+        assert second is not None
+        self.assertEqual(len(second.to_bytes()), MAX_BATCH_BYTES)
+        self.assertEqual(second.events[0].event_id, exact.event_id)
 
     def test_checkpoint_write_failure_rolls_back_event(self) -> None:
         self.spool.db.execute(

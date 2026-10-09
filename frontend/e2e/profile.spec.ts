@@ -16,8 +16,9 @@ test('создание профиля и новая ревизия', async ({ pa
   await cred.getByLabel('Пароль').fill('Backup2024!');
   await page.getByRole('button', { name: 'Создать профиль' }).click();
 
-  await expect(page.getByRole('status')).toHaveText('Сохранено: ревизия r1');
   await expect(page).toHaveURL(/\/profiles\/p-new-1$/);
+  // Проверяем сохранённую ревизию после перехода, не краткий статус старой формы.
+  await expect(page.getByRole('region', { name: 'Ревизии' }).getByRole('listitem')).toContainText('r1');
 
   // Правка канала сохраняет скрытые пароли без повторного ввода.
   await page.getByLabel('Размер пачки').fill('50');

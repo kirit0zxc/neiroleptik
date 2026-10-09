@@ -285,6 +285,25 @@ describe('форма профиля (F8, F9)', () => {
     expect(credentials).toEqual([{ username: 'admin', password: 'new-secret' }]);
   });
 
+  it('скрытые неверные настройки High не блокируют сохранение Low', async () => {
+    const user = userEvent.setup();
+    let sent: { config: { interaction_level: string; high?: unknown } } | undefined;
+    server.use(http.post('/api/v1/profiles', async ({ request }) => {
+      sent = await request.json() as typeof sent;
+      return HttpResponse.json(profilesFixture.find((p) => p.config.interaction_level === 'low'), { status: 201 });
+    }));
+    open('/profiles/new');
+    await user.type(await screen.findByLabelText('Название'), 'Переход уровня');
+    await user.selectOptions(screen.getByLabelText('Уровень взаимодействия'), 'high');
+    await user.clear(screen.getByLabelText('CPU'));
+    await user.type(screen.getByLabelText('CPU'), '4');
+    await user.selectOptions(screen.getByLabelText('Уровень взаимодействия'), 'low');
+    expect(screen.queryByLabelText('CPU')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Создать профиль' }));
+    await waitFor(() => expect(sent?.config.interaction_level).toBe('low'));
+    expect(sent?.config.high).toBeUndefined();
+  });
+
   it('список профилей ведёт в редактор', async () => {
     const user = userEvent.setup();
     open('/profiles');

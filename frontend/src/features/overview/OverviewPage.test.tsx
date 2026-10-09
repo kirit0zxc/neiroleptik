@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
@@ -8,6 +8,7 @@ import { App, makeQueryClient } from '../../app/App';
 import { handlers, resetMockSession } from '../../mocks/handlers';
 import { nextDemoEvent, publish } from '../../mocks/stream';
 import type { HfEvent } from '../../shared/api/types';
+import { ApiError } from '../../shared/api/client';
 import { StreamClient, type StreamSocket } from '../../shared/stream/StreamClient';
 
 const server = setupServer(...handlers);
@@ -55,8 +56,53 @@ describe('обзор', () => {
     const s = controlledStream();
     open(s.create);
     await screen.findAllByTestId('recent-row');
+    await screen.findByText('онлайн');
     s.send({ ...nextDemoEvent(), event_id: 'live-overview', type: 'session.command', data: { input: 'whoami' } });
     expect(within(screen.getAllByTestId('recent-row')[0]!).getByText('whoami')).toBeInTheDocument();
+  });
+
+  it.each([null, '5'])('обзор обновляет снимок после hello при начальном курсоре %s', async (cursor) => {
+    const event = (id: string) => ({ ...nextDemoEvent(), event_id: id, type: 'session.command', data: { input: `overview-${id}` } });
+    let reads = 0;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    server.use(http.get('/api/v1/events', async () => {
+      reads += 1;
+      if (reads > 1) await waiting;
+      return HttpResponse.json({ items: reads === 1 ? [event('9')] : [event('10'), event('9')], next_cursor: null });
+    }));
+    const sockets: StreamSocket[] = [];
+    const timers: Array<() => void> = [];
+    let stream!: StreamClient<HfEvent>;
+    const create = () => (stream = new StreamClient<HfEvent>({
+      cursor,
+      connect: () => {
+        const socket: StreamSocket = { onopen: null, onmessage: null, onclose: null, onerror: null, close: () => socket.onclose?.({ code: 1000 }) };
+        sockets.push(socket); return socket;
+      },
+      fetchGap: async () => { throw new ApiError(410, 'История утрачена'); },
+      isGone: (error) => error instanceof ApiError && error.status === 410,
+      setTimer: (fn) => { timers.push(fn); return timers.length; }, clearTimer: () => {},
+    }));
+    try {
+      open(create);
+      await screen.findByText('overview-9');
+      if (cursor !== null) {
+        act(() => sockets[0]!.onmessage?.({ data: JSON.stringify({ type: 'hello', watermark: '9' }) }));
+        await waitFor(() => expect(timers).toHaveLength(1));
+        expect(reads).toBe(1);
+        act(() => timers[0]!());
+      }
+      const socket = sockets.at(-1)!;
+      act(() => socket.onmessage?.({ data: JSON.stringify({ type: 'hello', watermark: '10' }) }));
+      await waitFor(() => expect(reads).toBe(2));
+      act(() => socket.onmessage?.({ data: JSON.stringify({ type: 'event', stream_seq: '11', event: event('11') }) }));
+      expect(screen.queryByText('overview-11')).toBeNull();
+      release();
+      expect(await screen.findByText('overview-10')).toBeInTheDocument();
+      expect(await screen.findByText('overview-11')).toBeInTheDocument();
+      expect(stream.currentCursor).toBe('11');
+    } finally { release(); }
   });
 
   it('активные источники ведут в ленту с фильтром по IP', async () => {

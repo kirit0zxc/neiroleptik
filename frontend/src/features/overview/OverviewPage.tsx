@@ -1,10 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 import { Link } from 'react-router';
 import { api } from '../../shared/api/client';
 import { eventKey, type HfEvent } from '../../shared/api/types';
 import { formatTime } from '../../shared/format/time';
-import { useStreamEvents } from '../../shared/stream/stream';
+import { useStreamEvents, useStreamResync } from '../../shared/stream/stream';
 import { Empty, ErrorState, Loading, Panel, ui } from '../../shared/ui';
 import { describeEvent, eventLabel } from '../events/describe';
 import s from './overview.module.css';
@@ -89,6 +89,7 @@ function Tile({ to, title, value, caption, alert }: {
 
 /** 10 последних событий: из REST, новые — из потока сверху. */
 function RecentEvents() {
+  const qc = useQueryClient();
   const q = useQuery({
     queryKey: ['events-recent'],
     queryFn: () => api<{ items: HfEvent[] }>(`/api/v1/events?limit=${RECENT}`),
@@ -98,6 +99,13 @@ function RecentEvents() {
     setLive((prev) => [...[...events].reverse(), ...prev].slice(0, RECENT));
   }, []);
   useStreamEvents(onLive);
+  // Обзор тоже читает новый снимок после hello, иначе записи до WS-границы
+  // исчезнут из последних событий при первом входе или восстановлении 410.
+  useStreamResync(useCallback(async () => {
+    await qc.cancelQueries({ queryKey: ['events-recent'], exact: true });
+    setLive([]);
+    await q.refetch({ throwOnError: true });
+  }, [qc, q.refetch]));
 
   const seen = new Set<string>();
   const items = [...live, ...(q.data?.items ?? [])].filter((e) => !seen.has(eventKey(e)) && !!seen.add(eventKey(e))).slice(0, RECENT);

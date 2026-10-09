@@ -62,6 +62,15 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
       if (form.getValues('credentials_mode') !== 'replace') form.setValue('credentials_mode', 'replace');
       if (form.getValues('preserved_usernames').length) form.setValue('preserved_usernames', []);
     }
+    // Скрытый блок VM не должен блокировать Low/Medium невидимой ошибкой.
+    if (!hasHigh(level)) {
+      const high = form.getValues('high');
+      const defaults = emptyProfile(level).high;
+      if (high.cpu !== defaults.cpu || high.memory_mb !== defaults.memory_mb || high.ttl_seconds !== defaults.ttl_seconds) {
+        form.setValue('high', defaults);
+        form.clearErrors('high');
+      }
+    }
     const current = form.getValues('services');
     const next = servicesForLevel(level, current);
     if (next !== current) services.replace(next);

@@ -48,6 +48,21 @@ export function availableCommands(d: Pick<PreviewDeployment, 'state' | 'interact
 
 export const isFinal = (s: JobState) => s === 'succeeded' || s === 'failed' || s === 'expired';
 
+/** Коды ошибок драйвера ловушки (участник 3) — понятным текстом (specs, «Команды ловушки»). */
+const DRIVER_ERRORS: Readonly<Record<string, string>> = {
+  UNSUPPORTED_PROFILE: 'профиль не поддерживается этим хостом',
+  HEALTHCHECK_FAILED: 'проверка работоспособности не прошла',
+  START_FAILED: 'не удалось запустить',
+  BACKEND_UNAVAILABLE: 'среда запуска недоступна (Docker или KVM)',
+  CLEANUP_FAILED: 'не удалось убрать после остановки',
+  INVALID_STATE: 'команда недопустима в текущем состоянии',
+};
+
+/** Текст ошибки задания: известный код драйвера переводим, остальное показываем как есть. */
+export function driverErrorText(error: string): string {
+  return Object.hasOwn(DRIVER_ERRORS, error) ? DRIVER_ERRORS[error]! : error;
+}
+
 /** Ход задания словами (виден, пока задание идёт, и итог). */
 export function jobLabel(job: Pick<Job, 'state' | 'error'>): { tone: 'ok' | 'warn' | 'bad'; label: string } {
   switch (job.state) {
@@ -55,7 +70,7 @@ export function jobLabel(job: Pick<Job, 'state' | 'error'>): { tone: 'ok' | 'war
     case 'leased': return { tone: 'warn', label: 'взято агентом' };
     case 'running': return { tone: 'warn', label: 'выполняется' };
     case 'succeeded': return { tone: 'ok', label: 'выполнено' };
-    case 'failed': return { tone: 'bad', label: `ошибка${job.error ? `: ${job.error}` : ''}` };
+    case 'failed': return { tone: 'bad', label: `ошибка${job.error ? `: ${driverErrorText(job.error)}` : ''}` };
     case 'expired': return { tone: 'bad', label: 'истекло — агент не взял задание вовремя' };
     default: return { tone: 'bad', label: 'неизвестное состояние' };
   }

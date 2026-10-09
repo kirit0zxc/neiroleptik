@@ -28,6 +28,11 @@ export const hasHigh = (level: Level) => level === 'high';
 const HOSTNAME = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$/;
 /** Логин учётки — по маске сервера (CredentialInput.username). */
 const USERNAME = /^[a-zA-Z0-9_.-]+$/;
+/** Баннер TCP — только печатные ASCII (0x20–0x7E): так требует драйвер Low. */
+const PRINTABLE_ASCII = /^[ -~]+$/;
+
+/** На Low драйвер поднимает не больше одного сервиса каждого протокола. */
+const LOW_SINGLE: readonly Protocol[] = ['tcp', 'http'];
 
 const service = z.object({
   protocol: z.enum(PROTOCOLS),
@@ -69,6 +74,15 @@ export const ProfileSchema = z.object({
   p.services.forEach((s, i) => {
     if (!allowed.includes(s.protocol)) {
       ctx.addIssue({ code: 'custom', path: ['services', i, 'protocol'], message: `На уровне ${p.level} нельзя ${s.protocol}` });
+    }
+    if (s.protocol === 'tcp') {
+      if (!s.banner) ctx.addIssue({ code: 'custom', path: ['services', i, 'banner'], message: 'У TCP баннер обязателен' });
+      else if (!PRINTABLE_ASCII.test(s.banner)) {
+        ctx.addIssue({ code: 'custom', path: ['services', i, 'banner'], message: 'Баннер TCP: только латиница, цифры, пробел и знаки ASCII' });
+      }
+    }
+    if (p.level === 'low' && LOW_SINGLE.includes(s.protocol) && p.services.findIndex((x) => x.protocol === s.protocol) < i) {
+      ctx.addIssue({ code: 'custom', path: ['services', i, 'protocol'], message: `На Low не больше одного ${s.protocol.toUpperCase()}-сервиса` });
     }
     const prev = seen.get(s.port);
     if (prev !== undefined) {
@@ -126,7 +140,8 @@ export function servicesForLevel<S extends { protocol: string }>(level: Level, s
   const fits = services.length > 0
     && services.every((s) => allowed.includes(s.protocol))
     && (level !== 'medium' || services.some((s) => s.protocol === 'ssh'))
-    && (level !== 'high' || services.length === 1);
+    && (level !== 'high' || services.length === 1)
+    && (level !== 'low' || LOW_SINGLE.every((p) => services.filter((s) => s.protocol === p).length <= 1));
   return fits ? services : emptyProfile(level).services;
 }
 

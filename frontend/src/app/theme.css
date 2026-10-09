@@ -1,50 +1,53 @@
 /*
- * Тема HoneyForge (specs/frontend.md, раздел 6a): тёмный интерфейс в
- * стиле плавающего окна Юми. Это единственный источник цветов, шрифтов и
+ * Тема HoneyForge (specs/frontend.md, раздел 6a): «досье» — тёмный лист с
+ * тонкими линиями-рамками, лавандовый монохром как на CRT-экране, пиксельные заголовки и
+ * каркасный рельеф на фоне. Это единственный источник цветов, шрифтов и
  * рамок — окно маскота (--yumi-*) берёт значения отсюда же.
  */
 @import '@fontsource/pixelify-sans/cyrillic-600.css';
 @import '@fontsource/pixelify-sans/latin-600.css';
+@import '@fontsource/press-start-2p/cyrillic-400.css';
+@import '@fontsource/press-start-2p/latin-400.css';
 
 :root {
   color-scheme: dark;
 
   /* Фон и текст */
-  --bg: #0d0820;
-  --bg-elev: #160f33;
-  --bg-panel: #1d1442;
-  --line: #3a2a6e;
-  --text: #ece6ff;
-  --text-dim: #a99bd6;
+  --bg: #07070e;
+  --bg-elev: #11101f;
+  --bg-panel: rgba(8, 8, 18, .9);
+  --line: #6f6aa8;
+  --line-faint: #23213d;
+  --text: #e7e4ff;
+  --text-dim: #9d97d4;
 
   /* Акценты и состояния */
-  --accent: #ff5cbe;
-  --accent-2: #45d6ff;
-  --ok: #41e6a4;
-  --warn: #ffc84a;
-  --bad: #ff5c7a;
-  --idle: #8a82a8;
-  --focus: #45d6ff;
+  --accent: #b9b3ff;
+  --accent-2: #d8d4ff;
+  --ok: #9fe6c6;
+  --warn: #ffd98a;
+  --bad: #ff8fa6;
+  --idle: #77739c;
+  --focus: #e7e4ff;
 
-  /* Ретро-окно — как у Юми. Текст заголовка темнее, чем у её светлого
-     окна: на розовом нужен контраст не ниже 4.5:1 (здесь ~6:1). */
-  --win-border: #9b6b9e;
-  --win-border-dark: #5a3560;
-  --win-title: #dfa3d9;
-  --win-title-text: #3d1c47;
+  /* Окно-лист: тонкая рамка, заголовок — полоска с пиксельным шрифтом. */
+  --win-border: var(--line);
+  --win-border-dark: #3b3770;
+  --win-title: rgba(185, 179, 255, .07);
+  --win-title-text: var(--accent);
   --win-body: var(--bg-panel);
-  --win-shadow: 3px 3px 0 var(--win-border-dark), 6px 6px 0 rgba(10, 4, 24, .55);
+  --win-shadow: none;
 
   --radius: 0;
-  --font-ui: system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-ui: "Pixelify Sans", system-ui, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
-  --font-pixel: "Pixelify Sans", var(--font-ui);
+  --font-pixel: "Press Start 2P", "Pixelify Sans", monospace;
 
   /* Место под маскота: ширина левого нижнего угла, который не занимаем. */
   --mascot-reserve: 0px;
 }
 
-/* Окно Юми — из тех же токенов, когда её подключат (specs, раздел 9). */
+/* Окно Юми — из тех же токенов (specs, раздел 9). */
 .yumi-window, .yumi-tab, .yumi-dock {
   --yumi-border: var(--win-border);
   --yumi-border-dark: var(--win-border-dark);
@@ -57,46 +60,48 @@
 html, body, #root { height: 100%; }
 body {
   margin: 0;
-  background:
-    radial-gradient(120% 60% at 50% 0%, #2a0f4d 0%, transparent 60%),
-    var(--bg);
-  background-attachment: fixed;
+  background: radial-gradient(70% 50% at 50% 20%, #15132f 0%, var(--bg) 75%) fixed, var(--bg);
   color: var(--text);
-  font: 14px/1.45 var(--font-ui);
+  font: 15px/1.45 var(--font-ui);
 }
+/* Страница не прокручивается — прокручиваются блоки; скроллбары тонкие, в цвет линий. */
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+::-webkit-scrollbar-corner { background: transparent; }
 a { color: var(--accent-2); }
+a:hover { color: var(--text); }
 :focus-visible { outline: 2px dashed var(--focus); outline-offset: 2px; }
-h1, h2 { font-family: var(--font-pixel); font-weight: 600; letter-spacing: .02em; }
-h1 { color: var(--accent); text-shadow: 2px 2px 0 var(--win-border-dark); }
-code, .mono { font-family: var(--font-mono); }
+h1, h2 { font-family: var(--font-pixel); font-weight: 400; letter-spacing: .02em; line-height: 1.4; text-wrap: balance; }
+h1 { color: var(--text); font-size: 22px; text-shadow: 0 0 8px rgba(185, 179, 255, .45), 0 2px 0 var(--win-border-dark); }
+code, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
-/* Ретро-окно: рамка, ступенчатая тень, заголовок-полоска. Используется
-   панелями, плитками, фильтрами, карточкой входа и диалогами. */
+/* Окно-лист: панели, плитки, фильтры, карточка входа и диалоги. */
 .win {
   background: var(--win-body);
-  border: 3px solid var(--win-border);
+  border: 1px solid var(--win-border);
   box-shadow: var(--win-shadow);
 }
 .win-titlebar {
   display: flex; align-items: center; gap: 8px;
-  min-height: 28px; padding: 2px 8px;
+  min-height: 30px; padding: 6px 12px;
   background: var(--win-title);
-  border-bottom: 3px solid var(--win-border);
+  border-bottom: 1px solid var(--win-border);
   color: var(--win-title-text);
-  font: 600 16px/1.2 var(--font-pixel);
+  font: 400 11px/1.4 var(--font-pixel);
+  letter-spacing: .04em;
+  text-shadow: 0 0 6px rgba(185, 179, 255, .5);
 }
 .win-titlebar h2 { all: unset; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Пиктограмма окна — как у Юми. */
-.win-icon {
-  flex: 0 0 16px; height: 12px;
-  border: 2px solid var(--win-title-text);
-  background: #f6c1d3;
-  box-shadow: inset 0 -3px 0 var(--win-title-text);
-}
-/* Декоративные «кнопки» окна — только вид, без действий. */
+/* Пиктограмма окна — пиксельное сердечко. */
+.win-icon { flex: 0 0 auto; }
+.win-icon::before { content: "♥"; font-size: 12px; }
+/* Декоративные «кнопки» окна — тонкие квадратики. */
 .win-controls { display: flex; gap: 4px; }
-.win-controls span { width: 10px; height: 10px; border: 2px solid var(--win-title-text); }
-.win-body { padding: 14px 16px; }
+.win-controls span { width: 8px; height: 8px; border: 1px solid var(--win-title-text); }
+.win-body { padding: 14px 16px; overflow-x: auto; }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }

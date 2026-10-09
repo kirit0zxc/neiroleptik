@@ -181,6 +181,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         asyncio.run(_run(config, journal))
     except KeyboardInterrupt:
         pass
+    except OSError as error:
+        # Занятый порт или недоступный каталог журнала: понятное сообщение и код 1
+        # вместо трассировки.
+        parser.exit(1, f"honeyforge-low: не удалось запустить сервис: {error}\n")
 
 
 if __name__ == "__main__":

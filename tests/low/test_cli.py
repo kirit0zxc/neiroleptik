@@ -123,3 +123,46 @@ def test_journal_dir_requires_all_identifiers(missing: str) -> None:
 
 def test_config_from_args_ignores_journal_only_options() -> None:
     assert config("--journal-dir=/journal", f"--instance-id={INSTANCE}") == LowConfig()
+
+
+# --- Ошибки запуска ---------------------------------------------------------------------
+
+
+def test_occupied_port_gives_a_readable_error(capsys: pytest.CaptureFixture[str]) -> None:
+    """Регрессия: занятый порт давал трассировку вместо понятного сообщения."""
+    import socket
+
+    from honeypots.low.__main__ import main
+
+    with socket.socket() as blocker:
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen()
+        port = blocker.getsockname()[1]
+        with pytest.raises(SystemExit) as exit_info:
+            main([f"--tcp-port={port}", "--http-port=0"])
+
+    assert exit_info.value.code == 1
+    error = capsys.readouterr().err
+    assert "не удалось запустить сервис" in error
+    assert "Traceback" not in error
+
+
+def test_missing_journal_directory_gives_a_readable_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from honeypots.low.__main__ import main
+
+    with pytest.raises(SystemExit) as exit_info:
+        main(
+            [
+                "--tcp-port=0",
+                "--http-port=0",
+                f"--journal-dir={tmp_path / 'absent'}",
+                f"--instance-id={INSTANCE}",
+                f"--deployment-id={DEPLOYMENT}",
+                "--profile-revision=1",
+            ]
+        )
+
+    assert exit_info.value.code == 1
+    assert "не удалось запустить сервис" in capsys.readouterr().err

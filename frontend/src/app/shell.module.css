@@ -1,0 +1,21 @@
+.shell { min-height: 100%; display: grid; grid-template-rows: auto 1fr; }
+.header {
+  display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(13, 8, 32, .85);
+}
+.logo { font-family: var(--font-pixel); font-size: 20px; color: var(--accent); text-shadow: 0 0 10px rgba(255, 92, 190, .55); }
+.nav { display: flex; gap: 4px; flex-wrap: wrap; }
+.nav a { color: var(--text-dim); text-decoration: none; padding: 4px 10px; border-radius: var(--radius); }
+.nav a:hover { color: var(--text); background: rgba(69, 214, 255, .08); }
+.nav .active { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent-2); }
+.user { margin-left: auto; display: flex; align-items: center; gap: 10px; color: var(--text-dim); }
+.logout { background: none; border: 1px solid var(--line); color: var(--text); border-radius: var(--radius); padding: 3px 10px; cursor: pointer; font: inherit; }
+.main {
+  padding: 20px; display: grid; gap: 16px; align-content: start;
+  /* Не уходим под окно маскота, когда оно появится (specs, раздел 9). */
+  padding-left: max(20px, var(--mascot-reserve));
+}
+.main h1 { margin: 0; }
+.planned { color: var(--text-dim); }

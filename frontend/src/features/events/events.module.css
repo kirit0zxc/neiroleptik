@@ -1,0 +1,12 @@
+.filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.f { display: grid; gap: 4px; color: var(--text-dim); font-size: 13px; }
+.f input, .f select {
+  background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 6px 8px; font: 13px var(--font-mono); color-scheme: dark;
+}
+.f [aria-invalid="true"] { border-color: var(--bad); }
+.err { color: var(--bad); font-size: 12px; }
+.actions { display: flex; gap: 8px; }
+.toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.count { margin-left: auto; color: var(--text-dim); font-size: 13px; }
+.more { text-align: center; margin: 12px 0 0; }

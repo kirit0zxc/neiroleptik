@@ -27,9 +27,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Validate GitHub Actions workflows
-        uses: docker://rhysd/actionlint:1.7.12
-        with:
-          args: -color
+        # Закреплённый выпуск и SHA-256; проверка не зависит от лимитов Docker Hub.
+        run: |
+          actionlint_archive="$RUNNER_TEMP/actionlint.tar.gz"
+          mkdir -p "$RUNNER_TEMP/actionlint"
+          curl --fail --location --retry 3 --retry-delay 2 \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            --output "$actionlint_archive"
+          printf '%s  %s\n' '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8' "$actionlint_archive" | sha256sum --check --status
+          tar -xzf "$actionlint_archive" -C "$RUNNER_TEMP/actionlint" actionlint
+          "$RUNNER_TEMP/actionlint/actionlint" -color
       - name: Check whitespace in changes
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}

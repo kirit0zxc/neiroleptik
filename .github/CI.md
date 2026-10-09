@@ -1,62 +1,56 @@
-# CI and pull requests
+# CI и pull request
 
-CI runs on pull requests into `main`, on pushes to `main`, and manually from Actions.
+CI запускается для каждого PR в `main`, push в `main` и вручную из Actions.
+Backend обязателен: отсутствие файлов или пропуск job не дают зелёный `CI result`.
 
-## Current state
+## Проверки backend
 
-The application has not been created. CI currently validates workflow syntax and
-checks whitespace in changes. Missing frontend/backend jobs are explicitly skipped.
-A green run at this stage does not mean that an application or its API works.
+Python 3.12, FastAPI, PostgreSQL 17. `uv sync --frozen` устанавливает зависимости
+из `backend/uv.lock`; uv закреплён на 0.11.28. Выполняются:
 
-## Expected project layout
+1. Ruff: ошибки и форматирование backend и служебных скриптов.
+2. Строгая проверка типов mypy.
+3. Alembic: upgrade, соответствие моделей миграциям, downgrade и повторный upgrade.
+4. Сверка `contracts/openapi.json` с OpenAPI, генерируемым приложением.
+5. Все pytest-тесты в `backend/tests/`, включая HTTP API, PostgreSQL и JSON Schema.
+6. Сборка Docker-образа приложения.
 
-- `frontend/`: React + TypeScript, Node.js 24, npm.
-- `backend/`: Django, Python 3.12, PostgreSQL 16 in CI; ML dependencies as needed.
+Новые тесты с именами `test_*.py` в `backend/tests/` подхватываются автоматически.
+Они должны выполняться без watch-режима, внешних платных сервисов и больших моделей.
+Тесты очищают только выделенную БД с точным именем `honeyforge_test`.
+CI использует одноразовые тестовые ключи и БД; production-секреты не нужны.
+Файл результатов pytest: `backend/test-results.xml` в рабочей директории job;
+полный вывод доступен в шаге Actions.
 
-Frontend CI starts when `frontend/package.json` exists. Commit
-`frontend/package-lock.json` and provide these npm scripts:
+## Проверки runtime
 
-- `typecheck`: check TypeScript without emitting files.
-- `test:ci`: run frontend tests once, without watch mode.
-- `build`: produce the frontend build.
+Job `Runtime checks` проверяет только каталоги runtime: `agent`, `honeypots`, `infra`
+и `tests`. Python 3.12, зависимости из `requirements-dev.txt`. Выполняются Ruff
+(ошибки и форматирование), строгий mypy, pytest, сборка wheel
+(`python -m build --no-isolation`) и `docker compose -f compose.runtime.yml config --quiet`.
+Последняя команда проверяет только синтаксис Compose-конфигурации: контейнеры не
+запускаются. Root-конфигурация Ruff исключает `backend`, `frontend` и `scripts`,
+чтобы они проверялись только своими конфигурациями.
 
-Backend CI starts when `backend/manage.py` exists. Commit
-`backend/requirements.txt` with the app's dependencies. CI installs them, checks
-Django configuration, checks for missing migrations, and runs Django tests.
-Configure Django to read `DJANGO_SECRET_KEY` and either `DATABASE_URL` or the
-`POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, and
-`POSTGRES_PORT` environment variables supplied by the workflow. The database is
-disposable and contains no production data. Django tests need permission to create
-their own test database (the CI PostgreSQL user has it).
+Зелёный `Runtime checks` не доказывает работу KVM, Cowrie, сетевую изоляцию и
+интеграцию с центром: такие проверки требуют отдельного живого стенда.
 
-ML checks run on CPU. Add focused tests and small test fixtures; full training and
-large model/dataset downloads should use a separate workflow.
+## Frontend
 
-This initial workflow does not yet verify the API contract or a browser-to-backend
-scenario. Add those checks when the application and its API are defined.
+Пока `frontend/` отсутствует, job явно пропускается. При добавлении приложения
+нужны `package.json`, `package-lock.json` и npm-скрипты `typecheck`, `test:ci`, `build`.
+Тогда CI выполняет `npm ci` и эти три команды на Node.js 24. Исходники без
+package.json и manifest без lock-файла считаются ошибкой.
+Зелёный backend CI не доказывает интеграцию с ещё не подключённым frontend.
+Stream/events/replay в этом PR имеют только проект контрактов, без реализации.
 
-## Review and merge
+## Ревью
 
-Open a small PR into `main`, wait for `CI result`, and ask `@kirit0zxc` to review it.
-Changes to shared API formats must be agreed with the other developer before
-implementation.
+Обязательный итоговый check: `CI result`. Он требует успешных repository, backend
+и runtime, а также frontend, когда последний присутствует. Ошибка, отмена или неожиданный пропуск
+проверок блокируют итоговый check. Проверка ветки самим GitHub зависит от настроенных
+rulesets/branch protection; этот файл не устанавливает защиту ветки.
 
-`.github/CODEOWNERS` assigns all files to `@kirit0zxc`. On the current private
-GitHub Free repository, CODEOWNERS and branch protection do not enforce approval.
-The rule for `main` is prepared for a supported paid plan (GitHub Pro for a personal
-repository; GitHub Team for an organization):
-
-- require a PR and one approval;
-- require code-owner review after upgrading (the checkbox is disabled on Free
-  and must be enabled separately);
-- dismiss stale approvals after changes;
-- require successful `CI result` and an up-to-date branch;
-- require conversation resolution;
-- disallow force pushes and branch deletion.
-
-Other collaborators can leave reviews, but with code-owner enforcement enabled
-their approvals do not replace the owner's approval. A PR author cannot approve
-their own PR. Admin bypass remains available to the repository owner for their own
-PRs; this means the owner can merge without an approval. Everyone should still
-check the latest CI result before merging. On Free all merge rules are a team
-agreement, not a technical block.
+Процесс задаёт `AGENTS.md`: три субагента перед push, проверка с актуальным main,
+финальное одобрение человеком. Агент не одобряет и не сливает PR. Для PR владельца
+нужен другой человек, назначенный владельцем для независимого одобрения.

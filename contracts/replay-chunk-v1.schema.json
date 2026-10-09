@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:honeyforge:replay-chunk:v1",
+  "title": "ReplayChunkV1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "offset_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "direction": {
+      "enum": [
+        "in",
+        "out"
+      ]
+    },
+    "data_base64": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "description": "Исходные байты, не HTML; предел чанка 64 КиБ до base64."
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "seq",
+    "offset_ms",
+    "direction",
+    "data_base64",
+    "truncated"
+  ]
+}

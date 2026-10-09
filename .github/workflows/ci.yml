@@ -21,7 +21,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       frontend: ${{ steps.detect.outputs.frontend }}
-      backend: ${{ steps.detect.outputs.backend }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -44,7 +43,6 @@ jobs:
         id: detect
         run: |
           frontend=false
-          backend=false
           if [ -f frontend/package.json ]; then
             if [ ! -f frontend/package-lock.json ]; then
               echo "::error::Commit frontend/package-lock.json so npm ci is reproducible."
@@ -52,22 +50,20 @@ jobs:
             fi
             frontend=true
           fi
-          if [ -f backend/manage.py ]; then
-            if [ ! -f backend/requirements.txt ]; then
-              echo "::error::Add backend/requirements.txt for the Django CI job."
-              exit 1
-            fi
-            backend=true
+          if [ -d frontend ] && [ "$frontend" = false ] && [ -n "$(find frontend -type f ! -name README.md ! -name .gitkeep -print -quit)" ]; then
+            echo "::error::Frontend files exist without frontend/package.json."
+            exit 1
           fi
+          test -f backend/pyproject.toml
+          test -f backend/uv.lock
           echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
-          echo "backend=$backend" >> "$GITHUB_OUTPUT"
           {
             echo "## Project components"
             echo "- React/TypeScript detected: $frontend"
-            echo "- Django detected: $backend"
-            if [ "$frontend" = false ] || [ "$backend" = false ]; then
+            echo "- FastAPI backend: required"
+            if [ "$frontend" = false ]; then
               echo ""
-              echo "Missing components are skipped. Green CI does not verify components that have not been added yet. See .github/CI.md."
+              echo "Frontend is absent and skipped. API integration with a browser is not verified. See .github/CI.md."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -97,34 +93,33 @@ jobs:
   backend:
     name: Backend checks
     needs: repository
-    if: needs.repository.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
     env:
-      DJANGO_SECRET_KEY: ci-only-not-for-production
-      DATABASE_URL: postgresql://neiroleptik:ci-only@localhost:5432/neiroleptik_ci
-      POSTGRES_DB: neiroleptik_ci
-      POSTGRES_USER: neiroleptik
-      POSTGRES_PASSWORD: ci-only
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: '5432'
+      HF_DATABASE_URL: postgresql+psycopg://honeyforge:ci-only@127.0.0.1:5432/honeyforge_test
+      HF_TEST_DATABASE_URL: postgresql+psycopg://honeyforge:ci-only@127.0.0.1:5432/honeyforge_test
+      HF_SESSION_SECRET: ci-only-session-secret-not-for-production-00000000
+      HF_CREDENTIAL_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      HF_ENVIRONMENT: test
+      HF_COOKIE_SECURE: 'false'
+      HF_ALLOWED_ORIGINS: '["http://localhost:5173"]'
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17-alpine
         env:
-          POSTGRES_DB: neiroleptik_ci
-          POSTGRES_USER: neiroleptik
+          POSTGRES_DB: honeyforge_test
+          POSTGRES_USER: honeyforge
           POSTGRES_PASSWORD: ci-only
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
+          --health-cmd "pg_isready -U honeyforge -d honeyforge_test"
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -132,12 +127,28 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-      - run: python -m pip install -r requirements.txt
-      - run: python manage.py check
-      - run: python manage.py makemigrations --check --dry-run
-      - run: python manage.py test --noinput
+      - name: Install locked dependencies
+        run: |
+          python -m pip install uv==0.11.28
+          uv sync --frozen
+      - name: Lint and formatting
+        run: |
+          uv run --frozen ruff check . ../scripts
+          uv run --frozen ruff format --check . ../scripts
+      - name: Type checking
+        run: uv run --frozen mypy
+      - name: Migration upgrade, downgrade and model consistency
+        run: |
+          uv run --frozen alembic upgrade head
+          uv run --frozen alembic check
+          uv run --frozen alembic downgrade base
+          uv run --frozen alembic upgrade head
+      - name: Verify generated OpenAPI
+        run: uv run --frozen python -m honeyforge.cli export-openapi --check
+      - name: Integration and contract tests on PostgreSQL
+        run: uv run --frozen pytest --junitxml=test-results.xml
+      - name: Build runtime image
+        run: docker build --tag honeyforge-control:ci .
 
   runtime:
     name: Runtime checks
@@ -167,14 +178,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Verify all active checks passed
+      - name: Verify all required checks passed
         env:
-          RESULTS: ${{ join(needs.*.result, ',') }}
+          REPOSITORY_RESULT: ${{ needs.repository.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          RUNTIME_RESULT: ${{ needs.runtime.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          FRONTEND_PRESENT: ${{ needs.repository.outputs.frontend }}
         run: |
-          case ",$RESULTS," in
-            *,failure,*|*,cancelled,*)
-              echo "::error::A required CI job failed or was cancelled."
-              exit 1
-              ;;
-          esac
-          echo "All active CI checks passed."
+          test "$REPOSITORY_RESULT" = success
+          test "$BACKEND_RESULT" = success
+          test "$RUNTIME_RESULT" = success
+          if [ "$FRONTEND_PRESENT" = true ]; then
+            test "$FRONTEND_RESULT" = success
+          elif [ "$FRONTEND_PRESENT" = false ]; then
+            test "$FRONTEND_RESULT" = skipped
+          else
+            echo "::error::Component detection did not complete."
+            exit 1
+          fi
+          echo "All required CI checks passed."

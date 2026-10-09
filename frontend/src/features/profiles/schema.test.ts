@@ -52,10 +52,16 @@ describe('схема профиля (F8)', () => {
     const tcp = (banner: string) => issues({ ...emptyProfile('low'), name: 'x', services: [{ protocol: 'tcp', port: 23, banner }] });
     expect(tcp('')).toEqual(['services.0.banner: У TCP баннер обязателен']);
     expect(tcp('Привет')).toEqual(['services.0.banner: Баннер TCP: только латиница, цифры, пробел и знаки ASCII']);
-    expect(tcp('a	b')).toEqual(['services.0.banner: Баннер TCP: только латиница, цифры, пробел и знаки ASCII']);
+    for (const bad of ['a\tb', 'a\u007Fb']) {
+      expect(tcp(bad)).toEqual(['services.0.banner: Баннер TCP: только латиница, цифры, пробел и знаки ASCII']);
+    }
+    expect(tcp('   ')).toEqual(['services.0.banner: У TCP баннер обязателен']);
+    expect(tcp('a\nb')).toContain('services.0.banner: Баннер должен быть одной строкой');
     expect(tcp(' ~SSH-2.0 x!')).toEqual([]);
     // У HTTP баннер (текст заглушки) может быть пустым и не-ASCII.
     expect(issues({ ...emptyProfile('low'), name: 'x', services: [{ protocol: 'http', port: 80, banner: 'Привет' }] })).toEqual([]);
+    // ASCII-правило только для TCP: баннер SSH на Medium его не проверяет.
+    expect(issues(valid({ services: [{ protocol: 'ssh', port: 2222, banner: 'Привет' }] }))).toEqual([]);
   });
 
   it('смена уровня на Low: два HTTP не подходят — набор по умолчанию', () => {

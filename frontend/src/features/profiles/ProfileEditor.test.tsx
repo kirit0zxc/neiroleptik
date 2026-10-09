@@ -37,6 +37,9 @@ describe('форма профиля (F8, F9)', () => {
     expect(within(second).getByLabelText('Протокол')).toHaveValue('tcp');
     expect(within(second).getByLabelText('Баннер')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '+ Сервис' })).toBeNull();
+    // Кнопка пропала — фокус не теряется, а правило объяснено.
+    expect(within(second).getByLabelText('Протокол')).toHaveFocus();
+    expect(screen.getByText('На Low — не больше одного TCP и одного HTTP.')).toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Название'), 'Камера');
     await user.type(within(second).getByLabelText('Порт'), '23');

@@ -76,7 +76,7 @@ export const ProfileSchema = z.object({
       ctx.addIssue({ code: 'custom', path: ['services', i, 'protocol'], message: `На уровне ${p.level} нельзя ${s.protocol}` });
     }
     if (s.protocol === 'tcp') {
-      if (!s.banner) ctx.addIssue({ code: 'custom', path: ['services', i, 'banner'], message: 'У TCP баннер обязателен' });
+      if (!s.banner.trim()) ctx.addIssue({ code: 'custom', path: ['services', i, 'banner'], message: 'У TCP баннер обязателен' });
       else if (!PRINTABLE_ASCII.test(s.banner)) {
         ctx.addIssue({ code: 'custom', path: ['services', i, 'banner'], message: 'Баннер TCP: только латиница, цифры, пробел и знаки ASCII' });
       }

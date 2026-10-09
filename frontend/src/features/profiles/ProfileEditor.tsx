@@ -9,8 +9,9 @@ import { ErrorState, Loading, Panel, ui } from '../../shared/ui';
 import { canEdit, useMe } from '../auth/auth';
 import { useProfile, useRevisions, useSaveProfile } from './api';
 import {
-  ALLOWED, emptyProfile, formFromConfig, formToCreate, hasCredentials, hasHigh, LEVELS,
-  ProfileSchema, servicesForLevel, type ProfileForm, type ProfileInput, bannerLabel, nextServiceProtocol } from './schema';
+  ALLOWED, bannerLabel, emptyProfile, formFromConfig, formToCreate, hasCredentials, hasHigh, LEVELS,
+  nextServiceProtocol, ProfileSchema, servicesForLevel, type ProfileForm, type ProfileInput,
+} from './schema';
 import s from './profiles.module.css';
 
 const LEVEL_LABEL = { low: 'Low — порты и баннеры', medium: 'Medium — эмуляция SSH (Cowrie)', high: 'High — настоящая VM за SSH-шлюзом' } as const;
@@ -162,9 +163,12 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
                   disabled={services.fields.length === 1} aria-label={`Удалить сервис ${i + 1}`}>×</button>
               </div>
             ))}
+            {!addProtocol && level === 'low' && (
+              <p className={s.note} role="status">На Low — не больше одного TCP и одного HTTP.</p>
+            )}
             {addProtocol && (
               <button type="button" className={ui.button}
-                onClick={() => services.append({ protocol: addProtocol, port: '' as unknown as number, banner: '' })}>
+                onClick={() => services.append({ protocol: addProtocol, port: '' as unknown as number, banner: '' }, { focusName: `services.${services.fields.length}.protocol` })}>
                 + Сервис
               </button>
             )}

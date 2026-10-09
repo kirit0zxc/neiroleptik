@@ -145,6 +145,21 @@ export function servicesForLevel<S extends { protocol: string }>(level: Level, s
   return fits ? services : emptyProfile(level).services;
 }
 
+/** Подпись поля banner: у HTTP это тело ответа заглушки, у TCP и SSH — баннер. */
+export function bannerLabel(protocol: string): string {
+  return protocol === 'http' ? 'Текст страницы-заглушки' : 'Баннер';
+}
+
+/**
+ * Протокол для кнопки «+ Сервис» или null, если добавлять нечего: на High
+ * сервис ровно один, на Low — не больше одного TCP и одного HTTP.
+ */
+export function nextServiceProtocol(level: Level, services: readonly { protocol: string }[]): Protocol | null {
+  if (level === 'high' || services.length >= 8) return null;
+  if (level === 'low') return LOW_SINGLE.find((p) => !services.some((s) => s.protocol === p)) ?? null;
+  return ALLOWED[level][0] ?? null;
+}
+
 /** Новый профиль: SSH-уровни требуют явного добавления приманочных учёток. */
 export function emptyProfile(level: Level = 'low'): ProfileForm {
   const services: ProfileForm['services'] = level === 'low'

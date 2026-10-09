@@ -24,6 +24,27 @@ function open(path: string) {
 describe('форма профиля (F8, F9)', () => {
   beforeEach(() => resetMockSession(true));
 
+  it('Low: у HTTP поле «Текст страницы-заглушки», «+ Сервис» добавляет TCP и пропадает', async () => {
+    const user = userEvent.setup();
+    open('/profiles/new');
+    await screen.findByRole('heading', { name: 'Новый профиль' });
+    const first = screen.getByRole('group', { name: 'Сервис 1' });
+    expect(within(first).getByLabelText('Протокол')).toHaveValue('http');
+    expect(within(first).getByLabelText('Текст страницы-заглушки')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '+ Сервис' }));
+    const second = screen.getByRole('group', { name: 'Сервис 2' });
+    expect(within(second).getByLabelText('Протокол')).toHaveValue('tcp');
+    expect(within(second).getByLabelText('Баннер')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ Сервис' })).toBeNull();
+
+    await user.type(screen.getByLabelText('Название'), 'Камера');
+    await user.type(within(second).getByLabelText('Порт'), '23');
+    await user.type(within(second).getByLabelText('Баннер'), 'Привет');
+    await user.click(screen.getByRole('button', { name: 'Создать профиль' }));
+    expect(await within(second).findByText('Баннер TCP: только латиница, цифры, пробел и знаки ASCII')).toBeInTheDocument();
+  });
+
   it('создание: ошибки у полей, затем сохранение ревизии r1 и переход к профилю', async () => {
     const user = userEvent.setup();
     open('/profiles/new');

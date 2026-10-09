@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { emptyProfile, formFromConfig, formToCreate, ProfileSchema, servicesForLevel, type ProfileForm } from './schema';
+import { bannerLabel, emptyProfile, formFromConfig, formToCreate, nextServiceProtocol, ProfileSchema, servicesForLevel, type ProfileForm } from './schema';
 
 const valid = (patch: Partial<ProfileForm> = {}): ProfileForm => ({ ...emptyProfile('medium'), name: 'Тестовый сервер', credentials: [{ username: 'admin', password: 'demo' }], ...patch });
 const issues = (p: unknown) => {
@@ -65,6 +65,20 @@ describe('схема профиля (F8)', () => {
 
   it('High: значения по умолчанию как в центре — TTL 900 с, 2 vCPU, 2048 МБ', () => {
     expect(emptyProfile('high').high).toEqual({ ttl_seconds: 900, cpu: 2, memory_mb: 2048 });
+  });
+
+  it('подпись поля баннера зависит от протокола', () => {
+    expect(bannerLabel('http')).toBe('Текст страницы-заглушки');
+    expect(bannerLabel('tcp')).toBe('Баннер');
+    expect(bannerLabel('ssh')).toBe('Баннер');
+  });
+
+  it('«+ Сервис» на Low добавляет недостающий протокол и пропадает, когда есть оба', () => {
+    expect(nextServiceProtocol('low', [{ protocol: 'http' }])).toBe('tcp');
+    expect(nextServiceProtocol('low', [{ protocol: 'tcp' }])).toBe('http');
+    expect(nextServiceProtocol('low', [{ protocol: 'tcp' }, { protocol: 'http' }])).toBeNull();
+    expect(nextServiceProtocol('medium', [{ protocol: 'ssh' }])).toBe('ssh');
+    expect(nextServiceProtocol('high', [{ protocol: 'ssh' }])).toBeNull();
   });
 
   it('учётка: логин по маске сервера', () => {

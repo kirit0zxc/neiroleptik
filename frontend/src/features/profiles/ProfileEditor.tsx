@@ -10,8 +10,7 @@ import { canEdit, useMe } from '../auth/auth';
 import { useProfile, useRevisions, useSaveProfile } from './api';
 import {
   ALLOWED, emptyProfile, formFromConfig, formToCreate, hasCredentials, hasHigh, LEVELS,
-  ProfileSchema, servicesForLevel, type ProfileForm, type ProfileInput,
-} from './schema';
+  ProfileSchema, servicesForLevel, type ProfileForm, type ProfileInput, bannerLabel, nextServiceProtocol } from './schema';
 import s from './profiles.module.css';
 
 const LEVEL_LABEL = { low: 'Low — порты и баннеры', medium: 'Medium — эмуляция SSH (Cowrie)', high: 'High — настоящая VM за SSH-шлюзом' } as const;
@@ -52,6 +51,8 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
   const level = form.watch('level');
   const credentialsMode = form.watch('credentials_mode');
   const preservedUsernames = form.watch('preserved_usernames');
+  const serviceValues = form.watch('services');
+  const addProtocol = nextServiceProtocol(level, serviceValues);
   const { errors } = form.formState;
 
   // Смена уровня: у Low нет входа — учётки убираем; сервисы, которые уровню
@@ -154,16 +155,16 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
                 <Field label="Порт" error={errors.services?.[i]?.port}>
                   {(a) => <input {...a} inputMode="numeric" {...form.register(`services.${i}.port`)} />}
                 </Field>
-                <Field label="Баннер" error={errors.services?.[i]?.banner} wide>
+                <Field label={bannerLabel(serviceValues[i]?.protocol ?? '')} error={errors.services?.[i]?.banner} wide>
                   {(a) => <input {...a} {...form.register(`services.${i}.banner`)} />}
                 </Field>
                 <button type="button" className={s.remove} onClick={() => services.remove(i)}
                   disabled={services.fields.length === 1} aria-label={`Удалить сервис ${i + 1}`}>×</button>
               </div>
             ))}
-            {level !== 'high' && (
+            {addProtocol && (
               <button type="button" className={ui.button}
-                onClick={() => services.append({ protocol: ALLOWED[level][0]!, port: '' as unknown as number, banner: '' })}>
+                onClick={() => services.append({ protocol: addProtocol, port: '' as unknown as number, banner: '' })}>
                 + Сервис
               </button>
             )}

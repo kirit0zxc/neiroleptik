@@ -1,0 +1,14 @@
+.backdrop {
+  position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background-image:
+    radial-gradient(1px 1px at 10% 15%, #fff9 50%, transparent 51%), radial-gradient(1px 1px at 30% 40%, #fff6 50%, transparent 51%),
+    radial-gradient(1px 1px at 55% 8%, #fff8 50%, transparent 51%), radial-gradient(1px 1px at 75% 30%, #fff6 50%, transparent 51%),
+    radial-gradient(1px 1px at 92% 18%, #fff8 50%, transparent 51%), radial-gradient(1px 1px at 42% 25%, #fff5 50%, transparent 51%);
+}
+.canvas {
+  --terrain-line: var(--accent);
+  --terrain-fill: var(--bg);
+  position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 45%; opacity: .6;
+}
+/* Строки развёртки CRT поверх фона. */
+.backdrop::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(transparent 0 2px, rgba(0, 0, 0, .28) 2px 3px); }

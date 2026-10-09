@@ -17,7 +17,7 @@
   text-align: left; font-weight: 600; color: var(--text-dim);
   border-bottom: 1px solid var(--line); padding: 8px 10px;
 }
-.table td { border-bottom: 1px solid rgba(58, 42, 110, .5); padding: 8px 10px; vertical-align: top; }
+.table td { border-bottom: 1px dashed var(--line-faint); padding: 8px 10px; vertical-align: top; }
 .table .mono { font-family: var(--font-mono); }
 
 .state { padding: 24px; text-align: center; color: var(--text-dim); }
@@ -26,10 +26,10 @@
 /* Кнопка в духе окна Юми: прямые углы, рамка, ступенчатая тень. */
 .button {
   display: inline-block;
-  border: 2px solid var(--win-border); background: var(--bg-elev); color: var(--text);
+  border: 1px solid var(--win-border); background: var(--bg-elev); color: var(--text);
   padding: 5px 14px; font: inherit; cursor: pointer; text-decoration: none;
-  box-shadow: 2px 2px 0 var(--win-border-dark);
+  box-shadow: 0 2px 0 var(--win-border-dark);
 }
-.button:hover:not(:disabled) { background: rgba(255, 92, 190, .18); border-color: var(--accent); }
-.button:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: none; }
+.button:hover:not(:disabled) { background: rgba(185, 179, 255, .16); border-color: var(--accent); }
+.button:active:not(:disabled) { transform: translateY(2px); box-shadow: none; }
 .button:disabled { opacity: .5; cursor: default; }

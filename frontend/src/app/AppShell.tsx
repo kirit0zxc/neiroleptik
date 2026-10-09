@@ -2,9 +2,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { NavLink, Outlet } from 'react-router';
 import { useMe } from '../features/auth/auth';
 import { api, ApiError, setCsrfToken } from '../shared/api/client';
-import { MascotSlot } from '../shared/mascot-slot/MascotSlot';
+import { MascotSlot, YumiConsole } from '../shared/mascot-slot/MascotSlot';
 import { streamLabel, useStreamStatus } from '../shared/stream/stream';
 import { StatusBadge } from '../shared/ui';
+import { Terrain } from '../shared/ui/Terrain';
 import s from './shell.module.css';
 
 const NAV = [
@@ -18,7 +19,7 @@ const NAV = [
 
 const ROLE = { admin: 'администратор', operator: 'оператор', viewer: 'наблюдатель' } as const;
 
-/** Каркас: шапка, навигация, контент и место под маскота. */
+/** Каркас-«досье»: лист с шапкой, меню и Юми слева, контентом справа; под листом — консоль Юми. */
 export function AppShell() {
   const me = useMe();
   const live = streamLabel(useStreamStatus());
@@ -36,26 +37,32 @@ export function AppShell() {
 
   return (
     <div className={s.shell}>
-      <header className={s.header}>
-        <span className={s.logo}>HoneyForge</span>
-        <nav className={s.nav} aria-label="Разделы">
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => (isActive ? s.active : undefined)}>
-              {n.label}
-            </NavLink>
-          ))}
-        </nav>
-        {me && (
-          <div className={s.user}>
-            <span aria-live="polite" title="Поток событий"><StatusBadge tone={live.tone}>{live.label}</StatusBadge></span>
-            <span>{me.user.username} · {ROLE[me.user.role]}</span>
-            <button className={s.logout} disabled={logout.isPending} onClick={() => logout.mutate()}>Выйти</button>
-            {logoutFailed && <span role="alert" className={s.logoutError}>Не удалось выйти — попробуйте ещё раз</span>}
-          </div>
-        )}
-      </header>
-      <main className={s.main}><Outlet /></main>
-      <MascotSlot />
+      <Terrain />
+      <div className={s.sheet}>
+        <header className={s.header}>
+          <span className={s.logo}>HoneyForge</span>
+          {me && (
+            <div className={s.user}>
+              <span aria-live="polite" title="Поток событий"><StatusBadge tone={live.tone}>{live.label}</StatusBadge></span>
+              <span>{me.user.username} · {ROLE[me.user.role]}</span>
+              <button className={s.logout} disabled={logout.isPending} onClick={() => logout.mutate()}>Выйти</button>
+              {logoutFailed && <span role="alert" className={s.logoutError}>Не удалось выйти — попробуйте ещё раз</span>}
+            </div>
+          )}
+        </header>
+        <aside className={s.side} aria-label="Навигация и Юми">
+          <nav className={s.nav} aria-label="Разделы">
+            {NAV.map((n) => (
+              <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => (isActive ? s.active : undefined)}>
+                {n.label}
+              </NavLink>
+            ))}
+          </nav>
+          <div className={s.mascot}><MascotSlot /></div>
+        </aside>
+        <main className={s.main}><Outlet /></main>
+      </div>
+      <YumiConsole />
     </div>
   );
 }

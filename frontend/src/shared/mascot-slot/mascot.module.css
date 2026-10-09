@@ -1,0 +1,25 @@
+.slot { display: grid; }
+.portrait {
+  height: 170px; position: relative; overflow: hidden; border-bottom: 1px solid var(--win-border);
+  background:
+    radial-gradient(circle at 50% 38%, var(--accent) 0 18%, transparent 19%),
+    radial-gradient(ellipse at 50% 100%, var(--accent) 0 38%, transparent 39%),
+    linear-gradient(transparent 55%, rgba(185, 179, 255, .13)), var(--bg);
+}
+/* Точечный растр, как на фото в досье. */
+.portrait::after { content: ""; position: absolute; inset: 0; background: radial-gradient(var(--bg) 35%, transparent 36%) 0 0 / 4px 4px; opacity: .85; }
+.corners {
+  position: absolute; inset: 8px; z-index: 1;
+  background:
+    linear-gradient(var(--accent), var(--accent)) 0 0 / 10px 1px no-repeat, linear-gradient(var(--accent), var(--accent)) 0 0 / 1px 10px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) 100% 100% / 10px 1px no-repeat, linear-gradient(var(--accent), var(--accent)) 100% 100% / 1px 10px no-repeat;
+}
+.caption { margin: 0; padding: 10px 12px; color: var(--text-dim); }
+
+.console { background: var(--bg-panel); border: 1px solid var(--line); border-top: 0; }
+.consoleHead { padding: 8px 14px; border-bottom: 1px solid var(--line); }
+.consoleHead h2 { margin: 0; font: 400 11px/1.4 var(--font-pixel); color: var(--accent); text-shadow: none; }
+.consoleBody { margin: 0; padding: 10px 14px 12px; height: 84px; overflow-y: auto; color: var(--text-dim); }
+.cursor { display: inline-block; width: .6em; height: 1em; margin-left: 4px; vertical-align: -2px; background: var(--accent); }
+@media (prefers-reduced-motion: no-preference) { .cursor { animation: blink 1s steps(2) infinite; } }
+@keyframes blink { 50% { opacity: .2; } }

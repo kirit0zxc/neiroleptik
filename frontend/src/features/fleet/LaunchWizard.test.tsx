@@ -59,7 +59,7 @@ describe('мастер запуска (F7)', () => {
     expect(screen.getByText('нет связи с агентом')).toBeInTheDocument();
   });
 
-  it('High — только на хост с KVM', async () => {
+  it('High доступен только на хосте, поддерживающем уровень high', async () => {
     const user = userEvent.setup();
     open();
     await user.click(await screen.findByRole('radio', { name: /host-runtime-01/ }));

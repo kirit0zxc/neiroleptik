@@ -3,6 +3,19 @@
 CI запускается для каждого PR в `main`, push в `main` и вручную из Actions.
 Backend обязателен: отсутствие файлов или пропуск job не дают зелёный `CI result`.
 
+## Проверки репозитория
+
+Проверяются workflow, пробельные ошибки и наличие компонентов/lock-файлов.
+actionlint 1.7.12 скачивается из [официального выпуска](https://github.com/rhysd/actionlint/releases/tag/v1.7.12)
+как Linux amd64 binary; SHA-256 архива закреплён в workflow и проверяется до
+извлечения и запуска. Так проверка workflow не зависит от Docker Hub pull limit.
+Ошибка скачивания или checksum блокирует job; проверка не пропускается.
+В CI PostgreSQL 17 и базовый Python 3.12 скачиваются из официального зеркала
+Docker в ECR Public, чтобы не обращаться к Docker Hub со shared runner.
+Для PostgreSQL закреплён digest, совпадающий с проверенным postgres:17-alpine.
+Dockerfile позволяет переопределить PYTHON_IMAGE только при сборке; его обычное
+значение остаётся python:3.12-slim. Локальный Compose и существующие серверы не меняются.
+
 ## Проверки backend
 
 Python 3.12, FastAPI, PostgreSQL 17. `uv sync --frozen` устанавливает зависимости
@@ -24,12 +37,13 @@ CI использует одноразовые тестовые ключи и Б
 
 ## Frontend
 
-Пока `frontend/` отсутствует, job явно пропускается. При добавлении приложения
-нужны `package.json`, `package-lock.json` и npm-скрипты `typecheck`, `test:ci`, `build`.
-Тогда CI выполняет `npm ci` и эти три команды на Node.js 24. Исходники без
+В текущем проекте frontend присутствует: CI выполняет `npm ci`, `typecheck`,
+`test:ci` и `build` на Node.js 24. При отсутствии frontend job явно пропускается;
+при добавлении нужны package.json, package-lock.json и эти npm-скрипты. Исходники без
 package.json и manifest без lock-файла считаются ошибкой.
 Зелёный backend CI не доказывает интеграцию с ещё не подключённым frontend.
 Stream/events/replay в этом PR имеют только проект контрактов, без реализации.
+Playwright E2E пока запускается локально; обязательной браузерной job в CI нет.
 
 ## Ревью
 

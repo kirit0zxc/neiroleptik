@@ -16,6 +16,7 @@ from honeyforge.api.schemas import (
 from honeyforge.common import DomainError
 from honeyforge.config import Settings
 from honeyforge.control.audit import AuditService
+from honeyforge.control.commands import CommandService
 from honeyforge.control.profiles import ProfileService
 from honeyforge.control.registry import RegistryService
 from honeyforge.models import Deployment, Host, PortReservation, User
@@ -28,10 +29,12 @@ class DeploymentService:
         self.session = session
         self.profiles = ProfileService(session, settings)
         self.registry = RegistryService(session, settings)
+        self.commands = CommandService(session, settings)
 
     def read(self, item: Deployment) -> DeploymentRead:
         from honeyforge.models import ProfileRevision
 
+        self.commands.refresh(item.id)
         revision = self.session.get(ProfileRevision, item.profile_revision_id)
         if revision is None:
             raise RuntimeError("Нарушена внешняя связь deployment/profile revision")
@@ -42,6 +45,11 @@ class DeploymentService:
                 "profile_id": revision.profile_id,
                 "revision": revision.revision,
                 "state": item.state,
+                "interaction_level": revision.config["interaction_level"],
+                "desired_revision": revision.revision,
+                "applied_revision": revision.revision if item.applied_revision_id else None,
+                "generation": item.generation,
+                "instance_id": item.instance_id,
                 "created_at": item.created_at,
             }
         )
@@ -103,6 +111,7 @@ class DeploymentService:
         )
         result = []
         for item in items:
+            self.commands.refresh(item.id)
             revision = self.session.get(ProfileRevision, item.profile_revision_id)
             if revision is None:
                 raise RuntimeError("Нарушена связь версии")
@@ -113,6 +122,9 @@ class DeploymentService:
                         "profile_id": revision.profile_id,
                         "revision": revision.revision,
                         "state": item.state,
+                        "generation": item.generation,
+                        "applied_revision": revision.revision if item.applied_revision_id else None,
+                        "instance_id": item.instance_id,
                         "config": AgentProfileConfig.model_validate(
                             {
                                 **revision.config,

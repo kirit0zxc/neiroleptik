@@ -6,9 +6,10 @@ from datetime import UTC, datetime
 class DomainError(Exception):
     """Ожидаемая ошибка операции, переводимая API в согласованный HTTP-ответ."""
 
-    def __init__(self, status: int, detail: str) -> None:
+    def __init__(self, status: int, detail: str, code: str | None = None) -> None:
         self.status = status
         self.detail = detail
+        self.code = code
         super().__init__(detail)
 
 

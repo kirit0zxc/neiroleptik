@@ -2,6 +2,7 @@
 
 from honeyforge.models.audit import AuditEvent
 from honeyforge.models.auth import LoginBucket, User, UserSession
+from honeyforge.models.commands import Command
 from honeyforge.models.control import (
     Deployment,
     Enrollment,
@@ -10,9 +11,11 @@ from honeyforge.models.control import (
     Profile,
     ProfileRevision,
 )
+from honeyforge.models.instances import RuntimeInstance
 
 __all__ = [
     "AuditEvent",
+    "Command",
     "Deployment",
     "Enrollment",
     "Host",
@@ -20,6 +23,7 @@ __all__ = [
     "PortReservation",
     "Profile",
     "ProfileRevision",
+    "RuntimeInstance",
     "User",
     "UserSession",
 ]

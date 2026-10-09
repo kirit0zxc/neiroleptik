@@ -53,4 +53,22 @@ describe('парк: настоящий DeploymentRead и демо-превью',
     expect(within(row).getByText(/· r4/)).toBeInTheDocument();
     expect(within(row).getByRole('button', { name: 'Применить профиль' })).toBeEnabled();
   });
+
+  it.each([
+    ['running', 'работает'], ['unknown', 'состояние не подтверждено'], ['stopped', 'остановлена'],
+  ] as const)('реальный API отображает %s из ACK вместо выдуманного planned', async (state, label) => {
+    vi.stubEnv('VITE_API_MOCK', '0');
+    const deployment: Deployment = {
+      id: 'live-deployment', host_id: 'runtime', profile_id: 'profile', revision: 1,
+      state, created_at: '2026-10-10T00:00:00Z', interaction_level: 'low',
+      desired_revision: 1, applied_revision: 1, generation: 1, instance_id: 'instance',
+    };
+    server.use(http.get('/api/v1/deployments', () => HttpResponse.json([deployment])));
+    open();
+    const row = (await screen.findByText(deployment.id)).closest('tr')!;
+    expect(within(row).getByText(label)).toBeInTheDocument();
+    expect(within(row).getByText('Low')).toBeInTheDocument();
+    expect(within(row).queryByText('запланирована')).toBeNull();
+    expect(within(row).queryByRole('button')).toBeNull();
+  });
 });

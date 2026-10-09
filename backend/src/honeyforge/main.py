@@ -65,7 +65,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(DomainError)
     async def domain_error(request: Request, error: DomainError) -> JSONResponse:
-        return JSONResponse(status_code=error.status, content={"detail": error.detail})
+        content = {"detail": error.detail}
+        if error.code is not None:
+            content["code"] = error.code
+        return JSONResponse(status_code=error.status, content=content)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError) -> JSONResponse:

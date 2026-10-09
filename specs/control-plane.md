@@ -56,7 +56,8 @@ POST /api/v1/deployments (operator/admin) принимает host_id, profile_id
 Создаёт planned и резервирует порты узла. Конкурирующее назначение того же порта
 даёт 409. Совпадение capabilities проверяется; отозванный узел не используется.
 GET /deployments и /deployments/{id} доступны читателям. Управление lifecycle
-и освобождение портов добавятся вместе с подтверждённым stop runtime на D2.
+реализовано отдельным протоколом specs/commands.md. Порты сохраняются за
+deployment после stop для повторного запуска; удаление назначения — отдельный этап.
 GET /agent/v1/config выдаёт агенту только назначения его узла и расшифрованные
 credentials для этих revision. Тело конфигурации не логировать. Endpoint требует TLS
 на сервере; dev-only loopback HTTP разрешён только для локальной разработки.
@@ -72,3 +73,12 @@ immutable revisions и конфликт версий; архивирование
 чужие/отозванные agent tokens; собственный config; конфликт портов;
 health/readiness; воспроизводимый OpenAPI и CI. Это не тест совместной работы с
 реальными ловушками: их пока нет в main.
+
+## Команды (этап 2)
+
+POST /deployments/{id}/commands и GET /jobs/{id} поддерживают start/stop/reset;
+POST /agent/v1/commands/claim, /{id}/renew, /{id}/ack используют только Bearer.
+Generation и idempotency key защищают новое действие и повтор запроса. Финальный
+ACK и фактическое состояние фиксируются одной транзакцией. API-ошибки сохраняют
+detail, а ошибки протокола команд дополнительно возвращают машинный code.
+Сроки, структура сообщений, unknown и критерии приёмки — specs/commands.md.

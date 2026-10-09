@@ -9,10 +9,27 @@ from conftest import profile_payload
 from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 from pydantic import ValidationError as SettingsError
 
+from honeyforge.api.command_schemas import CommandAck, CommandClaimRead, CommandCreate
 from honeyforge.cli import ControlCLI
 from honeyforge.config import Settings
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize(
+    "filename,model",
+    [
+        ("start-request.json", CommandCreate),
+        ("claim-response.json", CommandClaimRead),
+        ("ack-success.json", CommandAck),
+    ],
+)
+def test_command_examples_follow_exported_contract(filename, model):
+    value = json.loads(
+        (ROOT / "contracts/fixtures/commands" / filename).read_text(encoding="utf-8")
+    )
+    model.model_validate(value)
+    Draft202012Validator(model.model_json_schema(), format_checker=FormatChecker()).validate(value)
 
 
 def test_openapi_is_current_and_has_auth_schemes():

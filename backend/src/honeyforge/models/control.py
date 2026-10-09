@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -73,11 +74,22 @@ class Deployment(Base):
     """Назначение конкретной версии профиля; planned не означает запуск процесса."""
 
     __tablename__ = "deployments"
-    __table_args__ = (CheckConstraint("state = 'planned'", name="deployment_stage1_state"),)
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('planned','deploying','running','stopping','stopped','failed','unknown')",
+            name="deployment_lifecycle_state",
+        ),
+        CheckConstraint("generation >= 0", name="deployment_generation"),
+    )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     host_id: Mapped[UUID] = mapped_column(ForeignKey("hosts.id"), index=True)
     profile_revision_id: Mapped[UUID] = mapped_column(ForeignKey("profile_revisions.id"))
     state: Mapped[str] = mapped_column(String(20), default="planned")
+    generation: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    applied_revision_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("profile_revisions.id", name="fk_deployment_applied_revision")
+    )
+    instance_id: Mapped[UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

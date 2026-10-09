@@ -18,10 +18,30 @@ PATCH, DELETE пользователя: X-CSRF-Token и cookie. Не храни�
 
 Одноразовая регистрация /agent/v1/enroll -> отдельный agent_token. Затем
 Authorization: Bearer; heartbeat каждые 10 секунд. /agent/v1/config только читает
-назначения, но пока не включает команды/ACK применения. До интеграции D2 нельзя
-считать revision применённой. Профили имеют строгие сервисы и один шаблон High.
+назначения с generation/applied_revision/instance_id. planned не подтверждает
+применение. Профили имеют строгие сервисы и один шаблон High.
 Передать backend реальные capabilities, названия драйверов и контракт результата.
-Согласовать командный lease/TTL/generation до реализации agent command executor.
+Протокол команд согласован 10.10.2026: specs/commands.md и contracts/openapi.json.
+claim → renew → ack; lease 60 с, renew каждые 20 с, общий deadline не продлевается.
+При повторе command_id использовать сохранённый результат, не повторять запуск/reset.
+После потери lease повторный claim даёт новый token для той же команды; старый ACK
+отклоняется. После общего таймаута unknown устраняется подтверждённым stop/reconcile.
+Нельзя принимать конфигурацию из GET config за команду автоматического запуска.
+Данил реализует локальный журнал, проверку поколения и runtime executor отдельно.
+Ограничения Low (один tcp + один http, печатный ASCII TCP-баннера), согласованные
+в обсуждении runtime, пока не добавлены в валидатор профиля: это следующий
+отдельный участок. Этот PR добавляет именно транспорт команд и результат применения.
+
+## Подключение команд на frontend (Диана)
+
+POST /api/v1/deployments/{id}/commands: command start/stop/reset, UUID
+idempotency_key, expected_generation из последнего DeploymentRead → 202 job_id.
+Повтор сетевого запроса сохраняет все три поля; новый ключ означает новое действие.
+GET /jobs/{id} опрашивается до succeeded/failed/expired. lease token в UI не выдаётся.
+DeploymentRead теперь включает реальный уровень, desired/applied revision,
+generation и instance_id. Статусы чтения уже подключены; реальные кнопки пока
+не включены. apply_config/rotate_credentials по-прежнему только демо-превью.
+unknown показываем как «состояние не подтверждено», без start/reset.
 
 ## Telemetry (участник 4)
 

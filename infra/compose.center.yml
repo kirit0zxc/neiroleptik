@@ -1,0 +1,36 @@
+name: honeyforge-control-dev
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: honeyforge
+      POSTGRES_USER: honeyforge
+      POSTGRES_PASSWORD: ${HF_DB_PASSWORD:?Run scripts/init_local_env.py first}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - control_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U honeyforge -d honeyforge"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  api:
+    build:
+      context: ../backend
+    env_file:
+      - ../.env
+    environment:
+      HF_DATABASE_URL: postgresql+psycopg://honeyforge:${HF_DB_PASSWORD}@db:5432/honeyforge
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+volumes:
+  control_db:

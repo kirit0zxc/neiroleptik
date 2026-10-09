@@ -103,7 +103,7 @@ describe('команды ловушек (F6)', () => {
   }, 15_000);
 
   it('наблюдатель не видит команд (F2)', async () => {
-    server.use(http.get('/api/v1/auth/me', () => HttpResponse.json({ user_id: 'u-2', login: 'viewer', role: 'viewer', csrf_token: 't' })));
+    server.use(http.get('/api/v1/auth/me', () => HttpResponse.json({ user: { id: 'u-2', username: 'viewer', role: 'viewer' }, csrf_token: 't' })));
     open();
     await row('decoy-medium-01');
     expect(screen.queryByRole('columnheader', { name: 'Действия' })).toBeNull();

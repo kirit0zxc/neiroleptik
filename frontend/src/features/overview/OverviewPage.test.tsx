@@ -47,7 +47,7 @@ describe('обзор', () => {
     const traps = await screen.findByRole('link', { name: /^Ловушки:/ });
     expect(traps).toHaveAccessibleName('Ловушки: 2 из 3 работают, упали: 1');
     expect(traps).toHaveAttribute('href', '/fleet');
-    expect(screen.getByRole('link', { name: /^Хосты:/ })).toHaveAccessibleName('Хосты: 1 из 3 на связи, с ошибками: 1');
+    expect(screen.getByRole('link', { name: /^Хосты:/ })).toHaveAccessibleName('Хосты: 2 из 3 на связи, offline: 1');
     expect(screen.getByRole('link', { name: /^Открытые алерты:/ })).toHaveAttribute('href', '/alerts');
   });
 

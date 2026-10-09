@@ -13,22 +13,22 @@ export function ProfilesPage() {
   return (
     <>
       <h1>Профили ловушек</h1>
-      {canEdit(me?.role) && <p><Link className={ui.button} to="/profiles/new">+ Новый профиль</Link></p>}
+      {canEdit(me?.user.role) && <p><Link className={ui.button} to="/profiles/new">+ Новый профиль</Link></p>}
       <Panel title="Профили">
         {q.isPending ? <Loading what="профили" />
           : q.isError ? <ErrorState message={q.error.message} onRetry={() => void q.refetch()} />
           : !q.data.length ? <Empty>Профилей пока нет — создайте первый.</Empty>
           : (
             <table className={ui.table}>
-              <thead><tr><th>Название</th><th>Уровень</th><th>Сервисы</th><th>Ревизия</th><th>Изменён</th></tr></thead>
+              <thead><tr><th>Название</th><th>Уровень</th><th>Сервисы</th><th>Ревизия</th><th>Создан</th></tr></thead>
               <tbody>
                 {q.data.map((p) => (
-                  <tr key={p.profile_id}>
-                    <td><Link to={`/profiles/${encodeURIComponent(p.profile_id)}`}>{p.config.name}</Link></td>
-                    <td>{LEVEL[p.config.level]}</td>
+                  <tr key={p.id}>
+                    <td><Link to={`/profiles/${encodeURIComponent(p.id)}`}>{p.name}</Link></td>
+                    <td>{LEVEL[p.config.interaction_level]}</td>
                     <td className="mono">{p.config.services.map((s) => `${s.protocol}/${s.port}`).join(', ')}</td>
                     <td className="mono">r{p.revision}</td>
-                    <td>{ago(p.updated_at)}</td>
+                    <td>{ago(p.created_at)}</td>
                   </tr>
                 ))}
               </tbody>

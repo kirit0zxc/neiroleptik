@@ -1,23 +1,14 @@
 [
   {
-    "profile_id": "p-web-panel",
+    "id": "p-web-panel",
+    "name": "Веб-панель служебного устройства",
+    "description": "Низкоуровневая ловушка: порты и баннеры.",
+    "archived": false,
     "revision": 2,
-    "updated_at": "2026-10-09T10:00:00Z",
-    "revisions": [
-      {
-        "revision": 1,
-        "created_at": "2026-10-09T09:00:00Z",
-        "created_by": "operator"
-      },
-      {
-        "revision": 2,
-        "created_at": "2026-10-09T10:00:00Z",
-        "created_by": "operator"
-      }
-    ],
+    "created_at": "2026-10-09T09:00:00Z",
     "config": {
-      "name": "Веб-панель служебного устройства",
-      "level": "low",
+      "interaction_level": "low",
+      "hostname": "cam-gw-03",
       "services": [
         {
           "protocol": "http",
@@ -30,35 +21,26 @@
           "banner": "BusyBox telnetd"
         }
       ],
-      "decoy_credentials": [],
       "logging": {
-        "payload_limit_kb": 8,
-        "record_tty": false
+        "max_payload_bytes": 8192
       },
       "channel": {
-        "beacon_interval_s": 30,
-        "jitter_pct": 20
+        "flush_interval_ms": 1500,
+        "batch_size": 100
       },
-      "legend": {
-        "hostname": "cam-gw-03",
-        "os": "BusyBox 1.31"
-      }
+      "credential_usernames": []
     }
   },
   {
-    "profile_id": "p-linux-srv",
+    "id": "p-linux-srv",
+    "name": "Тестовый Linux-сервер",
+    "description": "Medium: эмуляция SSH (Cowrie).",
+    "archived": false,
     "revision": 4,
-    "updated_at": "2026-10-09T11:30:00Z",
-    "revisions": [
-      {
-        "revision": 4,
-        "created_at": "2026-10-09T11:30:00Z",
-        "created_by": "operator"
-      }
-    ],
+    "created_at": "2026-10-09T11:30:00Z",
     "config": {
-      "name": "Тестовый Linux-сервер",
-      "level": "medium",
+      "interaction_level": "medium",
+      "hostname": "db-prod-02",
       "services": [
         {
           "protocol": "ssh",
@@ -66,40 +48,28 @@
           "banner": "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"
         }
       ],
-      "decoy_credentials": [
-        {
-          "username": "admin",
-          "password": "admin123"
-        }
-      ],
       "logging": {
-        "payload_limit_kb": 8,
-        "record_tty": true
+        "max_payload_bytes": 8192
       },
       "channel": {
-        "beacon_interval_s": 30,
-        "jitter_pct": 20
+        "flush_interval_ms": 1500,
+        "batch_size": 100
       },
-      "legend": {
-        "hostname": "db-prod-02",
-        "os": "Ubuntu 22.04"
-      }
+      "credential_usernames": [
+        "admin"
+      ]
     }
   },
   {
-    "profile_id": "p-linux-vm",
+    "id": "p-linux-vm",
+    "name": "Настоящая Linux VM",
+    "description": "High: настоящая VM за SSH-шлюзом.",
+    "archived": false,
     "revision": 1,
-    "updated_at": "2026-10-09T11:00:00Z",
-    "revisions": [
-      {
-        "revision": 1,
-        "created_at": "2026-10-09T11:00:00Z",
-        "created_by": "admin"
-      }
-    ],
+    "created_at": "2026-10-09T11:00:00Z",
     "config": {
-      "name": "Настоящая Linux VM",
-      "level": "high",
+      "interaction_level": "high",
+      "hostname": "build-srv-01",
       "services": [
         {
           "protocol": "ssh",
@@ -107,24 +77,22 @@
           "banner": ""
         }
       ],
-      "decoy_credentials": [
-        {
-          "username": "deploy",
-          "password": "Deploy#2024"
-        }
-      ],
       "logging": {
-        "payload_limit_kb": 8,
-        "record_tty": true
+        "max_payload_bytes": 8192
       },
       "channel": {
-        "beacon_interval_s": 30,
-        "jitter_pct": 20
+        "flush_interval_ms": 1500,
+        "batch_size": 100
       },
-      "legend": {
-        "hostname": "build-srv-01",
-        "os": "Ubuntu 22.04"
-      }
+      "high": {
+        "template": "ubuntu-ssh-v1",
+        "ttl_seconds": 900,
+        "cpu": 2,
+        "memory_mb": 2048
+      },
+      "credential_usernames": [
+        "deploy"
+      ]
     }
   }
 ]

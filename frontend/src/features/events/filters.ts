@@ -59,7 +59,11 @@ export function localToUtc(local: string): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-/** Параметры запроса `GET /events` (время — уже UTC). */
+/**
+ * Параметры запроса `GET /events` (время — уже UTC). Следующая страница
+ * запрашивается через `after=<next_cursor>` — так требует согласованный
+ * контракт потока (а не `cursor=`, из-за чего раньше первая страница повторялась).
+ */
 export function toQuery(f: EventFilters, cursor?: string | null, limit = 50): URLSearchParams {
   const q = new URLSearchParams();
   if (f.deployment_id) q.set('deployment_id', f.deployment_id);
@@ -69,7 +73,7 @@ export function toQuery(f: EventFilters, cursor?: string | null, limit = 50): UR
   const to = f.to && localToUtc(f.to);
   if (from) q.set('from', from);
   if (to) q.set('to', to);
-  if (cursor) q.set('cursor', cursor);
+  if (cursor) q.set('after', cursor);
   q.set('limit', String(limit));
   return q;
 }

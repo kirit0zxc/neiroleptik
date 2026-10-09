@@ -9,10 +9,13 @@ import { Empty, ErrorState, Loading, Panel, ui } from '../../shared/ui';
 import { describeEvent, eventLabel } from '../events/describe';
 import s from './overview.module.css';
 
-/** Ответ сводки (черновик контракта, specs «Обзор»). */
+/**
+ * Ответ сводки (превью этапа 4: `/analytics/summary` в контракте стадии 1
+ * отсутствует, обслуживается моками).
+ */
 export interface Summary {
   deployments: { total: number; running: number; failed: number };
-  hosts: { total: number; online: number; degraded: number };
+  hosts: { total: number; online: number; offline: number };
   events_last_hour: number;
   alerts_open: number;
   top_sources: { ip: string; count: number }[];
@@ -60,7 +63,7 @@ function Tiles({ data }: { data: Summary }) {
       <Tile to="/fleet" title="Ловушки" value={`${d.running} из ${d.total}`} caption="работают"
         alert={d.failed ? { tone: 'bad', text: `упали: ${d.failed}` } : null} />
       <Tile to="/fleet" title="Хосты" value={`${h.online} из ${h.total}`} caption="на связи"
-        alert={h.degraded ? { tone: 'warn', text: `с ошибками: ${h.degraded}` } : null} />
+        alert={h.offline ? { tone: 'warn', text: `offline: ${h.offline}` } : null} />
       <Tile to="/events" title="События за час" value={String(data.events_last_hour)} caption="от всех ловушек" alert={null} />
       <Tile to="/alerts" title="Открытые алерты" value={String(data.alerts_open)} caption="требуют внимания"
         alert={data.alerts_open ? { tone: 'bad', text: 'есть новые' } : null} />

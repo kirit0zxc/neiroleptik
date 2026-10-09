@@ -2,9 +2,9 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import { api } from '../../shared/api/client';
-import { EVENT_TYPES, type Deployment, type HfEvent } from '../../shared/api/types';
+import { EVENT_TYPES, type HfEvent, type PreviewDeployment } from '../../shared/api/types';
 import { formatTime } from '../../shared/format/time';
-import { useStreamEvents } from '../../shared/stream/stream';
+import { useStreamEvents, useStreamResync } from '../../shared/stream/stream';
 import { Empty, ErrorState, Loading, Panel, ui } from '../../shared/ui';
 import { describeEvent, eventLabel } from './describe';
 import { FeedBuffer } from './FeedBuffer';
@@ -30,8 +30,10 @@ export function EventsPage() {
     queryFn: ({ pageParam }) => api<EventsResponse>(`/api/v1/events?${toQuery(filters, pageParam)}`),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor,
-    // Новое приходит из потока — повторно перечитывать страницы не нужно.
-    staleTime: Infinity,
+    // При возврате на ленту историю перечитываем: пока экран был закрыт, в
+    // ней могли появиться события, которых нет в прошлой выборке.
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const buffer = useRef(new FeedBuffer());
@@ -43,16 +45,18 @@ export function EventsPage() {
   useEffect(() => { live.current = []; }, [key]);
 
   // Собрать окно: страницы REST + живые события, пришедшие после загрузки.
+  // Паузу не трогаем: на паузе живые события остаются в pending, а не
+  // показываются при догрузке истории («Показать ещё»).
   useEffect(() => {
     if (!pages.data) return;
     const b = buffer.current;
     pages.data.pages.forEach((p, i) => b.loadPage(p.items, i > 0));
-    const paused = b.isPaused;
-    b.setPaused(false);
     b.pushLive(live.current);
-    b.setPaused(paused);
     refresh();
   }, [pages.data]);
+
+  // Курсор потока устарел (410) — перечитать историю заново.
+  useStreamResync(useCallback(() => { live.current = []; void pages.refetch(); }, [pages]));
 
   const onLive = useCallback((events: HfEvent[]) => {
     const fit = events.filter((e) => matches(e, filters));
@@ -118,7 +122,7 @@ export function EventsPage() {
 function FilterBar({ value, onApply }: { value: EventFilters; onApply: (f: EventFilters) => void }) {
   const [draft, setDraft] = useState<EventFilters>(value);
   const [errors, setErrors] = useState<ReturnType<typeof validateFilters>>({});
-  const deps = useQuery({ queryKey: ['deployments'], queryFn: () => api<Deployment[]>('/api/v1/deployments') });
+  const deps = useQuery({ queryKey: ['deployments'], queryFn: () => api<PreviewDeployment[]>('/api/v1/deployments') });
 
   // Фильтры поменялись снаружи (назад/вперёд в браузере) — обновить поля.
   const [shown, setShown] = useState(value);
@@ -140,7 +144,7 @@ function FilterBar({ value, onApply }: { value: EventFilters; onApply: (f: Event
       <label className={s.f}>Ловушка
         <select value={draft.deployment_id ?? ''} onChange={set('deployment_id')}>
           <option value="">все</option>
-          {deps.data?.map((d) => <option key={d.deployment_id} value={d.deployment_id}>{d.deployment_id}</option>)}
+          {deps.data?.map((d) => <option key={d.id} value={d.id}>{d.id}</option>)}
         </select>
       </label>
       <label className={s.f}>Тип

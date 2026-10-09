@@ -5,12 +5,12 @@ import { useForm } from 'react-hook-form';
 import { Navigate, useLocation, useNavigate } from 'react-router';
 import { z } from 'zod';
 import { api, ApiError, setCsrfToken, setUnauthorizedHandler } from '../../shared/api/client';
-import type { Me, Role } from '../../shared/api/types';
+import type { Auth, Role } from '../../shared/api/types';
 import { Loading, ui, WindowTitle } from '../../shared/ui';
 import s from './auth.module.css';
 
-/** Сессия оператора (F1–F3). Источник — `GET /api/v1/auth/me`. */
-const AuthContext = createContext<Me | null>(null);
+/** Сессия оператора (F1–F3). Источник — `GET /api/v1/auth/me` (AuthRead). */
+const AuthContext = createContext<Auth | null>(null);
 const ME_KEY = ['me'] as const;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -18,7 +18,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const me = useQuery({
     queryKey: ME_KEY,
     queryFn: async () => {
-      const me = await api<Me>('/api/v1/auth/me');
+      const me = await api<Auth>('/api/v1/auth/me');
       setCsrfToken(me.csrf_token);
       return me;
     },
@@ -49,7 +49,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 }
 
 const LoginSchema = z.object({
-  login: z.string().trim().min(1, 'Введите логин'),
+  username: z.string().trim().min(1, 'Введите логин'),
   password: z.string().min(1, 'Введите пароль'),
 });
 type LoginForm = z.infer<typeof LoginSchema>;
@@ -60,9 +60,9 @@ export function LoginPage() {
   const location = useLocation();
   const me = useMe();
   const from = (location.state as { from?: string } | null)?.from ?? '/';
-  const form = useForm<LoginForm>({ resolver: zodResolver(LoginSchema), defaultValues: { login: '', password: '' } });
+  const form = useForm<LoginForm>({ resolver: zodResolver(LoginSchema), defaultValues: { username: '', password: '' } });
   const login = useMutation({
-    mutationFn: (body: LoginForm) => api<Me>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+    mutationFn: (body: LoginForm) => api<Auth>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(body) }),
     onSuccess: (data) => {
       setCsrfToken(data.csrf_token);
       qc.setQueryData(ME_KEY, data);
@@ -84,9 +84,9 @@ export function LoginPage() {
         {/* Ошибка — вне label: иначе она становится частью названия поля. */}
         <div className={s.field}>
           <label htmlFor="login">Логин</label>
-          <input id="login" autoComplete="username" {...form.register('login')}
-            aria-invalid={!!errors.login} aria-describedby={errors.login ? 'login-error' : undefined} />
-          {errors.login && <span id="login-error" className={s.error}>{errors.login.message}</span>}
+          <input id="login" autoComplete="username" {...form.register('username')}
+            aria-invalid={!!errors.username} aria-describedby={errors.username ? 'login-error' : undefined} />
+          {errors.username && <span id="login-error" className={s.error}>{errors.username.message}</span>}
         </div>
         <div className={s.field}>
           <label htmlFor="password">Пароль</label>

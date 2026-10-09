@@ -49,6 +49,18 @@ export interface StreamClientOptions<E> {
   onAbnormalClose?: () => void;
   /** Начальный курсор; null — первое подключение, история берётся из GET /events. */
   cursor?: string | null;
+  /**
+   * Ключ дедупликации события. По умолчанию — `event_id`; потоку HoneyForge
+   * передаётся пара `(agent_id, event_id)`, чтобы одинаковый id от разных
+   * агентов не считался повтором.
+   */
+  keyOf?: (event: E) => string;
+  /**
+   * Курсор устарел (сервер ответил 410 Gone на догрузку): историю нельзя
+   * догрузить инкрементально. Клиент сбрасывает курсор и запрашивает
+   * пересинхронизацию (`onResync`), а не повторяет тот же мёртвый курсор.
+   */
+  isGone?: (error: unknown) => boolean;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (id: unknown) => void;
 }
@@ -75,15 +87,19 @@ export class StreamClient<E extends { event_id: string }> {
    */
   private listenerSeq = new WeakMap<(records: StreamRecord<E>[]) => void, bigint>();
   private statusListeners = new Set<(s: StreamStatus) => void>();
+  /** Подписчики на пересинхронизацию после устаревшего курсора (410). */
+  private resyncListeners = new Set<() => void>();
   private status: StreamStatus = 'idle';
   private attempt = 0;
   private timer: unknown = null;
   private readonly setTimer: (fn: () => void, ms: number) => unknown;
   private readonly clearTimer: (id: unknown) => void;
+  private readonly keyOf: (event: E) => string;
 
   constructor(opts: StreamClientOptions<E>) {
     this.opts = opts;
     this.cursor = opts.cursor ?? null;
+    this.keyOf = opts.keyOf ?? ((e) => e.event_id);
     this.setTimer = opts.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
     this.clearTimer = opts.clearTimer ?? ((id) => clearTimeout(id as ReturnType<typeof setTimeout>));
   }
@@ -99,6 +115,12 @@ export class StreamClient<E extends { event_id: string }> {
   onStatus(fn: (s: StreamStatus) => void) {
     this.statusListeners.add(fn);
     return () => { this.statusListeners.delete(fn); };
+  }
+
+  /** Подписка на требование перечитать историю заново (после 410). */
+  onResync(fn: () => void) {
+    this.resyncListeners.add(fn);
+    return () => { this.resyncListeners.delete(fn); };
   }
 
   start() {
@@ -126,8 +148,12 @@ export class StreamClient<E extends { event_id: string }> {
       const msg = parseMessage<E>(ev.data);
       if (!msg) return;
       if (msg.type === 'hello') { void this.sync(socket, msg.watermark); return; }
-      if (this.syncing) this.buffer.push(msg.record);
-      else this.deliver([msg.record]);
+      if (this.syncing) { this.buffer.push(msg.record); return; }
+      // Живое событие. Если подписчик бросил исключение, курсор не сдвинулся:
+      // переподключаемся, и догрузка от прежнего курсора доставит событие
+      // заново (здоровые подписчики отсеют его по своему seq).
+      try { this.deliver([msg.record]); }
+      catch { if (socket === this.socket) socket.close(); }
     };
     socket.onclose = (ev) => { if (socket === this.socket) this.handleClose(ev.code); };
     socket.onerror = () => { if (socket === this.socket) socket.close(); };
@@ -155,9 +181,19 @@ export class StreamClient<E extends { event_id: string }> {
       this.deliver(pending);
       this.attempt = 0;
       this.setStatus('live');
-    } catch {
-      // Догрузка не удалась — переподключаемся, курсор не тронут.
-      if (socket === this.socket) socket.close();
+    } catch (err) {
+      if (socket !== this.socket) return;
+      // Курсор устарел (410): инкрементальная догрузка невозможна. Сбрасываем
+      // курсор, просим перечитать историю заново и переподключаемся с чистого
+      // листа, а не долбим мёртвый курсор в бесконечном цикле.
+      if (this.opts.isGone?.(err)) {
+        this.cursor = null;
+        this.delivered.clear();
+        this.listenerSeq = new WeakMap();
+        for (const fn of this.resyncListeners) fn();
+      }
+      // Догрузка не удалась — переподключаемся, курсор уже либо прежний, либо сброшен.
+      socket.close();
     }
   }
 
@@ -203,7 +239,7 @@ export class StreamClient<E extends { event_id: string }> {
     const sorted = [...records].sort((a, b) => (big(a.stream_seq) < big(b.stream_seq) ? -1 : 1));
     for (const r of sorted) {
       if (floor !== null && big(r.stream_seq) <= floor) continue;
-      const id = r.event.event_id;
+      const id = this.keyOf(r.event);
       if (this.delivered.has(id) || seen.has(id)) continue;
       seen.add(id);
       fresh.push(r);
@@ -225,9 +261,9 @@ export class StreamClient<E extends { event_id: string }> {
       }
     }
     if (failure) throw failure.error;
-    for (const r of fresh) this.delivered.add(r.event.event_id);
+    for (const r of fresh) this.delivered.add(this.keyOf(r.event));
     this.cursor = fresh.at(-1)!.stream_seq;
-    if (this.delivered.size > SEEN_LIMIT) this.delivered = new Set(fresh.map((r) => r.event.event_id));
+    if (this.delivered.size > SEEN_LIMIT) this.delivered = new Set(fresh.map((r) => this.keyOf(r.event)));
   }
 
   private setStatus(s: StreamStatus) {

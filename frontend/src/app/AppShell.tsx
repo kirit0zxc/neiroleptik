@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { NavLink, Outlet } from 'react-router';
 import { useMe } from '../features/auth/auth';
-import { api, setCsrfToken } from '../shared/api/client';
+import { api, ApiError, setCsrfToken } from '../shared/api/client';
 import { MascotSlot } from '../shared/mascot-slot/MascotSlot';
 import { streamLabel, useStreamStatus } from '../shared/stream/stream';
 import { StatusBadge } from '../shared/ui';
@@ -23,10 +23,16 @@ export function AppShell() {
   const me = useMe();
   const live = streamLabel(useStreamStatus());
   const qc = useQueryClient();
+  // Сессию считаем закрытой только при успехе выхода или если сервер уже
+  // не знает её (401). При другой ошибке (например, 503) серверная сессия
+  // остаётся живой — не уводим на вход, чтобы это не выглядело успешным выходом.
+  const endSession = () => { setCsrfToken(null); qc.setQueryData(['me'], null); };
   const logout = useMutation({
     mutationFn: () => api('/api/v1/auth/logout', { method: 'POST' }),
-    onSettled: () => { setCsrfToken(null); qc.setQueryData(['me'], null); },
+    onSuccess: endSession,
+    onError: (err) => { if (err instanceof ApiError && err.status === 401) endSession(); },
   });
+  const logoutFailed = logout.isError && !(logout.error instanceof ApiError && logout.error.status === 401);
 
   return (
     <div className={s.shell}>
@@ -42,8 +48,9 @@ export function AppShell() {
         {me && (
           <div className={s.user}>
             <span aria-live="polite" title="Поток событий"><StatusBadge tone={live.tone}>{live.label}</StatusBadge></span>
-            <span>{me.login} · {ROLE[me.role]}</span>
-            <button className={s.logout} onClick={() => logout.mutate()}>Выйти</button>
+            <span>{me.user.username} · {ROLE[me.user.role]}</span>
+            <button className={s.logout} disabled={logout.isPending} onClick={() => logout.mutate()}>Выйти</button>
+            {logoutFailed && <span role="alert" className={s.logoutError}>Не удалось выйти — попробуйте ещё раз</span>}
           </div>
         )}
       </header>

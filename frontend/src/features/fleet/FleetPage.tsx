@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { api } from '../../shared/api/client';
-import type { Deployment, Host } from '../../shared/api/types';
+import type { Host, PreviewDeployment } from '../../shared/api/types';
 import { ago } from '../../shared/format/time';
 import { Empty, ErrorState, Loading, Panel, StatusBadge, ui } from '../../shared/ui';
 import { canEdit, useMe } from '../auth/auth';
@@ -12,9 +12,9 @@ const LEVEL = { low: 'Low', medium: 'Medium', high: 'High' } as const;
 
 /** Парк: хосты и ловушки (F4, F5), команды ловушек (F6). Мастер запуска — D3. */
 export function FleetPage() {
-  const editable = canEdit(useMe()?.role);
+  const editable = canEdit(useMe()?.user.role);
   const hosts = useQuery({ queryKey: ['hosts'], queryFn: () => api<Host[]>('/api/v1/hosts'), refetchInterval: 10_000 });
-  const deps = useQuery({ queryKey: ['deployments'], queryFn: () => api<Deployment[]>('/api/v1/deployments'), refetchInterval: 10_000 });
+  const deps = useQuery({ queryKey: ['deployments'], queryFn: () => api<PreviewDeployment[]>('/api/v1/deployments'), refetchInterval: 10_000 });
 
   return (
     <>
@@ -26,17 +26,17 @@ export function FleetPage() {
           : !hosts.data.length ? <Empty>Хостов пока нет — зарегистрируйте агента.</Empty>
           : (
             <table className={ui.table}>
-              <thead><tr><th>Хост</th><th>Связь</th><th>Последний контакт</th><th>Очередь</th><th>Свободно</th></tr></thead>
+              <thead><tr><th>Хост</th><th>Имя</th><th>Связь</th><th>Последний контакт</th><th>Возможности</th></tr></thead>
               <tbody>
                 {hosts.data.map((h) => {
                   const st = hostStatus(h);
                   return (
-                    <tr key={h.host_id}>
-                      <td className="mono">{h.host_id}</td>
+                    <tr key={h.id}>
+                      <td className="mono">{h.id}</td>
+                      <td>{h.name}</td>
                       <td><StatusBadge tone={st.tone}>{st.label}</StatusBadge></td>
-                      <td>{ago(h.last_seen)}</td>
-                      <td className="mono">{h.backlog}</td>
-                      <td className="mono">{(h.disk_free_mb / 1024).toFixed(1)} ГБ</td>
+                      <td>{h.last_seen ? ago(h.last_seen) : 'ещё не выходил'}</td>
+                      <td className="mono">{h.capabilities.join(', ') || '—'}</td>
                     </tr>
                   );
                 })}
@@ -55,8 +55,8 @@ export function FleetPage() {
                 {deps.data.map((d) => {
                   const st = deploymentStatus(d);
                   return (
-                    <tr key={d.deployment_id}>
-                      <td className="mono">{d.deployment_id}</td>
+                    <tr key={d.id}>
+                      <td className="mono">{d.id}</td>
                       <td>{LEVEL[d.interaction_level] ?? d.interaction_level}</td>
                       <td className="mono">{d.host_id}</td>
                       <td><StatusBadge tone={st.tone}>{st.label}</StatusBadge></td>

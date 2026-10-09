@@ -3,12 +3,12 @@ import events from '../../../contracts/fixtures/events.draft.json';
 import hosts from '../../../contracts/fixtures/hosts.draft.json';
 import me from '../../../contracts/fixtures/me.draft.json';
 import profilesFixture from '../../../contracts/fixtures/profiles.draft.json';
-import type { HfEvent } from '../shared/api/types';
+import type { HfEvent, InteractionLevel, Profile, ProfileConfigInput, ProfileConfigPublic, Revision } from '../shared/api/types';
 import { currentDeployments, jobHandlers, resetMockJobs } from './jobs';
 import { publishedEvents, resetMockStream, streamHandlers } from './stream';
 
 /**
- * Моки API по черновым фикстурам из contracts/ (specs/frontend.md, раздел 4).
+ * Моки API по контракту `openapi.json` и фикстурам из `contracts/`.
  * Сессия хранится в памяти обработчиков: вход открывает её, выход закрывает.
  */
 // Сессия мока переживает перезагрузку страницы — как cookie настоящего API.
@@ -19,9 +19,25 @@ const session = {
 };
 resetMockStream(events as unknown as HfEvent[]);
 
-type MockProfile = (typeof profilesFixture)[number];
-let profiles: MockProfile[] = structuredClone(profilesFixture);
+let profiles: Profile[] = structuredClone(profilesFixture) as Profile[];
+/** История ревизий по каждому профилю (RevisionRead). */
+let revisionsById = new Map<string, Revision[]>();
 let nextId = 1;
+
+/** Текущую (на запись) конфигурацию превратить в публичную (без паролей). */
+function toPublic(config: ProfileConfigInput): ProfileConfigPublic {
+  const { credentials, ...rest } = config;
+  return { ...rest, credential_usernames: (credentials ?? []).map((c) => c.username) };
+}
+
+function seedRevisions() {
+  // Для каждого профиля — история r1..current (мок использует одну конфигурацию).
+  revisionsById = new Map(profiles.map((p) => [
+    p.id,
+    Array.from({ length: p.revision }, (_, i) => ({ revision: i + 1, config: p.config, created_at: p.created_at })),
+  ]));
+}
+seedRevisions();
 
 /** Изменяющий запрос без верного X-CSRF-Token — 403, как у настоящего API. */
 function csrfFailure(request: Request) {
@@ -32,8 +48,8 @@ function csrfFailure(request: Request) {
 
 export const handlers = [
   http.post('/api/v1/auth/login', async ({ request }) => {
-    const body = (await request.json()) as { login?: string; password?: string };
-    if (body.login === 'operator' && body.password === 'operator') {
+    const body = (await request.json()) as { username?: string; password?: string };
+    if (body.username === 'operator' && body.password === 'operator') {
       session.set(true);
       return HttpResponse.json(me);
     }
@@ -44,8 +60,8 @@ export const handlers = [
     ? HttpResponse.json(me)
     : HttpResponse.json({ detail: 'Требуется вход' }, { status: 401 }))),
   http.get('/api/v1/hosts', () => HttpResponse.json(hosts)),
-  ...jobHandlers(csrfFailure, (id) => profiles.find((p) => p.profile_id === id)?.config.level as 'low' | 'medium' | 'high' | undefined),
-  // Новые сверху, фильтры как у сервера, пагинация курсором (индекс в выборке).
+  ...jobHandlers(csrfFailure, (id) => profiles.find((p) => p.id === id)?.config.interaction_level as InteractionLevel | undefined),
+  // Новые сверху, фильтры как у сервера, пагинация курсором (after=индекс в выборке).
   http.get('/api/v1/events', ({ request }) => {
     const q = new URL(request.url).searchParams;
     const from = q.get('from'); const to = q.get('to');
@@ -55,7 +71,7 @@ export const handlers = [
       && (!q.get('source_ip') || e.source.ip === q.get('source_ip'))
       // from включительно, to исключительно (согласовано с командой).
       && (!from || Date.parse(e.occurred_at) >= Date.parse(from)) && (!to || Date.parse(e.occurred_at) < Date.parse(to)));
-    const start = Number(q.get('cursor') ?? 0);
+    const start = Number(q.get('after') ?? 0);
     const limit = Number(q.get('limit') ?? 50);
     const items = all.slice(start, start + limit);
     const next = start + limit < all.length ? String(start + limit) : null;
@@ -63,7 +79,7 @@ export const handlers = [
   }),
   ...streamHandlers,
 
-  // Сводка обзора — по текущему состоянию моков.
+  // Сводка обзора — по текущему состоянию моков (превью этапа 4).
   http.get('/api/v1/analytics/summary', () => {
     const deps = currentDeployments();
     const hourAgo = Date.now() - 3600_000;
@@ -72,41 +88,53 @@ export const handlers = [
     for (const e of recent) counts.set(e.source.ip, (counts.get(e.source.ip) ?? 0) + 1);
     return HttpResponse.json({
       deployments: { total: deps.length, running: deps.filter((d) => d.state === 'running').length, failed: deps.filter((d) => d.state === 'failed').length },
-      hosts: { total: hosts.length, online: hosts.filter((h) => h.status === 'online').length, degraded: hosts.filter((h) => h.status === 'degraded').length },
+      hosts: { total: hosts.length, online: hosts.filter((h) => h.status === 'online').length, offline: hosts.filter((h) => h.status !== 'online').length },
       events_last_hour: recent.length,
       alerts_open: 1,
       top_sources: [...counts].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([ip, count]) => ({ ip, count })),
     });
   }),
 
-  // Профили: каждое сохранение — новая ревизия (F9). Проверку полей делает
-  // настоящий API; мок принимает то, что прошло схему формы.
+  // Профили (ProfileRead/ProfileCreate/ProfileUpdate). Каждое сохранение — новая
+  // ревизия. Полную проверку полей делает настоящий API; мок принимает прошедшее схему формы.
   http.get('/api/v1/profiles', () => HttpResponse.json(profiles)),
   http.get('/api/v1/profiles/:id', ({ params }) => {
-    const p = profiles.find((x) => x.profile_id === params.id);
+    const p = profiles.find((x) => x.id === params.id);
     return p ? HttpResponse.json(p) : HttpResponse.json({ detail: 'Профиль не найден' }, { status: 404 });
+  }),
+  http.get('/api/v1/profiles/:id/revisions', ({ params }) => {
+    const revs = revisionsById.get(String(params.id));
+    return revs ? HttpResponse.json(revs) : HttpResponse.json({ detail: 'Профиль не найден' }, { status: 404 });
   }),
   http.post('/api/v1/profiles', async ({ request }) => {
     const bad = csrfFailure(request); if (bad) return bad;
-    const { config } = (await request.json()) as { config: MockProfile['config'] };
+    const { name, description, config } = (await request.json()) as { name: string; description?: string; config: ProfileConfigInput };
     const now = new Date().toISOString();
-    const created: MockProfile = {
-      profile_id: `p-new-${nextId++}`, revision: 1, updated_at: now,
-      revisions: [{ revision: 1, created_at: now, created_by: 'operator' }], config,
+    const created: Profile = {
+      id: `p-new-${nextId++}`, name, description: description ?? '', archived: false,
+      revision: 1, config: toPublic(config), created_at: now,
     };
     profiles = [...profiles, created];
+    revisionsById.set(created.id, [{ revision: 1, config: created.config, created_at: now }]);
     return HttpResponse.json(created, { status: 201 });
   }),
   http.patch('/api/v1/profiles/:id', async ({ params, request }) => {
     const bad = csrfFailure(request); if (bad) return bad;
-    const p = profiles.find((x) => x.profile_id === params.id);
+    const p = profiles.find((x) => x.id === params.id);
     if (!p) return HttpResponse.json({ detail: 'Профиль не найден' }, { status: 404 });
-    const { config } = (await request.json()) as { config: MockProfile['config'] };
+    const body = (await request.json()) as { expected_revision: number; name?: string; description?: string; config?: ProfileConfigInput };
+    // Конкурентное изменение: ожидаемая ревизия не совпала с текущей (409).
+    if (body.expected_revision !== p.revision) {
+      return HttpResponse.json({ detail: 'Профиль изменён — перечитайте его' }, { status: 409 });
+    }
     const now = new Date().toISOString();
     const revision = p.revision + 1;
-    const updated: MockProfile = { ...p, revision, updated_at: now, config,
-      revisions: [...p.revisions, { revision, created_at: now, created_by: 'operator' }] };
-    profiles = profiles.map((x) => (x.profile_id === p.profile_id ? updated : x));
+    const updated: Profile = {
+      ...p, revision, name: body.name ?? p.name, description: body.description ?? p.description,
+      config: body.config ? toPublic(body.config) : p.config, created_at: now,
+    };
+    profiles = profiles.map((x) => (x.id === p.id ? updated : x));
+    revisionsById.set(p.id, [...(revisionsById.get(p.id) ?? []), { revision, config: updated.config, created_at: now }]);
     return HttpResponse.json(updated);
   }),
 ];
@@ -116,6 +144,7 @@ export function resetMockSession(open = false) {
   session.set(open);
   resetMockStream(events as unknown as HfEvent[]);
   resetMockJobs();
-  profiles = structuredClone(profilesFixture);
+  profiles = structuredClone(profilesFixture) as Profile[];
+  seedRevisions();
   nextId = 1;
 }

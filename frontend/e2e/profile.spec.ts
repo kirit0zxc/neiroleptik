@@ -19,7 +19,9 @@ test('создание профиля и новая ревизия', async ({ pa
   await expect(page.getByRole('status')).toHaveText('Сохранено: ревизия r1');
   await expect(page).toHaveURL(/\/profiles\/p-new-1$/);
 
-  await page.getByLabel('Джиттер, %').fill('35');
+  // Правка новой ревизии. Пароль учётки сервер не отдаёт — вводим заново.
+  await page.getByLabel('Размер пачки').fill('50');
+  await page.getByRole('group', { name: 'Учётка 1' }).getByLabel('Пароль').fill('Backup2024!');
   await page.getByRole('button', { name: 'Сохранить новую ревизию' }).click();
   await expect(page.getByRole('status')).toHaveText('Сохранено: ревизия r2');
 

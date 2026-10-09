@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import type { Deployment } from '../../shared/api/types';
+import type { PreviewDeployment } from '../../shared/api/types';
 import { availableCommands, isFinal, jobLabel } from './commands';
 
-const d = (patch: Partial<Deployment>): Deployment => ({
-  deployment_id: 'x', host_id: 'h', interaction_level: 'medium', state: 'running',
+const d = (patch: Partial<PreviewDeployment>): PreviewDeployment => ({
+  id: 'x', host_id: 'h', interaction_level: 'medium', state: 'running',
   profile_id: 'p', desired_revision: 1, applied_revision: 1, ...patch,
 });
 

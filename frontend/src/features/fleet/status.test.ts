@@ -5,8 +5,8 @@ import { deploymentStatus, hostStatus } from './status';
 describe('статусы парка (F4, F5)', () => {
   it('связь агента', () => {
     expect(hostStatus({ status: 'online' }).tone).toBe('ok');
-    expect(hostStatus({ status: 'degraded' }).tone).toBe('warn');
     expect(hostStatus({ status: 'offline' }).tone).toBe('bad');
+    expect(hostStatus({ status: 'revoked' })).toEqual({ tone: 'bad', label: 'отозван' });
   });
 
   it('работающая ловушка со старой ревизией — drift, а не успех', () => {

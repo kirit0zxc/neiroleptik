@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../../shared/api/client';
-import type { Deployment } from '../../shared/api/types';
+import type { PreviewDeployment } from '../../shared/api/types';
 import { StatusBadge, ui, WindowTitle } from '../../shared/ui';
 import { availableCommands, COMMAND_LABEL, CONFIRM, jobLabel, type Command } from './commands';
 import { useJob } from './useJob';
@@ -11,13 +11,13 @@ import s from './fleet.module.css';
  * Команды одной ловушки (F6): кнопки по состоянию, подтверждение опасных,
  * ход задания до итога. Новый idempotency_key на каждое нажатие.
  */
-export function DeploymentActions({ deployment }: { deployment: Deployment }) {
+export function DeploymentActions({ deployment }: { deployment: PreviewDeployment }) {
   const [jobId, setJobId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Command | null>(null);
 
   const send = useMutation({
     mutationFn: (command: Command) => api<{ job_id: string }>(
-      `/api/v1/deployments/${encodeURIComponent(deployment.deployment_id)}/commands`,
+      `/api/v1/deployments/${encodeURIComponent(deployment.id)}/commands`,
       { method: 'POST', body: JSON.stringify({ command, idempotency_key: crypto.randomUUID() }) },
     ),
     onSuccess: (r) => setJobId(r.job_id),
@@ -37,7 +37,7 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
         </button>
       ))}
       {current && (
-        <span role="status" aria-label={`Задание ${deployment.deployment_id}`}>
+        <span role="status" aria-label={`Задание ${deployment.id}`}>
           <StatusBadge tone={jobLabel(current).tone}>{COMMAND_LABEL[current.command]}: {jobLabel(current).label}</StatusBadge>
         </span>
       )}
@@ -48,7 +48,7 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
       )}
       {confirm && (
         <ConfirmDialog
-          title={`${COMMAND_LABEL[confirm]} — ${deployment.deployment_id}?`}
+          title={`${COMMAND_LABEL[confirm]} — ${deployment.id}?`}
           text={CONFIRM[confirm]!}
           onCancel={() => setConfirm(null)}
           onConfirm={() => { send.mutate(confirm); setConfirm(null); }}

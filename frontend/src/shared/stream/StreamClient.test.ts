@@ -20,6 +20,9 @@ class FakeSocket implements StreamSocket {
 const rec = (seq: string, id = `e${seq}`): StreamRecord<Ev> => ({ stream_seq: seq, event: { event_id: id } });
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** Признак устаревшего курсора (аналог 410) для теста пересинхронизации. */
+class StreamGoneError extends Error {}
+
 function setup(opts: {
   cursor?: string | null;
   gap?: (after: string, until: string, page: string | null) => GapPage<Ev> | Promise<GapPage<Ev>>;
@@ -30,6 +33,7 @@ function setup(opts: {
   const calls = { unauthorized: 0, abnormal: 0 };
   const client = new StreamClient<Ev>({
     cursor: opts.cursor,
+    isGone: (e) => e instanceof StreamGoneError,
     connect: () => { const s = new FakeSocket(); sockets.push(s); return s; },
     fetchGap: async (after, until, page) => {
       gapCalls.push(`${after}..${until}${page ? `#${page}` : ''}`);
@@ -174,33 +178,68 @@ describe('StreamClient: протокол hello/event', () => {
     expect(got).toEqual(['1']);
   });
 
-  it('упавший подписчик не сдвигает курсор — событие придёт снова', async () => {
-    const { client, sockets } = setup({ cursor: '0' });
+  it('упавший подписчик на живом событии: курсор не сдвигается, догрузка доставляет его снова (P2-11)', async () => {
     let broken = true;
+    const { client, sockets, timers } = setup({ cursor: '0', gap: () => ({ items: [rec('1')], watermark: '1', next_cursor: null }) });
     client.subscribe(() => { if (broken) throw new Error('render'); });
     client.start();
     sockets[0]!.hello('0');
     await flush();
-    expect(() => sockets[0]!.push('1')).toThrow();
-    expect(client.currentCursor).toBe('0');
-    broken = false;
+    // Живое событие роняет подписчика — клиент не пробрасывает ошибку, а
+    // закрывает сокет; курсор остаётся на прежнем значении.
     sockets[0]!.push('1');
+    expect(sockets[0]!.closed).toBe(true);
+    expect(client.currentCursor).toBe('0');
+    // Переподключение: догрузка от прежнего курсора доставляет пропущенное.
+    sockets[0]!.drop();
+    broken = false;
+    timers.at(-1)!.fn();
+    sockets[1]!.hello('1');
+    await flush();
     expect(client.currentCursor).toBe('1');
   });
 
-  it('при падении одного подписчика остальные не получают событие повторно', async () => {
-    const { client, sockets, got } = setup({ cursor: '0' });
+  it('при падении одного подписчика остальные не получают событие повторно (P2-11)', async () => {
     let broken = true;
     const retried: string[] = [];
+    const { client, sockets, got, timers } = setup({ cursor: '0', gap: () => ({ items: [rec('1')], watermark: '1', next_cursor: null }) });
     client.subscribe((rs) => { if (broken) throw new Error('render'); retried.push(...rs.map((r) => r.stream_seq)); });
     client.start();
     sockets[0]!.hello('0');
     await flush();
-    expect(() => sockets[0]!.push('1')).toThrow();
+    sockets[0]!.push('1');          // здоровый got уже получил '1', второй упал
+    sockets[0]!.drop();
     broken = false;
-    sockets[0]!.push('1');
+    timers.at(-1)!.fn();
+    sockets[1]!.hello('1');
+    await flush();
+    // Здоровый подписчик получил '1' один раз; восстановившийся — только теперь.
     expect(got).toEqual(['1']);
     expect(retried).toEqual(['1']);
+  });
+
+  it('устаревший курсор (410): сброс курсора и сигнал пересинхронизации, без зацикливания', async () => {
+    let gone = true;
+    const resyncs: number[] = [];
+    const { client, sockets, timers, gapCalls } = setup({
+      cursor: '5',
+      gap: () => { if (gone) throw new StreamGoneError(); return { items: [], watermark: '9', next_cursor: null }; },
+    });
+    client.onResync(() => resyncs.push(1));
+    client.start();
+    sockets[0]!.hello('9');
+    await flush();
+    // 410: курсор сброшен, подписчикам послан сигнал перечитать историю.
+    expect(resyncs).toEqual([1]);
+    expect(client.currentCursor).toBeNull();
+    // Переподключение: курсор = watermark без повторной догрузки мёртвого '5'.
+    gone = false;
+    sockets[0]!.drop();
+    timers.at(-1)!.fn();
+    sockets[1]!.hello('9');
+    await flush();
+    expect(client.currentCursor).toBe('9');
+    expect(gapCalls).toEqual(['5..9']);   // догрузка по мёртвому курсору была только один раз
   });
 
   it('stop закрывает сокет', () => {

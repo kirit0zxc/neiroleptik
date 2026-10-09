@@ -5,8 +5,8 @@ import { FeedBuffer } from './FeedBuffer';
 import { filtersFromSearch, filtersToSearch, isIp, matches, toQuery, validateFilters } from './filters';
 
 const ev = (id: string, patch: Partial<HfEvent> = {}): HfEvent => ({
-  event_id: id, agent_id: 'a', deployment_id: 'decoy-low-01', instance_id: null, session_id: null,
-  occurred_at: '2026-10-09T12:00:00Z', received_at: '2026-10-09T12:00:01Z', type: 'http.request', source: { ip: '192.0.2.1', port: 1 },
+  schema_version: 1, event_id: id, agent_id: 'a', deployment_id: 'decoy-low-01', instance_id: null, session_id: null,
+  source_seq: 1, occurred_at: '2026-10-09T12:00:00Z', received_at: '2026-10-09T12:00:01Z', type: 'http.request', source: { ip: '192.0.2.1', port: 1 },
   service: { protocol: 'http', port: 80 }, data: {}, artifact_ids: [], profile_revision: 1, ...patch,
 });
 
@@ -34,7 +34,9 @@ describe('фильтры ленты (F11)', () => {
     const local = '2026-10-09T15:00';
     const q = toQuery({ from: local, type: 'session.command' }, 'c2');
     expect(q.get('from')).toBe(new Date(local).toISOString());
-    expect(q.get('cursor')).toBe('c2');
+    // Следующая страница — через after=<next_cursor>, как требует контракт.
+    expect(q.get('after')).toBe('c2');
+    expect(q.get('cursor')).toBeNull();
     expect(q.get('limit')).toBe('50');
   });
 
@@ -74,13 +76,18 @@ describe('окно ленты (FeedBuffer)', () => {
     expect(b.isPaused).toBe(true);
   });
 
-  it('окно ограничено, вытесненное можно догрузить снова', () => {
-    const b = new FeedBuffer(3);
-    b.loadPage([ev('3'), ev('2'), ev('1')], false);
-    b.pushLive([ev('4')]);
-    expect(b.events.map((e) => e.event_id)).toEqual(['4', '3', '2']);
+  it('лимит ограничивает живые события, историю оставляет целиком (P2-8)', () => {
+    const b = new FeedBuffer(2);
+    // Три страницы истории — все сохраняются, несмотря на лимит живых = 2.
+    b.loadPage([ev('5'), ev('4')], false);
+    b.loadPage([ev('3'), ev('2')], true);
     b.loadPage([ev('1')], true);
-    expect(b.events.map((e) => e.event_id)).toEqual(['4', '3', '2']);
+    expect(b.events.map((e) => e.event_id)).toEqual(['5', '4', '3', '2', '1']);
+    // Живых не больше лимита: самое старое живое вытесняется.
+    b.pushLive([ev('6')]);
+    b.pushLive([ev('7')]);
+    b.pushLive([ev('8')]);
+    expect(b.events.map((e) => e.event_id)).toEqual(['8', '7', '5', '4', '3', '2', '1']);
   });
 
   it('следующая страница дописывается снизу; новая выборка заменяет окно', () => {
@@ -90,5 +97,33 @@ describe('окно ленты (FeedBuffer)', () => {
     expect(b.events.map((e) => e.event_id)).toEqual(['3', '2', '1']);
     b.loadPage([ev('9')], false);
     expect(b.events.map((e) => e.event_id)).toEqual(['9']);
+  });
+
+  it('повтор по паре (agent_id, event_id): один id у разных агентов — разные события (P2-6)', () => {
+    const b = new FeedBuffer();
+    b.loadPage([ev('1', { agent_id: 'a' })], false);
+    b.pushLive([ev('1', { agent_id: 'b' }), ev('1', { agent_id: 'a' })]);
+    // Событие '1' агента b — новое; '1' агента a — повтор, отсеивается.
+    expect(b.events.map((e) => `${e.agent_id}:${e.event_id}`)).toEqual(['b:1', 'a:1']);
+  });
+
+  it('догрузка истории на паузе не показывает живые события (P2-7)', () => {
+    const b = new FeedBuffer();
+    b.loadPage([ev('2')], false);
+    b.setPaused(true);
+    b.pushLive([ev('5')]);               // живое на паузе — в pending
+    b.loadPage([ev('1')], true);         // «Показать ещё» догружает историю
+    expect(b.events.map((e) => e.event_id)).toEqual(['2', '1']);
+    expect(b.pending).toBe(1);           // живое остаётся отложенным
+  });
+
+  it('буфер отложенных на паузе ограничен лимитом (P2-9)', () => {
+    const b = new FeedBuffer(2);
+    b.setPaused(true);
+    b.pushLive([ev('1'), ev('2'), ev('3'), ev('4')]);
+    // Храним не больше лимита отложенных — самые старые забываются.
+    expect(b.pending).toBe(2);
+    b.flush();
+    expect(b.events.map((e) => e.event_id)).toEqual(['4', '3']);
   });
 });

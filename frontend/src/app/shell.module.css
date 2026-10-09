@@ -19,3 +19,8 @@
 }
 .main h1 { margin: 0; }
 .planned { color: var(--text-dim); }
+
+.logoutError {
+  color: var(--bad, #c0392b);
+  font-size: 0.85em;
+}

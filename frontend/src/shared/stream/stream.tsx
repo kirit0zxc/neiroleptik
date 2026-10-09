@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { api, notifyUnauthorized } from '../api/client';
-import type { HfEvent } from '../api/types';
+import { api, ApiError, notifyUnauthorized } from '../api/client';
+import { eventKey, type HfEvent } from '../api/types';
 import { emitMascotEvents } from '../mascot-slot/mascotEvents';
 import { StreamClient, type GapPage, type StreamRecord, type StreamSocket, type StreamStatus } from './StreamClient';
 
@@ -22,6 +22,10 @@ export function createEventStream(): EventStream {
       if (page) q.set('cursor', page);
       return api<GapPage<HfEvent>>(`/api/v1/stream-events?${q}`);
     },
+    // Уникальность события — пара (agent_id, event_id).
+    keyOf: eventKey,
+    // 410 — курсор устарел: догрузить инкрементально нельзя, нужна пересинхронизация.
+    isGone: (err) => err instanceof ApiError && err.status === 410,
     // 4401 — сессия истекла; 1006 и прочее — проверить сессию: при 401 api() сам уведёт на вход.
     onUnauthorized: notifyUnauthorized,
     onAbnormalClose: () => { void api('/api/v1/auth/me').catch(() => {}); },
@@ -57,6 +61,18 @@ export function useStreamEvents(fn: (events: HfEvent[]) => void) {
   useEffect(() => {
     if (!stream) return;
     return stream.subscribe((rs: StreamRecord<HfEvent>[]) => fn(rs.map((r) => r.event)));
+  }, [stream, fn]);
+}
+
+/**
+ * Подписка на пересинхронизацию потока (после устаревшего курсора, 410).
+ * Экран ленты по этому сигналу перечитывает историю заново.
+ */
+export function useStreamResync(fn: () => void) {
+  const stream = useContext(StreamContext);
+  useEffect(() => {
+    if (!stream) return;
+    return stream.onResync(fn);
   }, [stream, fn]);
 }
 

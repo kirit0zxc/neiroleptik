@@ -1,6 +1,9 @@
-import type { Deployment } from '../../shared/api/types';
+import type { PreviewDeployment } from '../../shared/api/types';
 
-/** Команды ловушки (specs/frontend.md, «Команды ловушки»). */
+/**
+ * Команды ловушки (specs/frontend.md, «Команды ловушки»). Экран-превью:
+ * команд и заданий в контракте стадии 1 нет (участник 3), обслуживается моками.
+ */
 export const COMMANDS = ['start', 'stop', 'apply_config', 'rotate_credentials', 'reset'] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -32,7 +35,7 @@ export const CONFIRM: Record<Command, string | null> = {
 };
 
 /** Какие команды можно отправить ловушке в её текущем состоянии. */
-export function availableCommands(d: Pick<Deployment, 'state' | 'interaction_level' | 'desired_revision' | 'applied_revision'>): Command[] {
+export function availableCommands(d: Pick<PreviewDeployment, 'state' | 'interaction_level' | 'desired_revision' | 'applied_revision'>): Command[] {
   const out: Command[] = [];
   const drift = d.applied_revision !== d.desired_revision;
   if (d.state === 'stopped' || d.state === 'failed' || d.state === 'planned') out.push('start');

@@ -79,14 +79,18 @@ describe('форма профиля (F8, F9)', () => {
     const name = await screen.findByLabelText('Название');
     await user.clear(name);
     await user.type(name, 'Сервер БД');
+    // Сервер не отдаёт пароли учёток — при сохранении их вводят заново.
+    const creds = screen.getByRole('group', { name: 'Учётка 1' });
+    await user.type(within(creds).getByLabelText('Пароль'), 'admin123');
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Сохранено: ревизия r5');
+    // p-linux-srv начинается с r1..r4; сохранение добавляет r5.
     const revisions = screen.getByRole('region', { name: 'Ревизии' });
-    expect(within(revisions).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(revisions).getAllByRole('listitem')).toHaveLength(5);
   });
 
   it('наблюдатель видит профиль, но не может его менять (F2)', async () => {
-    server.use(http.get('/api/v1/auth/me', () => HttpResponse.json({ user_id: 'u-2', login: 'viewer', role: 'viewer', csrf_token: 't' })));
+    server.use(http.get('/api/v1/auth/me', () => HttpResponse.json({ user: { id: 'u-2', username: 'viewer', role: 'viewer' }, csrf_token: 't' })));
     open('/profiles/p-linux-srv');
     expect(await screen.findByText('Роль «наблюдатель» — только просмотр.')).toBeInTheDocument();
     expect(screen.getByLabelText('Название')).toBeDisabled();
@@ -100,6 +104,7 @@ describe('форма профиля (F8, F9)', () => {
     open('/profiles/p-linux-srv');
     const name = await screen.findByLabelText('Название');
     await user.type(name, ' 2');
+    await user.type(within(screen.getByRole('group', { name: 'Учётка 1' })).getByLabelText('Пароль'), 'admin123');
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Профиль уже изменён: перечитайте текущую версию');
     expect(name).toHaveValue('Тестовый Linux-сервер 2');
@@ -109,10 +114,11 @@ describe('форма профиля (F8, F9)', () => {
     const user = userEvent.setup();
     server.use(http.patch('/api/v1/profiles/:id', () => HttpResponse.json({ detail: [
       { loc: ['body', 'config', 'services', 0, 'port'], type: 'value_error', msg: 'Порт занят другой ловушкой на хосте' },
-      { loc: ['body', 'config', 'legend', 'hostname'], type: 'value_error', msg: 'Имя хоста уже используется' },
+      { loc: ['body', 'config', 'hostname'], type: 'value_error', msg: 'Имя хоста уже используется' },
     ] }, { status: 422 })));
     open('/profiles/p-linux-srv');
     await screen.findByLabelText('Название');
+    await user.type(within(screen.getByRole('group', { name: 'Учётка 1' })).getByLabelText('Пароль'), 'admin123');
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
     const svc = screen.getByRole('group', { name: 'Сервис 1' });
     expect(await within(svc).findByText('Порт занят другой ловушкой на хосте')).toBeInTheDocument();
@@ -129,6 +135,7 @@ describe('форма профиля (F8, F9)', () => {
     }));
     open('/profiles/p-linux-srv');
     await screen.findByLabelText('Название');
+    await user.type(within(screen.getByRole('group', { name: 'Учётка 1' })).getByLabelText('Пароль'), 'admin123');
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
     await screen.findByRole('alert');
     expect(header).toBe('mock-csrf-token');

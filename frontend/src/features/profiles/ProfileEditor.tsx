@@ -6,8 +6,11 @@ import { ApiError } from '../../shared/api/client';
 import { formatTime } from '../../shared/format/time';
 import { ErrorState, Loading, Panel, ui } from '../../shared/ui';
 import { canEdit, useMe } from '../auth/auth';
-import { useProfile, useSaveProfile } from './api';
-import { ALLOWED, emptyProfile, hasCredentials, LEVELS, ProfileSchema, servicesForLevel, type ProfileConfig, type ProfileInput } from './schema';
+import { useProfile, useRevisions, useSaveProfile } from './api';
+import {
+  ALLOWED, emptyProfile, formFromConfig, formToCreate, hasCredentials, hasHigh, LEVELS,
+  ProfileSchema, servicesForLevel, type ProfileForm, type ProfileInput,
+} from './schema';
 import s from './profiles.module.css';
 
 const LEVEL_LABEL = { low: 'Low — порты и баннеры', medium: 'Medium — эмуляция SSH (Cowrie)', high: 'High — настоящая VM за SSH-шлюзом' } as const;
@@ -18,26 +21,30 @@ export function ProfileEditor() {
   const existing = useProfile(id);
   if (id && existing.isPending) return <Loading what="профиль" />;
   if (id && existing.isError) return <ErrorState message={existing.error.message} onRetry={() => void existing.refetch()} />;
+  const initial = existing.data
+    ? formFromConfig(existing.data.name, existing.data.description, existing.data.config)
+    : emptyProfile();
   // key — чтобы форма пересоздалась с данными нужного профиля.
-  return <ProfileForm key={id ?? 'new'} id={id} initial={existing.data?.config ?? emptyProfile()} profile={existing.data} />;
+  return <ProfileFormView key={id ?? 'new'} id={id} initial={initial} name={existing.data?.name} revision={existing.data?.revision} />;
 }
 
-function ProfileForm({ id, initial, profile }: {
-  id?: string; initial: ProfileConfig; profile?: ReturnType<typeof useProfile>['data'];
+function ProfileFormView({ id, initial, name, revision }: {
+  id?: string; initial: ProfileForm; name?: string; revision?: number;
 }) {
   const me = useMe();
-  const editable = canEdit(me?.role);
+  const editable = canEdit(me?.user.role);
   const navigate = useNavigate();
-  const save = useSaveProfile(id);
+  const save = useSaveProfile(id, revision);
+  const revisions = useRevisions(id);
   const [saved, setSaved] = useState<number | null>(null);
-  const form = useForm<ProfileInput, unknown, ProfileConfig>({ resolver: zodResolver(ProfileSchema), defaultValues: initial, mode: 'onTouched' });
+  const form = useForm<ProfileInput, unknown, ProfileForm>({ resolver: zodResolver(ProfileSchema), defaultValues: initial, mode: 'onTouched' });
   const services = useFieldArray({ control: form.control, name: 'services' });
-  const creds = useFieldArray({ control: form.control, name: 'decoy_credentials' });
+  const creds = useFieldArray({ control: form.control, name: 'credentials' });
   const level = form.watch('level');
   const { errors } = form.formState;
 
-  // Смена уровня: у Low нет входа — учётки убираем; сервисы, которые
-  // уровню не подходят, заменяем набором по умолчанию.
+  // Смена уровня: у Low нет входа — учётки убираем; сервисы, которые уровню
+  // не подходят, заменяем набором по умолчанию.
   useEffect(() => {
     if (!hasCredentials(level) && creds.fields.length) creds.replace([]);
     const current = form.getValues('services');
@@ -45,10 +52,10 @@ function ProfileForm({ id, initial, profile }: {
     if (next !== current) services.replace(next);
   }, [level, creds, services, form]);
 
-  const onSubmit = form.handleSubmit((config) => save.mutate(config, {
+  const onSubmit = form.handleSubmit((values) => save.mutate(formToCreate(values), {
     onSuccess: (p) => {
       setSaved(p.revision);
-      if (!id) navigate(`/profiles/${encodeURIComponent(p.profile_id)}`, { replace: true });
+      if (!id) navigate(`/profiles/${encodeURIComponent(p.id)}`, { replace: true });
     },
     // 422: ошибки сервера — к своим полям (путь после «config»).
     onError: (err) => {
@@ -64,7 +71,7 @@ function ProfileForm({ id, initial, profile }: {
   return (
     <>
       <p><Link to="/profiles">← Все профили</Link></p>
-      <h1>{id ? `Профиль ${profile?.config.name ?? ''}` : 'Новый профиль'}</h1>
+      <h1>{id ? `Профиль ${name ?? ''}` : 'Новый профиль'}</h1>
       <form onSubmit={onSubmit} noValidate aria-label="Профиль ловушки">
         <fieldset disabled={!editable} className={s.grid}>
           {!editable && <p className={s.note}>Роль «наблюдатель» — только просмотр.</p>}
@@ -73,12 +80,18 @@ function ProfileForm({ id, initial, profile }: {
             <Field label="Название" error={errors.name}>
               {(a) => <input {...a} {...form.register('name')} />}
             </Field>
+            <Field label="Описание" error={errors.description} wide>
+              {(a) => <input {...a} {...form.register('description')} />}
+            </Field>
             <Field label="Уровень взаимодействия" error={errors.level}>
               {(a) => (
                 <select {...a} {...form.register('level')}>
                   {LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
                 </select>
               )}
+            </Field>
+            <Field label="Имя хоста (легенда)" error={errors.hostname}>
+              {(a) => <input {...a} {...form.register('hostname')} />}
             </Field>
           </Panel>
 
@@ -114,46 +127,50 @@ function ProfileForm({ id, initial, profile }: {
 
           {hasCredentials(level) && (
             <Panel title="Учётные данные-приманки">
-              <p className={s.note}>Ненастоящие логины и пароли, которые «подойдут» атакующему.</p>
+              <p className={s.note}>Ненастоящие логины и пароли, которые «подойдут» атакующему. Не больше 8.</p>
               {creds.fields.map((f, i) => (
                 <div key={f.id} className={s.row} role="group" aria-label={`Учётка ${i + 1}`}>
-                  <Field label="Логин" error={errors.decoy_credentials?.[i]?.username}>
-                    {(a) => <input {...a} autoComplete="off" {...form.register(`decoy_credentials.${i}.username`)} />}
+                  <Field label="Логин" error={errors.credentials?.[i]?.username}>
+                    {(a) => <input {...a} autoComplete="off" {...form.register(`credentials.${i}.username`)} />}
                   </Field>
-                  <Field label="Пароль" error={errors.decoy_credentials?.[i]?.password}>
-                    {(a) => <input {...a} autoComplete="off" {...form.register(`decoy_credentials.${i}.password`)} />}
+                  <Field label="Пароль" error={errors.credentials?.[i]?.password}>
+                    {(a) => <input {...a} autoComplete="off" {...form.register(`credentials.${i}.password`)} />}
                   </Field>
                   <button type="button" className={s.remove} onClick={() => creds.remove(i)} aria-label={`Удалить учётку ${i + 1}`}>×</button>
                 </div>
               ))}
-              <button type="button" className={ui.button} onClick={() => creds.append({ username: '', password: '' })}>+ Учётка</button>
+              {id && <p className={s.note}>Сервер не отдаёт пароли учёток — при сохранении введите их заново.</p>}
+              <button type="button" className={ui.button} disabled={creds.fields.length >= 8}
+                onClick={() => creds.append({ username: '', password: '' })}>+ Учётка</button>
             </Panel>
           )}
 
-          <Panel title="Легенда">
-            <div className={s.row}>
-              <Field label="Имя хоста" error={errors.legend?.hostname}>
-                {(a) => <input {...a} {...form.register('legend.hostname')} />}
-              </Field>
-              <Field label="ОС" error={errors.legend?.os}>
-                {(a) => <input {...a} {...form.register('legend.os')} />}
-              </Field>
-            </div>
-          </Panel>
+          {hasHigh(level) && (
+            <Panel title="Среда High (VM)">
+              <div className={s.row}>
+                <Field label="TTL, с" error={errors.high?.ttl_seconds}>
+                  {(a) => <input {...a} inputMode="numeric" {...form.register('high.ttl_seconds')} />}
+                </Field>
+                <Field label="CPU" error={errors.high?.cpu}>
+                  {(a) => <input {...a} inputMode="numeric" {...form.register('high.cpu')} />}
+                </Field>
+                <Field label="Память, МБ" error={errors.high?.memory_mb}>
+                  {(a) => <input {...a} inputMode="numeric" {...form.register('high.memory_mb')} />}
+                </Field>
+              </div>
+            </Panel>
+          )}
 
           <Panel title="Логирование и канал">
             <div className={s.row}>
               <Field label="Лимит payload, КиБ" error={errors.logging?.payload_limit_kb}>
                 {(a) => <input {...a} inputMode="numeric" {...form.register('logging.payload_limit_kb')} />}
               </Field>
-              <label className={s.check}>
-                <input type="checkbox" {...form.register('logging.record_tty')} /> Записывать терминал
-              </label>
-              <Field label="Интервал beacon, с" error={errors.channel?.beacon_interval_s}>
-                {(a) => <input {...a} inputMode="numeric" {...form.register('channel.beacon_interval_s')} />}
+              <Field label="Интервал отправки, мс" error={errors.channel?.flush_interval_ms}>
+                {(a) => <input {...a} inputMode="numeric" {...form.register('channel.flush_interval_ms')} />}
               </Field>
-              <Field label="Джиттер, %" error={errors.channel?.jitter_pct}>
-                {(a) => <input {...a} inputMode="numeric" {...form.register('channel.jitter_pct')} />}
+              <Field label="Размер пачки" error={errors.channel?.batch_size}>
+                {(a) => <input {...a} inputMode="numeric" {...form.register('channel.batch_size')} />}
               </Field>
             </div>
           </Panel>
@@ -170,11 +187,11 @@ function ProfileForm({ id, initial, profile }: {
         </fieldset>
       </form>
 
-      {profile && (
+      {id && revisions.data && (
         <Panel title="Ревизии">
           <ol className={s.revisions}>
-            {[...profile.revisions].reverse().map((r) => (
-              <li key={r.revision}><b>r{r.revision}</b> · {formatTime(r.created_at)} · {r.created_by}</li>
+            {[...revisions.data].sort((a, b) => b.revision - a.revision).map((r) => (
+              <li key={r.revision}><b>r{r.revision}</b> · {formatTime(r.created_at)}</li>
             ))}
           </ol>
         </Panel>

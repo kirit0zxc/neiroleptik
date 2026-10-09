@@ -35,8 +35,8 @@ function controlledStream() {
 }
 
 const ev = (id: string, patch: Partial<HfEvent> = {}): HfEvent => ({
-  event_id: id, agent_id: 'agent-runtime-01', deployment_id: 'decoy-medium-01', instance_id: 'cowrie-0003', session_id: 's-1',
-  occurred_at: new Date().toISOString(), received_at: new Date().toISOString(), type: 'session.command', source: { ip: '203.0.113.9', port: 4000 },
+  schema_version: 1, event_id: id, agent_id: 'agent-runtime-01', deployment_id: 'decoy-medium-01', instance_id: 'cowrie-0003', session_id: 's-1',
+  source_seq: 1, occurred_at: new Date().toISOString(), received_at: new Date().toISOString(), type: 'session.command', source: { ip: '203.0.113.9', port: 4000 },
   service: { protocol: 'ssh', port: 2222 }, data: { input: `cmd-${id}` }, artifact_ids: [], profile_revision: 1, ...patch,
 });
 
@@ -63,9 +63,13 @@ describe('живая лента (F10–F12)', () => {
   it('повтор события из потока не дублирует строку', async () => {
     const s = controlledStream();
     open('/events', s.create);
-    await screen.findAllByTestId('event-row');
-    s.send(ev('a33c4f71-0002'));
-    expect(rows()).toHaveLength(3);
+    await screen.findAllByTestId('event-row');   // 3 события из фикстуры
+    const dup = ev('dup-1');
+    s.send(dup);
+    expect(rows()).toHaveLength(4);
+    // Та же пара (agent_id, event_id) из потока — повтор, строка не дублируется.
+    s.send(dup);
+    expect(rows()).toHaveLength(4);
   });
 
   it('живое событие не под фильтр — не показывается', async () => {

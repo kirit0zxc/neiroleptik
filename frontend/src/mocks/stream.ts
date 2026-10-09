@@ -67,8 +67,8 @@ export function nextDemoEvent(now = new Date()): HfEvent {
   demoSeq += 1;
   const ssh = step.protocol === 'ssh';
   return {
-    event_id: `demo-${demoSeq}`, agent_id: 'agent-runtime-01', deployment_id: step.deployment_id,
-    instance_id: ssh ? 'cowrie-0003' : null, session_id: ssh ? 'session-demo' : null,
+    schema_version: 1, event_id: `demo-${demoSeq}`, agent_id: 'agent-runtime-01', deployment_id: step.deployment_id,
+    instance_id: ssh ? 'cowrie-0003' : null, session_id: ssh ? 'session-demo' : null, source_seq: demoSeq,
     occurred_at: now.toISOString(), received_at: new Date(now.getTime() + 200).toISOString(), type: step.type,
     source: { ip: step.ip, port: 50000 + demoSeq }, service: { protocol: step.protocol, port: step.port },
     data: step.data, artifact_ids: [], profile_revision: 1,

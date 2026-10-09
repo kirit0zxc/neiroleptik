@@ -1,21 +1,22 @@
-import type { Deployment, Host } from '../../shared/api/types';
+import type { Host, PreviewDeployment } from '../../shared/api/types';
 import type { Tone } from '../../shared/ui';
 
 /** Связь агента (F4): online — это связь, а не работа ловушки. */
 export function hostStatus(h: Pick<Host, 'status'>): { tone: Tone; label: string } {
   switch (h.status) {
     case 'online': return { tone: 'ok', label: 'на связи' };
-    case 'degraded': return { tone: 'warn', label: 'с ошибками' };
     case 'offline': return { tone: 'bad', label: 'нет связи' };
+    case 'revoked': return { tone: 'bad', label: 'отозван' };
     default: return { tone: 'idle', label: 'неизвестно' };
   }
 }
 
 /**
- * Состояние ловушки (F5). Работающая ловушка, у которой применённая
- * ревизия отстаёт от желаемой, — «drift», а не зелёный успех.
+ * Состояние ловушки (F5) на экране-превью парка. Работающая ловушка, у
+ * которой применённая ревизия отстаёт от желаемой, — «drift», а не успех.
+ * В контракте стадии 1 есть только `planned`; остальные состояния — превью.
  */
-export function deploymentStatus(d: Pick<Deployment, 'state' | 'desired_revision' | 'applied_revision'>): { tone: Tone; label: string } {
+export function deploymentStatus(d: Pick<PreviewDeployment, 'state' | 'desired_revision' | 'applied_revision'>): { tone: Tone; label: string } {
   const drift = d.applied_revision !== d.desired_revision;
   switch (d.state) {
     case 'running':

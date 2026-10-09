@@ -129,19 +129,28 @@ LLM-сводка. Маскот «Юми» — только зарезервир�
   маскировки, легенда. Проверка формы — Zod-схемой.
 - **F9.** Сохранение создаёт новую ревизию; виден список ревизий.
 
-#### Поля профиля (черновик до OpenAPI)
+#### Поля профиля (по контракту `openapi.json`: ProfileCreate / ProfileConfigInput)
+
+Имя и описание — на верхнем уровне (`ProfileCreate`), остальное — в `config`
+(`ProfileConfigInput`). Значения формы совпадают с ограничениями сервера.
 
 | Поле | Правило |
 |---|---|
-| `name` | 1–64 символа, обязательно |
-| `level` | `low` / `medium` / `high` |
-| `services[]` | 1–16 сервисов: `protocol` (`tcp` / `http` / `ssh`), `port` 1–65535 без повторов, `banner` до 256 символов |
-| `decoy_credentials[]` | до 20 пар `username` (1–64) / `password` (1–128) — это приманки, не настоящие учётки |
-| `logging` | `payload_limit_kb` 1–8 (лимит из плана), `record_tty` (да/нет) |
-| `channel` | `beacon_interval_s` 5–300, `jitter_pct` 0–50 (MASK-5) |
-| `legend` | `hostname` (RFC 1123, до 63 символов), `os` до 64 символов |
+| `name` | 1–80 символов, обязательно (верхний уровень) |
+| `description` | до 500 символов (верхний уровень) |
+| `config.interaction_level` | `low` / `medium` / `high` |
+| `config.hostname` | легенда: RFC 1123, до 63 символов |
+| `config.services[]` | 1–16 сервисов: `protocol` (`tcp` / `http` / `ssh`), `port` 1–65535 без повторов, `banner` до 200 символов |
+| `config.credentials[]` | до 8 пар `username` (1–64, маска `[a-zA-Z0-9_.-]`) / `password` (1–128) — приманки; на чтение сервер отдаёт только `credential_usernames`, пароли при правке вводятся заново |
+| `config.logging.max_payload_bytes` | 256–8192 (в форме — КиБ 1–8, пересчитывается в байты) |
+| `config.channel` | `flush_interval_ms` 100–5000, `batch_size` 1–100 |
+| `config.high` | только для High: `template` (`ubuntu-ssh-v1`), `ttl_seconds` 60–3600, `cpu` 1–2, `memory_mb` 1024–4096 |
 
-Сочетания уровней и протоколов (план команды, «Уровни ловушек»):
+Обновление профиля (`ProfileUpdate`) требует `expected_revision` — ожидаемую
+текущую ревизию; при расхождении сервер отвечает 409. История ревизий —
+`GET /profiles/{id}/revisions` (`RevisionRead`).
+
+Сочетания уровней и протоколов:
 
 - **Low** — только `tcp` и `http` (баннеры и заглушки);
 - **Medium** — обязателен хотя бы один `ssh` (Cowrie), можно `http`;
@@ -220,24 +229,34 @@ SSH 2222, High — SSH 2224). Выпадающий список протокол
 
 ## 4. Интерфейс с backend
 
-Контракты — общие для команды: `contracts/openapi.json` (control API) и
-`contracts/event-v1.schema.json` (событие); типы frontend генерируются из
-них. Пока файлов нет, в `contracts/` лежат **черновые фикстуры
-frontend** (`*.draft.json`) по согласованным полям.
+Контракт стадии 1 — общий `contracts/openapi.json` (control API). Типы
+frontend для поверхностей стадии 1 (auth, профили, хосты, развёртывания)
+точно повторяют его схемы (`AuthRead`, `UserRead`, `ProfileRead`,
+`ProfileConfigPublic`, `RevisionRead`, `HostRead`, `DeploymentRead`,
+`DeploymentCreate`). Фикстуры `contracts/fixtures/*.draft.json` повторяют эти
+формы для моков.
 
-Событие v1: `event_id`, `agent_id`, `deployment_id`, `instance_id`,
-`session_id` (может быть `null`), `occurred_at`, `received_at`, `type`,
-`source`, `service`, `data`, `artifact_ids`, `profile_revision`.
+Поток событий, команды ловушек, задания и аналитика в контракте стадии 1
+**отсутствуют** (см. `specs/architecture.md`, «Границы первого этапа»): это
+работа этапов 3–4. Соответствующие экраны (лента, команды парка, обзор)
+работают как помеченные превью на моках; их пути и формат события
+(`event-v1.schema.json`) ещё не закреплены в OpenAPI и подлежат согласованию
+с участником 4. Событие v1: `schema_version` (=1), `event_id`, `agent_id`,
+`deployment_id`, `instance_id`, `session_id` (может быть `null`), `source_seq`,
+`occurred_at`, `received_at`, `type`, `source`, `service`, `data`,
+`artifact_ids`, `profile_revision`; уникальность — пара `(agent_id, event_id)`.
 
-| Использует | Путь |
-|---|---|
-| Сессия | `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me` |
-| Профили | `GET/POST /api/v1/profiles`, `GET/PATCH/DELETE /api/v1/profiles/{id}` |
-| Парк | `GET /api/v1/hosts`, `GET/POST /api/v1/deployments`, `GET /api/v1/deployments/{id}` |
-| Команды и jobs | `POST /api/v1/deployments/{id}/commands`, `GET /api/v1/jobs/{id}` |
-| События | `GET /api/v1/events`, `WS /api/v1/stream`, `GET /api/v1/stream-events?after=&until=&limit=` |
-| Расследование | `GET /api/v1/sessions/{id}`, `GET /api/v1/sessions/{id}/replay`, `GET /api/v1/artifacts/{id}[/download]` |
-| Аналитика | `GET /api/v1/analytics/summary`, `GET /api/v1/ioc.csv`, `GET /api/v1/audit` |
+| Использует | Путь | Статус |
+|---|---|---|
+| Сессия | `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me` | контракт |
+| Профили | `GET/POST /api/v1/profiles`, `GET/PATCH /api/v1/profiles/{id}`, `GET /api/v1/profiles/{id}/revisions` | контракт |
+| Парк | `GET /api/v1/hosts`, `GET/POST /api/v1/deployments` (создание — `planned`) | контракт |
+| Команды и jobs | `POST /api/v1/deployments/{id}/commands`, `GET /api/v1/jobs/{id}` | превью (этап 3) |
+| События | `GET /api/v1/events?after=&limit=`, `WS /api/v1/stream`, `GET /api/v1/stream-events?after=&until=&limit=` | превью (этап 4) |
+| Аналитика | `GET /api/v1/analytics/summary` | превью (этап 4) |
+
+Вход: тело `{username, password}` (`LoginInput`); ответ `AuthRead`
+(`{user: {id, username, role}, csrf_token}`). Пагинация ленты — `after=<next_cursor>`.
 
 **Сессия и CSRF.** Сессия — HttpOnly-cookie `hf_session`; все запросы с
 `credentials: 'include'`. CSRF-токен приходит полем `csrf_token` в ответах

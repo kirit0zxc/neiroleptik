@@ -65,7 +65,9 @@ def test_supported_static_checks_do_not_claim_live_readiness() -> None:
     assert len(report.checks) == 8
     assert {check.status for check in report.checks} == {"PASS"}
     assert {check.check for check in report.manual_checks} == {
-        "vm_creation", "network_permissions", "network_isolation",
+        "vm_creation",
+        "network_permissions",
+        "network_isolation",
     }
     assert {check.status for check in report.manual_checks} == {"UNKNOWN"}
     assert report.as_dict()["live_smoke_verified"] is False
@@ -127,9 +129,16 @@ def test_missing_tools_fail_without_attempted_execution() -> None:
     assert not report.static_ready
     assert not runner.commands
     checks = {check.check: check.status for check in report.checks}
-    assert all(checks[name] == "FAIL" for name in (
-        "qemu_img", "virsh_version", "libvirt_connection", "ip", "firewall",
-    ))
+    assert all(
+        checks[name] == "FAIL"
+        for name in (
+            "qemu_img",
+            "virsh_version",
+            "libvirt_connection",
+            "ip",
+            "firewall",
+        )
+    )
 
 
 def test_iptables_is_read_only_fallback_for_nft() -> None:
@@ -140,16 +149,20 @@ def test_iptables_is_read_only_fallback_for_nft() -> None:
     assert runner.commands[-1] == ("/usr/bin/iptables", "--version")
 
 
-@pytest.mark.parametrize(("result", "expected"), [
-    (CommandResult(1, "permission denied"), "FAIL"),
-    (CommandResult(-9, timed_out=True), "UNKNOWN"),
-    (CommandResult(-9, "partial", truncated=True), "UNKNOWN"),
-    (CommandResult(None, error="cannot execute"), "UNKNOWN"),
-    (CommandResult(0, ""), "UNKNOWN"),
-    (CommandResult(0, "qemu:///session\n"), "UNKNOWN"),
-])
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        (CommandResult(1, "permission denied"), "FAIL"),
+        (CommandResult(-9, timed_out=True), "UNKNOWN"),
+        (CommandResult(-9, "partial", truncated=True), "UNKNOWN"),
+        (CommandResult(None, error="cannot execute"), "UNKNOWN"),
+        (CommandResult(0, ""), "UNKNOWN"),
+        (CommandResult(0, "qemu:///session\n"), "UNKNOWN"),
+    ],
+)
 def test_failed_or_incomplete_libvirt_probe_never_passes(
-    result: CommandResult, expected: str,
+    result: CommandResult,
+    expected: str,
 ) -> None:
     runner = FakeRunner()
     runner.results[("/usr/bin/virsh", "-c", "qemu:///system", "uri")] = result
@@ -160,9 +173,14 @@ def test_failed_or_incomplete_libvirt_probe_never_passes(
 
 
 def test_real_runner_preserves_literal_arguments() -> None:
-    result = BoundedRunner().run([
-        sys.executable, "-c", "import sys; print(sys.argv[1])", "literal;$(not-a-command)",
-    ])
+    result = BoundedRunner().run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; print(sys.argv[1])",
+            "literal;$(not-a-command)",
+        ]
+    )
     assert result.returncode == 0
     assert result.output.strip() == "literal;$(not-a-command)"
     assert not result.timed_out
@@ -170,9 +188,13 @@ def test_real_runner_preserves_literal_arguments() -> None:
 
 
 def test_real_runner_bounds_combined_output() -> None:
-    result = BoundedRunner(output_limit=128).run([
-        sys.executable, "-c", "import sys; sys.stderr.write('x' * 100000); sys.stderr.flush()",
-    ])
+    result = BoundedRunner(output_limit=128).run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.stderr.write('x' * 100000); sys.stderr.flush()",
+        ]
+    )
     assert result.truncated
     assert len(result.output) == 128
     assert not result.error
@@ -180,9 +202,13 @@ def test_real_runner_bounds_combined_output() -> None:
 
 def test_real_runner_times_out_and_returns_promptly() -> None:
     started = time.monotonic()
-    result = BoundedRunner(timeout=0.15).run([
-        sys.executable, "-c", "import time; time.sleep(30)",
-    ])
+    result = BoundedRunner(timeout=0.15).run(
+        [
+            sys.executable,
+            "-c",
+            "import time; time.sleep(30)",
+        ]
+    )
     assert result.timed_out
     assert time.monotonic() - started < 3.5
 
@@ -206,7 +232,8 @@ def test_invalid_output_limit_rejected(limit: int) -> None:
 
 
 def test_cli_returns_json_and_failure_on_unsupported_os(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("infra.vm.preflight.platform.system", lambda: "Windows")
     assert main([]) == 1
@@ -217,7 +244,8 @@ def test_cli_returns_json_and_failure_on_unsupported_os(
 
 
 def test_cli_returns_zero_for_static_success_only(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("infra.vm.preflight.SystemProbe", FakeProbe)
     monkeypatch.setattr("infra.vm.preflight.BoundedRunner", lambda *_: FakeRunner())

@@ -11,9 +11,11 @@ import shutil
 import signal
 import stat
 import subprocess
+import sys
 import threading
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
-from typing import Literal, Protocol, Sequence
+from typing import Literal, Protocol
 
 Status = Literal["PASS", "FAIL", "UNKNOWN"]
 
@@ -85,12 +87,16 @@ class BoundedRunner:
 
     @staticmethod
     def _kill(process: subprocess.Popen[bytes]) -> None:
-        """На Linux завершает также потомков диагностической команды при отказе."""
+        """На POSIX завершает также потомков диагностической команды при отказе.
+
+        Проверка идёт по sys.platform, а не по os.name: именно такое условие
+        понимает mypy, поэтому типы проверяются одинаково на Windows и Linux.
+        """
         try:
-            if os.name == "posix":
-                os.killpg(process.pid, signal.SIGKILL)
-            else:
+            if sys.platform == "win32":
                 process.kill()
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
 
@@ -102,7 +108,7 @@ class BoundedRunner:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 shell=False,
-                start_new_session=os.name == "posix",
+                start_new_session=sys.platform != "win32",
             )
         except OSError as exc:
             return CommandResult(None, error=str(exc))
@@ -189,8 +195,13 @@ class RuntimePreflight:
     """Собирает безопасную диагностику; никогда не запускает и не изменяет VM."""
 
     _dependent_checks = (
-        "kvm_device", "kvm_access", "qemu_img", "virsh_version",
-        "libvirt_connection", "ip", "firewall",
+        "kvm_device",
+        "kvm_access",
+        "qemu_img",
+        "virsh_version",
+        "libvirt_connection",
+        "ip",
+        "firewall",
     )
 
     def __init__(self, probe: Probe | None = None, runner: Runner | None = None) -> None:
@@ -236,7 +247,9 @@ class RuntimePreflight:
     def run(self) -> PreflightReport:
         system = self.probe.system()
         if system != "Linux":
-            checks = (CheckResult("linux", "FAIL", f"Нужен Linux runtime; обнаружено: {system}"),)
+            checks: tuple[CheckResult, ...] = (
+                CheckResult("linux", "FAIL", f"Нужен Linux runtime; обнаружено: {system}"),
+            )
             checks += tuple(
                 CheckResult(name, "UNKNOWN", "Проверка пропущена на неподдерживаемой ОС")
                 for name in self._dependent_checks
@@ -252,19 +265,29 @@ class RuntimePreflight:
             is_device = False
             checks_list.append(CheckResult("kvm_device", "UNKNOWN", str(exc)))
         if len(checks_list) == 1:
-            checks_list.append(CheckResult(
-                "kvm_device", "PASS" if is_device else "FAIL",
-                "/dev/kvm — символьное устройство" if is_device else "/dev/kvm отсутствует или не устройство",
-            ))
+            checks_list.append(
+                CheckResult(
+                    "kvm_device",
+                    "PASS" if is_device else "FAIL",
+                    "/dev/kvm — символьное устройство"
+                    if is_device
+                    else "/dev/kvm отсутствует или не устройство",
+                )
+            )
         if not is_device:
             checks_list.append(CheckResult("kvm_access", "UNKNOWN", "Нет подтверждённого /dev/kvm"))
         else:
             try:
                 accessible = self.probe.can_read_write("/dev/kvm")
-                checks_list.append(CheckResult(
-                    "kvm_access", "PASS" if accessible else "FAIL",
-                    "Есть доступ на чтение/запись" if accessible else "Нет доступа на чтение/запись",
-                ))
+                checks_list.append(
+                    CheckResult(
+                        "kvm_access",
+                        "PASS" if accessible else "FAIL",
+                        "Есть доступ на чтение/запись"
+                        if accessible
+                        else "Нет доступа на чтение/запись",
+                    )
+                )
             except OSError as exc:
                 checks_list.append(CheckResult("kvm_access", "UNKNOWN", str(exc)))
 
@@ -272,7 +295,9 @@ class RuntimePreflight:
         virsh = self.probe.which("virsh")
         checks_list.append(self._command("qemu_img", qemu, "--version"))
         checks_list.append(self._command("virsh_version", virsh, "--version"))
-        checks_list.append(self._command("libvirt_connection", virsh, "-c", "qemu:///system", "uri"))
+        checks_list.append(
+            self._command("libvirt_connection", virsh, "-c", "qemu:///system", "uri")
+        )
         checks_list.append(self._command("ip", self.probe.which("ip"), "-Version"))
         firewall = self.probe.which("nft") or self.probe.which("iptables")
         checks_list.append(self._command("firewall", firewall, "--version"))

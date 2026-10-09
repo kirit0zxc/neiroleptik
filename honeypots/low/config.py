@@ -42,8 +42,10 @@ class LowConfig:
         if not isinstance(self.banner, str):
             raise ValueError("banner должен быть строкой ASCII")
         content = self.banner.removesuffix("\r\n")
-        if not content or len(self.banner) > 255 or any(
-            not 32 <= ord(character) <= 126 for character in content
+        if (
+            not content
+            or len(self.banner) > 255
+            or any(not 32 <= ord(character) <= 126 for character in content)
         ):
             raise ValueError("banner допускает ASCII без управляющих символов и завершающий CRLF")
         if not isinstance(self.http_body, str):

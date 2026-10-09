@@ -125,8 +125,9 @@ def _canonical_json(value: object) -> str:
         raise ValueError("Допустимы только значения JSON")
 
     validate(value, 0)
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"),
-                         ensure_ascii=False, allow_nan=False)
+    encoded = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    )
     if len(encoded.encode("utf-8")) > MAX_JSON_BYTES:
         raise ValueError("JSON превышает ограничение размера")
     return encoded
@@ -205,15 +206,20 @@ class CommandJournal:
     @staticmethod
     def _record(row: sqlite3.Row) -> CommandRecord:
         return CommandRecord(
-            command_id=row["command_id"], action=CommandAction(row["action"]),
-            expected_generation=row["expected_generation"], payload_json=row["payload_json"],
-            status=CommandStatus(row["status"]), result_json=row["result_json"],
-            generation=row["generation"], instance_id=row["instance_id"],
+            command_id=row["command_id"],
+            action=CommandAction(row["action"]),
+            expected_generation=row["expected_generation"],
+            payload_json=row["payload_json"],
+            status=CommandStatus(row["status"]),
+            result_json=row["result_json"],
+            generation=row["generation"],
+            instance_id=row["instance_id"],
         )
 
     def get(self, command_id: str) -> CommandRecord | None:
-        row = self._db.execute("SELECT * FROM commands WHERE command_id = ?",
-                               (_uuid(command_id),)).fetchone()
+        row = self._db.execute(
+            "SELECT * FROM commands WHERE command_id = ?", (_uuid(command_id),)
+        ).fetchone()
         return None if row is None else self._record(row)
 
     @property
@@ -231,7 +237,9 @@ class CommandJournal:
             existing = self.get(command_id)
             if existing is not None:
                 if (existing.action, existing.expected_generation, existing.payload_json) != (
-                    action, generation, payload,
+                    action,
+                    generation,
+                    payload,
                 ):
                     raise JournalError(JournalErrorCode.COMMAND_CONFLICT)
                 return existing
@@ -240,17 +248,32 @@ class CommandJournal:
                 raise JournalError(JournalErrorCode.STALE_GENERATION)
             if self.pending is not None:
                 raise JournalError(JournalErrorCode.BUSY)
-            self._db.execute("""
+            self._db.execute(
+                """
                 INSERT INTO commands
                 (command_id, action, expected_generation, payload_json, status,
                  generation, instance_id) VALUES (?, ?, ?, ?, 'pending', ?, ?)
-            """, (command_id, action.value, generation, payload, generation, state.instance_id))
-            return CommandRecord(command_id, action, generation, payload,
-                                 CommandStatus.PENDING, None, generation, state.instance_id)
+            """,
+                (command_id, action.value, generation, payload, generation, state.instance_id),
+            )
+            return CommandRecord(
+                command_id,
+                action,
+                generation,
+                payload,
+                CommandStatus.PENDING,
+                None,
+                generation,
+                state.instance_id,
+            )
 
     def finish(
-        self, command_id: str, status: CommandStatus, *,
-        result: object = None, instance_id: str | None = None,
+        self,
+        command_id: str,
+        status: CommandStatus,
+        *,
+        result: object = None,
+        instance_id: str | None = None,
     ) -> CommandRecord:
         """Фиксируем исход драйвера атомарно с метаданными слота.
 
@@ -264,39 +287,62 @@ class CommandJournal:
         result_json = _canonical_json(result)
         new_instance = None if instance_id is None else _uuid(instance_id)
         with self._transaction():
-            row = self._db.execute("SELECT * FROM commands WHERE command_id = ?",
-                                   (command_id,)).fetchone()
+            row = self._db.execute(
+                "SELECT * FROM commands WHERE command_id = ?", (command_id,)
+            ).fetchone()
             if row is None:
                 raise JournalError(JournalErrorCode.UNKNOWN_COMMAND)
             record = self._record(row)
             if record.status is not CommandStatus.PENDING:
                 if (record.status, record.result_json, row["completion_instance_id"]) != (
-                    status, result_json, new_instance,
+                    status,
+                    result_json,
+                    new_instance,
                 ):
                     raise JournalError(JournalErrorCode.RESULT_CONFLICT)
                 return record
             state = self.state
             creates_instance = status is CommandStatus.SUCCEEDED and record.action in (
-                CommandAction.START, CommandAction.RESET,
+                CommandAction.START,
+                CommandAction.RESET,
             )
             if creates_instance:
                 if new_instance is None:
                     raise ValueError("Успешный start/reset требует нового instance_id")
                 reused = self._db.execute(
-                    "SELECT 1 FROM commands WHERE completion_instance_id = ?", (new_instance,),
+                    "SELECT 1 FROM commands WHERE completion_instance_id = ?",
+                    (new_instance,),
                 ).fetchone()
                 if reused is not None or new_instance == state.instance_id:
                     raise ValueError("instance_id уже использовался")
                 state = RuntimeState(_generation(state.generation + 1), new_instance)
             elif new_instance is not None:
                 raise ValueError("stop и ошибка не создают instance_id")
-            self._db.execute("""
+            self._db.execute(
+                """
                 UPDATE commands SET status = ?, result_json = ?, generation = ?,
                     instance_id = ?, completion_instance_id = ? WHERE command_id = ?
-            """, (status.value, result_json, state.generation, state.instance_id,
-                  new_instance, command_id))
-            self._db.execute("UPDATE runtime_state SET generation = ?, instance_id = ?",
-                             (state.generation, state.instance_id))
-            return CommandRecord(record.command_id, record.action, record.expected_generation,
-                                 record.payload_json, status, result_json,
-                                 state.generation, state.instance_id)
+            """,
+                (
+                    status.value,
+                    result_json,
+                    state.generation,
+                    state.instance_id,
+                    new_instance,
+                    command_id,
+                ),
+            )
+            self._db.execute(
+                "UPDATE runtime_state SET generation = ?, instance_id = ?",
+                (state.generation, state.instance_id),
+            )
+            return CommandRecord(
+                record.command_id,
+                record.action,
+                record.expected_generation,
+                record.payload_json,
+                status,
+                result_json,
+                state.generation,
+                state.instance_id,
+            )

@@ -1,8 +1,8 @@
 """Контракт команд на настоящих SQLite-файлах, включая сбои и конкуренцию."""
 
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-import sqlite3
 from threading import Barrier
 from uuid import uuid4
 
@@ -21,8 +21,12 @@ from agent.runtime.commands import (
 )
 
 
-def command(action: CommandAction = CommandAction.START, generation: int = 0,
-            payload: object = None, command_id: str | None = None) -> Command:
+def command(
+    action: CommandAction = CommandAction.START,
+    generation: int = 0,
+    payload: object = None,
+    command_id: str | None = None,
+) -> Command:
     return Command(command_id or str(uuid4()), action, generation, payload)
 
 
@@ -49,11 +53,16 @@ def test_lost_response_duplicate_precedes_stale_generation(tmp_path: Path) -> No
     instance = str(uuid4())
     with CommandJournal(path) as journal:
         journal.accept(request)
-        completed = journal.finish(request.command_id, CommandStatus.SUCCEEDED,
-                                   result={"healthy": True}, instance_id=instance)
+        completed = journal.finish(
+            request.command_id,
+            CommandStatus.SUCCEEDED,
+            result={"healthy": True},
+            instance_id=instance,
+        )
     with CommandJournal(path) as reopened:
-        repeated = Command(request.command_id.upper(), request.action, 0,
-                           {"a": ["тест", True], "z": 1})
+        repeated = Command(
+            request.command_id.upper(), request.action, 0, {"a": ["тест", True], "z": 1}
+        )
         assert reopened.accept(repeated) == completed
         assert reopened.state == RuntimeState(1, instance)
         with pytest.raises(JournalError) as error:
@@ -66,10 +75,12 @@ def test_duplicate_id_with_changed_content_is_conflict(tmp_path: Path, change: s
     with CommandJournal(tmp_path / "commands.sqlite") as journal:
         request = command(payload={"x": 1})
         journal.accept(request)
-        changed = Command(request.command_id,
-                          CommandAction.STOP if change == "action" else request.action,
-                          1 if change == "generation" else 0,
-                          {"x": 2} if change == "payload" else request.payload)
+        changed = Command(
+            request.command_id,
+            CommandAction.STOP if change == "action" else request.action,
+            1 if change == "generation" else 0,
+            {"x": 2} if change == "payload" else request.payload,
+        )
         with pytest.raises(JournalError) as error:
             journal.accept(changed)
         assert error.value.code is JournalErrorCode.COMMAND_CONFLICT
@@ -84,8 +95,9 @@ def test_start_reset_stop_and_failure_preserve_expected_metadata(tmp_path: Path)
         journal.finish(start.command_id, CommandStatus.SUCCEEDED, instance_id=first_instance)
         failed_reset = command(CommandAction.RESET, 1)
         journal.accept(failed_reset)
-        failed = journal.finish(failed_reset.command_id, CommandStatus.FAILED,
-                                result={"code": "EVIDENCE_SEAL_FAILED"})
+        failed = journal.finish(
+            failed_reset.command_id, CommandStatus.FAILED, result={"code": "EVIDENCE_SEAL_FAILED"}
+        )
         assert failed.generation == 1
         assert failed.instance_id == first_instance
         assert journal.state == RuntimeState(1, first_instance)
@@ -109,10 +121,21 @@ def test_completed_result_is_immutable_and_repeat_does_not_increment(tmp_path: P
         request = command()
         journal.accept(request)
         instance = str(uuid4())
-        completed = journal.finish(request.command_id, CommandStatus.SUCCEEDED,
-                                   result={"a": 1, "b": 2}, instance_id=instance)
-        assert journal.finish(request.command_id, CommandStatus.SUCCEEDED,
-                              result={"b": 2, "a": 1}, instance_id=instance.upper()) == completed
+        completed = journal.finish(
+            request.command_id,
+            CommandStatus.SUCCEEDED,
+            result={"a": 1, "b": 2},
+            instance_id=instance,
+        )
+        assert (
+            journal.finish(
+                request.command_id,
+                CommandStatus.SUCCEEDED,
+                result={"b": 2, "a": 1},
+                instance_id=instance.upper(),
+            )
+            == completed
+        )
         for status, result, identifier in (
             (CommandStatus.FAILED, {"a": 1, "b": 2}, None),
             (CommandStatus.SUCCEEDED, {"a": 2, "b": 2}, instance),
@@ -130,14 +153,17 @@ def test_old_completion_does_not_restore_old_slot_state(tmp_path: Path) -> None:
         first = command()
         first_instance = str(uuid4())
         journal.accept(first)
-        first_result = journal.finish(first.command_id, CommandStatus.SUCCEEDED,
-                                      instance_id=first_instance)
+        first_result = journal.finish(
+            first.command_id, CommandStatus.SUCCEEDED, instance_id=first_instance
+        )
         second = command(CommandAction.RESET, 1)
         second_instance = str(uuid4())
         journal.accept(second)
         journal.finish(second.command_id, CommandStatus.SUCCEEDED, instance_id=second_instance)
-        assert journal.finish(first.command_id, CommandStatus.SUCCEEDED,
-                              instance_id=first_instance) == first_result
+        assert (
+            journal.finish(first.command_id, CommandStatus.SUCCEEDED, instance_id=first_instance)
+            == first_result
+        )
         assert journal.state == RuntimeState(2, second_instance)
         third = command(CommandAction.RESET, 2)
         journal.accept(third)
@@ -153,8 +179,10 @@ def test_failed_result_is_immutable_and_payload_is_snapshotted(tmp_path: Path) -
         payload["items"].append(2)
         assert journal.get(request.command_id) == accepted
         failed = journal.finish(request.command_id, CommandStatus.FAILED, result={"code": "FAIL"})
-        assert journal.finish(request.command_id, CommandStatus.FAILED,
-                              result={"code": "FAIL"}) == failed
+        assert (
+            journal.finish(request.command_id, CommandStatus.FAILED, result={"code": "FAIL"})
+            == failed
+        )
         with pytest.raises(JournalError) as error:
             journal.finish(request.command_id, CommandStatus.SUCCEEDED, instance_id=str(uuid4()))
         assert error.value.code is JournalErrorCode.RESULT_CONFLICT
@@ -169,11 +197,24 @@ def test_invalid_generation_does_not_write(tmp_path: Path, generation: int) -> N
         assert journal.pending is None
 
 
-@pytest.mark.parametrize("payload", [
-    {"x": float("nan")}, [float("inf")], float("-inf"), {1: "x"},
-    {"x": {False: None}}, object(), (1, 2), "x" * MAX_JSON_BYTES,
-    "\x00" * (MAX_JSON_BYTES // 3), "\ud800",
-])
+# Идентификаторы заданы явно: pytest кладёт идентификатор теста в переменную окружения
+# PYTEST_CURRENT_TEST, а Windows ограничивает значение 32767 символами. Автоматический
+# идентификатор из строки в 64 КиБ ломал подготовку этих тестов на Windows.
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param({"x": float("nan")}, id="nan-in-dict"),
+        pytest.param([float("inf")], id="inf-in-list"),
+        pytest.param(float("-inf"), id="minus-inf"),
+        pytest.param({1: "x"}, id="non-string-key"),
+        pytest.param({"x": {False: None}}, id="non-string-nested-key"),
+        pytest.param(object(), id="arbitrary-object"),
+        pytest.param((1, 2), id="tuple"),
+        pytest.param("x" * MAX_JSON_BYTES, id="oversized-string"),
+        pytest.param("\x00" * (MAX_JSON_BYTES // 3), id="oversized-after-json-escaping"),
+        pytest.param("\ud800", id="lone-surrogate"),
+    ],
+)
 def test_invalid_json_does_not_write(tmp_path: Path, payload: object) -> None:
     with CommandJournal(tmp_path / "commands.sqlite") as journal:
         with pytest.raises(ValueError):
@@ -242,8 +283,12 @@ def test_two_connections_complete_once(tmp_path: Path) -> None:
     def complete() -> CommandRecord:
         with CommandJournal(path) as journal:
             barrier.wait(timeout=5)
-            return journal.finish(request.command_id, CommandStatus.SUCCEEDED,
-                                  result={"ready": True}, instance_id=instance)
+            return journal.finish(
+                request.command_id,
+                CommandStatus.SUCCEEDED,
+                result={"ready": True},
+                instance_id=instance,
+            )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(lambda _: complete(), range(2)))
@@ -287,6 +332,7 @@ def test_transaction_rolls_back_completion_when_metadata_write_fails(tmp_path: P
         assert reopened.state == RuntimeState(0, None)
         with sqlite3.connect(path) as connection:
             connection.execute("DROP TRIGGER fail_state_update")
-        completed = reopened.finish(request.command_id, CommandStatus.SUCCEEDED,
-                                    instance_id=str(uuid4()))
+        completed = reopened.finish(
+            request.command_id, CommandStatus.SUCCEEDED, instance_id=str(uuid4())
+        )
         assert completed.generation == 1

@@ -50,8 +50,11 @@ async def http_exchange(service: LowService, request: bytes) -> bytes:
         (b"GET / HTTP/1.1\r\nMalformed\r\n\r\n", 400, b"Bad Request\n"),
         (b"GET / HTTP/1.1\r\nHeader: abc\x00\r\n\r\n", 400, b"Bad Request\n"),
         (b"GET / secret HTTP/1.1\r\n\r\n", 400, b"Bad Request\n"),
-        (b"GET / HTTP/1.1\r\nX: " + b"a" * 150 + b"\r\n\r\n", 431,
-         b"Request Header Fields Too Large\n"),
+        (
+            b"GET / HTTP/1.1\r\nX: " + b"a" * 150 + b"\r\n\r\n",
+            431,
+            b"Request Header Fields Too Large\n",
+        ),
     ],
 )
 def test_http_static_responses(raw_request: bytes, status: int, expected_body: bytes) -> None:
@@ -84,8 +87,9 @@ def test_http_static_responses(raw_request: bytes, status: int, expected_body: b
 def test_tcp_banner_and_binary_input_limit() -> None:
     async def scenario() -> None:
         stream = io.StringIO()
-        service = LowService(LowConfig(tcp_port=0, http_port=0, max_input_bytes=8),
-                             JsonLineEventSink(stream))
+        service = LowService(
+            LowConfig(tcp_port=0, http_port=0, max_input_bytes=8), JsonLineEventSink(stream)
+        )
         await service.start()
         assert service.tcp_port is not None
         reader, writer = await asyncio.open_connection("127.0.0.1", service.tcp_port)
@@ -107,13 +111,16 @@ def test_tcp_banner_and_binary_input_limit() -> None:
 def test_http_limit_accepts_exact_header_length() -> None:
     async def scenario() -> None:
         request = b"GET / HTTP/1.0\r\n\r\n"
-        service = LowService(LowConfig(tcp_port=0, http_port=0, max_input_bytes=len(request)),
-                             JsonLineEventSink(io.StringIO()))
+        service = LowService(
+            LowConfig(tcp_port=0, http_port=0, max_input_bytes=len(request)),
+            JsonLineEventSink(io.StringIO()),
+        )
         await service.start()
         try:
             assert (await http_exchange(service, request)).startswith(b"HTTP/1.1 200 ")
             assert (await http_exchange(service, request.replace(b"/", b"/x"))).startswith(
-                b"HTTP/1.1 431 ")
+                b"HTTP/1.1 431 "
+            )
         finally:
             await service.stop()
 
@@ -122,8 +129,9 @@ def test_http_limit_accepts_exact_header_length() -> None:
 
 def test_tcp_idle_timeout_and_http_total_deadline() -> None:
     async def scenario() -> None:
-        service = LowService(LowConfig(tcp_port=0, http_port=0, read_timeout=0.15),
-                             JsonLineEventSink(io.StringIO()))
+        service = LowService(
+            LowConfig(tcp_port=0, http_port=0, read_timeout=0.15), JsonLineEventSink(io.StringIO())
+        )
         await service.start()
         assert service.tcp_port is not None and service.http_port is not None
         reader, writer = await asyncio.open_connection("127.0.0.1", service.tcp_port)
@@ -137,7 +145,8 @@ def test_tcp_idle_timeout_and_http_total_deadline() -> None:
             await http_writer.drain()
             assert await asyncio.wait_for(reader.read(), timeout=0.2) == b""
             assert (await asyncio.wait_for(http_reader.read(), timeout=0.1)).startswith(
-                b"HTTP/1.1 400 ")
+                b"HTTP/1.1 400 "
+            )
         finally:
             await close_client(writer)
             await close_client(http_writer)
@@ -148,15 +157,19 @@ def test_tcp_idle_timeout_and_http_total_deadline() -> None:
 
 def test_connection_limit_and_stop_close_active_clients() -> None:
     async def scenario() -> None:
-        service = LowService(LowConfig(tcp_port=0, http_port=0, max_connections=1, read_timeout=30),
-                             JsonLineEventSink(io.StringIO()))
+        service = LowService(
+            LowConfig(tcp_port=0, http_port=0, max_connections=1, read_timeout=30),
+            JsonLineEventSink(io.StringIO()),
+        )
         await service.start()
         ports = service.tcp_port, service.http_port
         await service.start()
         assert ports == (service.tcp_port, service.http_port)
         assert service.tcp_port is not None and service.http_port is not None
         reader, writer = await asyncio.open_connection("127.0.0.1", service.tcp_port)
-        rejected_reader, rejected_writer = await asyncio.open_connection("127.0.0.1", service.http_port)
+        rejected_reader, rejected_writer = await asyncio.open_connection(
+            "127.0.0.1", service.http_port
+        )
         try:
             assert await reader.readline() == service.config.banner.encode()
             assert await asyncio.wait_for(rejected_reader.read(), timeout=1) == b""
@@ -185,8 +198,10 @@ def test_partial_bind_failure_releases_first_socket() -> None:
             blocker.bind(("127.0.0.1", 0))
             blocker.listen()
             blocked_port = blocker.getsockname()[1]
-            service = LowService(LowConfig(tcp_port=first_port, http_port=blocked_port),
-                                 JsonLineEventSink(io.StringIO()))
+            service = LowService(
+                LowConfig(tcp_port=first_port, http_port=blocked_port),
+                JsonLineEventSink(io.StringIO()),
+            )
             with pytest.raises(OSError):
                 await service.start()
             assert service.tcp_port is None and service.http_port is None
@@ -236,21 +251,39 @@ def test_sink_error_is_observable_and_http_has_no_success(fail_on: str) -> None:
     asyncio.run(scenario())
 
 
+def ipv6_loopback_usable() -> bool:
+    """Проверяет окружение независимо от тестируемого кода: bind и реальное соединение.
+
+    На части систем bind на ::1 проходит, а connect запрещён (например, WinError 5
+    в ограниченной среде). Такой отказ окружения не является дефектом LowService.
+    """
+    if not socket.has_ipv6:
+        return False
+    try:
+        with socket.socket(socket.AF_INET6) as server:
+            server.bind(("::1", 0))
+            server.listen(1)
+            with socket.socket(socket.AF_INET6) as client:
+                client.settimeout(1)
+                client.connect(server.getsockname())
+    except OSError:
+        return False
+    return True
+
+
 def test_ipv6_loopback_when_available() -> None:
+    if not ipv6_loopback_usable():
+        pytest.skip("IPv6 loopback недоступен в окружении")
+
     async def scenario() -> None:
-        if not socket.has_ipv6:
-            pytest.skip("IPv6 отсутствует на платформе")
-        with socket.socket(socket.AF_INET6) as probe:
-            try:
-                probe.bind(("::1", 0))
-            except OSError:
-                pytest.skip("IPv6 loopback недоступен в окружении")
-        service = LowService(LowConfig(host="::1", tcp_port=0, http_port=0),
-                             JsonLineEventSink(io.StringIO()))
+        service = LowService(
+            LowConfig(host="::1", tcp_port=0, http_port=0), JsonLineEventSink(io.StringIO())
+        )
         await service.start()
         try:
             assert (await http_exchange(service, b"GET / HTTP/1.0\r\n\r\n")).startswith(
-                b"HTTP/1.1 200 ")
+                b"HTTP/1.1 200 "
+            )
         finally:
             await service.stop()
 

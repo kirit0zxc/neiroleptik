@@ -34,13 +34,21 @@ class CommandResult:
 class Probe(Protocol):
     """Чтение окружения отделено от логики для воспроизводимой проверки без KVM."""
 
-    def system(self) -> str: ...
+    def system(self) -> str:
+        """Название операционной системы, как у platform.system()."""
+        ...
 
-    def is_character_device(self, path: str) -> bool: ...
+    def is_character_device(self, path: str) -> bool:
+        """True, если путь — символьное устройство; ошибки чтения передаются вызывающему."""
+        ...
 
-    def can_read_write(self, path: str) -> bool: ...
+    def can_read_write(self, path: str) -> bool:
+        """True, если текущий пользователь может читать и писать по пути."""
+        ...
 
-    def which(self, name: str) -> str | None: ...
+    def which(self, name: str) -> str | None:
+        """Полный путь к исполняемому файлу в PATH либо None."""
+        ...
 
 
 class Runner(Protocol):
@@ -53,15 +61,19 @@ class SystemProbe:
     """Читает свойства текущего хоста и прав текущего пользователя."""
 
     def system(self) -> str:
+        """Название операционной системы текущего хоста."""
         return platform.system()
 
     def is_character_device(self, path: str) -> bool:
+        """Определяет по режиму файла, что путь — символьное устройство."""
         return stat.S_ISCHR(os.stat(path).st_mode)
 
     def can_read_write(self, path: str) -> bool:
+        """Проверяет права текущего пользователя на чтение и запись."""
         return os.access(path, os.R_OK | os.W_OK)
 
     def which(self, name: str) -> str | None:
+        """Ищет исполняемый файл в PATH."""
         return shutil.which(name)
 
 
@@ -182,9 +194,11 @@ class PreflightReport:
 
     @property
     def static_ready(self) -> bool:
+        """True, только если все статические проверки имеют статус PASS."""
         return all(check.status == "PASS" for check in self.checks)
 
     def as_dict(self) -> dict[str, object]:
+        """Отчёт в виде словаря для JSON; живой smoke всегда помечен невыполненным."""
         result = asdict(self)
         result["static_ready"] = self.static_ready
         result["live_smoke_verified"] = False
@@ -245,6 +259,7 @@ class RuntimePreflight:
         return CheckResult(name, status, message, command, result.output)
 
     def run(self) -> PreflightReport:
+        """Выполняет все статические проверки; на неподдерживаемой ОС команды не запускаются."""
         system = self.probe.system()
         if system != "Linux":
             checks: tuple[CheckResult, ...] = (

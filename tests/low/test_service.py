@@ -130,7 +130,7 @@ def test_http_limit_accepts_exact_header_length() -> None:
 def test_tcp_idle_timeout_and_http_total_deadline() -> None:
     async def scenario() -> None:
         service = LowService(
-            LowConfig(tcp_port=0, http_port=0, read_timeout=0.15), JsonLineEventSink(io.StringIO())
+            LowConfig(tcp_port=0, http_port=0, read_timeout=0.6), JsonLineEventSink(io.StringIO())
         )
         await service.start()
         assert service.tcp_port is not None and service.http_port is not None
@@ -140,11 +140,13 @@ def test_tcp_idle_timeout_and_http_total_deadline() -> None:
             assert await reader.readline() == service.config.banner.encode()
             http_writer.write(b"GET")
             await http_writer.drain()
-            await asyncio.sleep(0.1)
+            # Второй фрагмент приходит до истечения срока, но суммарное время его превышает:
+            # таймаут на каждое чтение продлил бы ожидание до ~1.0 с, общий срок отвечает в 0.6 с.
+            await asyncio.sleep(0.4)
             http_writer.write(b" /")
             await http_writer.drain()
-            assert await asyncio.wait_for(reader.read(), timeout=0.2) == b""
-            assert (await asyncio.wait_for(http_reader.read(), timeout=0.1)).startswith(
+            assert await asyncio.wait_for(reader.read(), timeout=1.5) == b""
+            assert (await asyncio.wait_for(http_reader.read(), timeout=0.3)).startswith(
                 b"HTTP/1.1 400 "
             )
         finally:
@@ -285,6 +287,24 @@ def test_ipv6_loopback_when_available() -> None:
                 b"HTTP/1.1 200 "
             )
         finally:
+            await service.stop()
+
+    asyncio.run(scenario())
+
+
+def test_banner_without_terminator_is_sent_with_crlf() -> None:
+    """Регрессия: баннер без CRLF уходил клиенту без конца строки."""
+
+    async def scenario() -> None:
+        config = LowConfig(tcp_port=0, http_port=0, banner="SSH-2.0-X")
+        service = LowService(config, JsonLineEventSink(io.StringIO()))
+        await service.start()
+        assert service.tcp_port is not None
+        reader, writer = await asyncio.open_connection("127.0.0.1", service.tcp_port)
+        try:
+            assert await asyncio.wait_for(reader.readline(), timeout=2) == b"SSH-2.0-X\r\n"
+        finally:
+            await close_client(writer)
             await service.stop()
 
     asyncio.run(scenario())

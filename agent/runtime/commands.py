@@ -18,18 +18,24 @@ MAX_GENERATION = 2**63 - 1
 
 
 class CommandAction(StrEnum):
+    """Допустимые действия над слотом; в параметрах команды нет исполняемых строк."""
+
     START = "start"
     STOP = "stop"
     RESET = "reset"
 
 
 class CommandStatus(StrEnum):
+    """Состояние команды в журнале: принята, выполнена или завершилась ошибкой."""
+
     PENDING = "pending"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
 
 
 class JournalErrorCode(StrEnum):
+    """Коды ожидаемых отказов журнала, совпадающие с предложенным контрактом runtime."""
+
     COMMAND_CONFLICT = "COMMAND_CONFLICT"
     STALE_GENERATION = "STALE_GENERATION"
     BUSY = "BUSY"
@@ -47,6 +53,8 @@ class JournalError(Exception):
 
 @dataclass(frozen=True)
 class Command:
+    """Команда центра: идентификатор, действие, ожидаемое поколение и JSON-данные."""
+
     command_id: str
     action: CommandAction
     expected_generation: int
@@ -55,6 +63,8 @@ class Command:
 
 @dataclass(frozen=True)
 class RuntimeState:
+    """Состояние слота: текущее поколение и последний созданный экземпляр."""
+
     generation: int
     instance_id: str | None
 
@@ -97,7 +107,17 @@ def _canonical_json(value: object) -> str:
         remaining -= 1
         if depth > MAX_JSON_DEPTH or remaining < 0:
             raise ValueError("JSON превышает ограничения размера или глубины")
-        if item is None or type(item) in (bool, int):
+        if item is None or type(item) is bool:
+            return
+        if type(item) is int:
+            # Целое учитывается по числу цифр: иначе список огромных чисел проходил бы
+            # проверку как «по байту на элемент» и тратил много CPU при сериализации.
+            try:
+                remaining -= len(str(item))
+            except ValueError as exc:
+                raise ValueError("JSON содержит слишком большое целое число") from exc
+            if remaining < 0:
+                raise ValueError("JSON превышает ограничение размера")
             return
         if isinstance(item, float):
             if not math.isfinite(item):
@@ -190,6 +210,7 @@ class CommandJournal:
             raise
 
     def close(self) -> None:
+        """Закрывает соединение с базой; после этого объект использовать нельзя."""
         self._db.close()
 
     def __enter__(self) -> CommandJournal:
@@ -200,6 +221,7 @@ class CommandJournal:
 
     @property
     def state(self) -> RuntimeState:
+        """Текущие поколение и экземпляр слота."""
         row = self._db.execute("SELECT generation, instance_id FROM runtime_state").fetchone()
         return RuntimeState(row["generation"], row["instance_id"])
 
@@ -217,6 +239,7 @@ class CommandJournal:
         )
 
     def get(self, command_id: str) -> CommandRecord | None:
+        """Запись команды по идентификатору либо None, если команды нет."""
         row = self._db.execute(
             "SELECT * FROM commands WHERE command_id = ?", (_uuid(command_id),)
         ).fetchone()
@@ -229,6 +252,12 @@ class CommandJournal:
         return None if row is None else self._record(row)
 
     def accept(self, command: Command) -> CommandRecord:
+        """Принимает команду: сначала повтор по ID, затем поколение и занятость слота.
+
+        Повтор с тем же содержанием возвращает прежнюю запись, с другим — COMMAND_CONFLICT.
+        Устаревшее поколение даёт STALE_GENERATION, незавершённая операция — BUSY. Принятие
+        записывается до возврата и поколение не меняет.
+        """
         command_id = _uuid(command.command_id)
         action = CommandAction(command.action)
         generation = _generation(command.expected_generation)

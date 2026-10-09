@@ -1,0 +1,37 @@
+{
+  "command": {
+    "command_id": "00000000-0000-4000-8000-000000000001",
+    "deployment_id": "00000000-0000-4000-8000-000000000002",
+    "action": "start",
+    "profile_id": "00000000-0000-4000-8000-000000000003",
+    "revision": 1,
+    "expected_generation": 0,
+    "generation": 1,
+    "expected_instance_id": null,
+    "reconcile": false,
+    "config": {
+      "interaction_level": "low",
+      "hostname": "service-node",
+      "services": [
+        {
+          "protocol": "http",
+          "port": 8080,
+          "banner": "Internal dashboard"
+        }
+      ],
+      "logging": {
+        "max_payload_bytes": 8192
+      },
+      "channel": {
+        "flush_interval_ms": 1500,
+        "batch_size": 100
+      },
+      "high": null,
+      "credentials": []
+    },
+    "lease_token": "hf_lease_0000000000000000000000000000000000000000000000000000000000000000",
+    "lease_expires_at": "2026-10-10T12:01:00Z",
+    "execution_expires_at": "2026-10-10T12:05:00Z",
+    "delivery_expires_at": "2026-10-10T12:05:00Z"
+  }
+}

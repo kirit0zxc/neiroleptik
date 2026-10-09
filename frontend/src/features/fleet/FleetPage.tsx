@@ -12,7 +12,7 @@ const LEVEL = { low: 'Low', medium: 'Medium', high: 'High' } as const;
 
 /** Превью распознаём только в явно включённом демо; реальный API — DeploymentRead. */
 function previewOf(deployment: Deployment | PreviewDeployment): PreviewDeployment | null {
-  return import.meta.env.VITE_API_MOCK === '1' && 'desired_revision' in deployment
+  return import.meta.env.VITE_API_MOCK === '1' && !('revision' in deployment)
     ? deployment : null;
 }
 
@@ -61,13 +61,15 @@ export function FleetPage() {
               <tbody>
                 {deps.data.map((d) => {
                   const preview = previewOf(d);
-                  const st = preview ? deploymentStatus(preview) : { tone: 'idle', label: 'запланирована' } as const;
-                  // DeploymentRead не содержит уровень: не подменяем его текущим профилем.
+                  const st = preview ? deploymentStatus(preview) : 'revision' in d
+                    ? deploymentStatus({ state: d.state, desired_revision: d.desired_revision ?? d.revision, applied_revision: d.applied_revision ?? null })
+                    : { tone: 'idle', label: 'неизвестно' } as const;
+                  // Берём уровень назначенной ревизии из ответа, не из последней версии профиля.
                   const revision = preview?.desired_revision ?? ('revision' in d ? d.revision : '—');
                   return (
                     <tr key={d.id}>
                       <td className="mono">{d.id}</td>
-                      <td>{preview ? LEVEL[preview.interaction_level] : '—'}</td>
+                      <td>{preview ? LEVEL[preview.interaction_level] : 'interaction_level' in d && d.interaction_level ? LEVEL[d.interaction_level] : '—'}</td>
                       <td className="mono">{d.host_id}</td>
                       <td><StatusBadge tone={st.tone}>{st.label}</StatusBadge></td>
                       <td className="mono">{d.profile_id} · r{revision}</td>

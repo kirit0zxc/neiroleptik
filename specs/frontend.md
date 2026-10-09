@@ -52,10 +52,16 @@ LLM-сводка. Маскот «Юми» — только зарезервир�
 - **F6.** Команды start / stop / apply_config / rotate_credentials /
   reset — только operator/admin, с подтверждением; reset — только High.
   После команды виден прогресс job до итогового состояния.
-#### Команды ловушки (F6, черновик до OpenAPI)
+#### Команды ловушки (F6)
+
+Центр реализует start/stop/reset по specs/commands.md и OpenAPI. В реальном UI
+отображаются подтверждённые состояния; кнопки пока доступны только в демо до
+отдельной интеграции Дианой. Для настоящего POST дополнительно обязателен
+expected_generation из DeploymentRead. apply_config/rotate_credentials ниже —
+превью будущего этапа, не реализованные серверные операции.
 
 `POST /api/v1/deployments/{id}/commands` с телом
-`{command, idempotency_key}` → `202 {job_id}`; прогресс —
+`{command, idempotency_key, expected_generation}` → `202 {job_id}`; прогресс —
 `GET /api/v1/jobs/{id}` → `{job_id, deployment_id, command, state, error}`,
 `state`: requested → leased → running → succeeded / failed / expired.
 `idempotency_key` — новый UUID на каждое нажатие: повтор того же запроса
@@ -92,7 +98,7 @@ LLM-сводка. Маскот «Юми» — только зарезервир�
    порты. «Запланировать» → `POST /api/v1/deployments`
    `{host_id, profile_id, revision}` → `201 DeploymentRead`.
 4. **Итог.** «Ловушка запланирована» со ссылкой в парк. Это намерение,
-   не подтверждение запуска процесса. Command/job API — следующий этап.
+   не подтверждение запуска процесса. Для запуска нужен отдельный command и ACK.
 
 Шаги проходятся по порядку («Далее» / «Назад»); выбранное не теряется при
 возврате. Ошибка 422 показывается на шаге, к которому относится поле.
@@ -305,7 +311,7 @@ frontend для поверхностей стадии 1 (auth, профили, �
 | Сессия | `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me` | контракт |
 | Профили | `GET/POST /api/v1/profiles`, `GET/PATCH /api/v1/profiles/{id}`, `GET /api/v1/profiles/{id}/revisions` | контракт |
 | Парк | `GET /api/v1/hosts`, `GET/POST /api/v1/deployments` (создание — `planned`) | контракт |
-| Команды и jobs | `POST /api/v1/deployments/{id}/commands`, `GET /api/v1/jobs/{id}` | превью (этап 3) |
+| Команды и jobs | `POST /api/v1/deployments/{id}/commands`, `GET /api/v1/jobs/{id}` | backend start/stop/reset реализован, кнопки UI пока превью |
 | События | `GET /api/v1/events?cursor=&limit=`, `WS /api/v1/stream`, `GET /api/v1/stream-events?after=&until=&limit=` | превью (этап 4) |
 | Аналитика | `GET /api/v1/analytics/summary` | превью (этап 4) |
 

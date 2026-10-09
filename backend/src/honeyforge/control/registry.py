@@ -99,6 +99,9 @@ class RegistryService:
 
     def get(self, host_id: UUID, lock: bool = False) -> Host:
         statement = select(Host).where(Host.id == host_id)
+        if lock:
+            # После ожидания revoke нельзя вернуть прежний Host из identity map авторизации.
+            statement = statement.execution_options(populate_existing=True)
         host = self.session.scalar(statement.with_for_update() if lock else statement)
         if host is None:
             raise DomainError(404, "Узел не найден")

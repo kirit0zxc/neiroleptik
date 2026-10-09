@@ -1,0 +1,10 @@
+{
+  "lease_token": "hf_lease_0000000000000000000000000000000000000000000000000000000000000000",
+  "deployment_id": "00000000-0000-4000-8000-000000000002",
+  "generation": 1,
+  "applied_revision": 1,
+  "instance_id": "00000000-0000-4000-8000-000000000005",
+  "outcome": "succeeded",
+  "runtime_state": "running",
+  "error": null
+}

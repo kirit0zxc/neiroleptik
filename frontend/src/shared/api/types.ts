@@ -123,8 +123,8 @@ export interface Revision {
 
 // ─── Развёртывания (DeploymentRead/DeploymentCreate) ─────────
 
-/** Состояние развёртывания по контракту стадии 1 — только `planned`. */
-export type DeploymentState = 'planned';
+/** Фактические состояния центра; unknown означает потерю подтверждения агента. */
+export type DeploymentState = 'planned' | 'deploying' | 'running' | 'stopping' | 'stopped' | 'failed' | 'unknown';
 
 /** Развёртывание (DeploymentRead): запись намерения, не запущенный процесс. */
 export interface Deployment {
@@ -133,6 +133,12 @@ export interface Deployment {
   profile_id: string;
   revision: number;
   state: DeploymentState;
+  /** Добавления этапа команд: optional только для совместимости со старым локальным API. */
+  interaction_level?: InteractionLevel;
+  desired_revision?: number;
+  applied_revision?: number | null;
+  generation?: number;
+  instance_id?: string | null;
   created_at: string;
 }
 
@@ -149,7 +155,7 @@ export interface DeploymentCreate {
  * Жизненный цикл ловушки в превью парка. В контракте стадии 1 его нет:
  * заполняется только моками, пока команды и задания не реализованы.
  */
-export type PreviewState = 'planned' | 'deploying' | 'running' | 'stopping' | 'stopped' | 'failed';
+export type PreviewState = DeploymentState;
 
 /**
  * Развёртывание с данными превью: к контрактным полям добавлены уровень,

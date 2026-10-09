@@ -8,8 +8,16 @@ export function hostChoice(h: Pick<Host, 'status'>): { selectable: boolean; note
   return { selectable: true, note: null };
 }
 
-/** Подходит ли профиль хосту; строка — причина, почему нет (шаг 2). */
+/**
+ * Подходит ли профиль хосту; строка — причина, почему нет (шаг 2).
+ * По контракту `HostRead.capabilities` — это поддерживаемые уровни
+ * взаимодействия (`low`/`medium`/`high`): хост годится, если умеет уровень профиля.
+ */
 export function profileFitsHost(level: Level, h: Pick<Host, 'capabilities'>): string | null {
-  if (level === 'high' && !h.capabilities.includes('kvm')) return 'High нужна виртуализация KVM — на этом хосте её нет';
+  if (!h.capabilities.includes(level)) {
+    return level === 'high'
+      ? 'High нужна поддержка настоящей VM — на этом хосте её нет'
+      : `Хост не поддерживает уровень ${level}`;
+  }
   return null;
 }

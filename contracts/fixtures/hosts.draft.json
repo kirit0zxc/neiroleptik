@@ -3,7 +3,8 @@
     "id": "host-runtime-01",
     "name": "runtime-01",
     "capabilities": [
-      "docker"
+      "low",
+      "medium"
     ],
     "last_seen": "2026-10-09T12:00:05Z",
     "status": "online",
@@ -13,8 +14,9 @@
     "id": "host-runtime-02",
     "name": "runtime-02",
     "capabilities": [
-      "docker",
-      "kvm"
+      "low",
+      "medium",
+      "high"
     ],
     "last_seen": "2026-10-09T11:59:12Z",
     "status": "online",
@@ -24,7 +26,8 @@
     "id": "host-runtime-03",
     "name": "runtime-03",
     "capabilities": [
-      "docker"
+      "low",
+      "medium"
     ],
     "last_seen": null,
     "status": "offline",

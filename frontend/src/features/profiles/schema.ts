@@ -46,7 +46,7 @@ export const ProfileSchema = z.object({
   description: z.string().trim().max(500, 'До 500 символов'),
   level: z.enum(LEVELS),
   hostname: z.string().trim().regex(HOSTNAME, 'Имя хоста: латиница, цифры и дефис, до 63 символов'),
-  services: z.array(service).min(1, 'Нужен хотя бы один сервис').max(16, 'Не больше 16 сервисов'),
+  services: z.array(service).min(1, 'Нужен хотя бы один сервис').max(8, 'Не больше 8 сервисов'),
   credentials: z.array(credential).max(8, 'Не больше 8 учёток'),
   logging: z.object({
     // Контракт: max_payload_bytes 256–8192. В форме удобнее КиБ (1–8).

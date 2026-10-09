@@ -36,7 +36,7 @@ export type HostStatus = 'online' | 'offline' | 'revoked';
 export interface Host {
   id: string;
   name: string;
-  /** Возможности агента, например `kvm` для High. */
+  /** Поддерживаемые хостом уровни взаимодействия (`low`/`medium`/`high`). */
   capabilities: string[];
   /** Последний контакт агента; null — ещё ни разу не выходил на связь. */
   last_seen: string | null;

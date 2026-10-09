@@ -65,7 +65,7 @@ describe('мастер запуска (F7)', () => {
     await user.click(await screen.findByRole('radio', { name: /host-runtime-01/ }));
     await user.click(next());
     expect(screen.getByRole('radio', { name: /Настоящая Linux VM/ })).toBeDisabled();
-    expect(screen.getByText('High нужна виртуализация KVM — на этом хосте её нет')).toBeInTheDocument();
+    expect(screen.getByText('High нужна поддержка настоящей VM — на этом хосте её нет')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Назад' }));
     await user.click(screen.getByRole('radio', { name: /host-runtime-02/ }));

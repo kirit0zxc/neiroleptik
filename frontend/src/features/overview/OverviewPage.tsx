@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 import { Link } from 'react-router';
 import { api } from '../../shared/api/client';
-import type { HfEvent } from '../../shared/api/types';
+import { eventKey, type HfEvent } from '../../shared/api/types';
 import { formatTime } from '../../shared/format/time';
 import { useStreamEvents } from '../../shared/stream/stream';
 import { Empty, ErrorState, Loading, Panel, ui } from '../../shared/ui';
@@ -100,7 +100,7 @@ function RecentEvents() {
   useStreamEvents(onLive);
 
   const seen = new Set<string>();
-  const items = [...live, ...(q.data?.items ?? [])].filter((e) => !seen.has(e.event_id) && !!seen.add(e.event_id)).slice(0, RECENT);
+  const items = [...live, ...(q.data?.items ?? [])].filter((e) => !seen.has(eventKey(e)) && !!seen.add(eventKey(e))).slice(0, RECENT);
 
   return (
     <Panel title="Последние события">
@@ -111,7 +111,7 @@ function RecentEvents() {
           <table className={ui.table}>
             <tbody>
               {items.map((e) => (
-                <tr key={e.event_id} data-testid="recent-row">
+                <tr key={eventKey(e)} data-testid="recent-row">
                   <td>{formatTime(e.occurred_at)}</td>
                   <td>{eventLabel(e.type)}</td>
                   <td className="mono">{e.source.ip}</td>

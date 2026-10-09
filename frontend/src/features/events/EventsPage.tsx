@@ -2,7 +2,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import { api } from '../../shared/api/client';
-import { EVENT_TYPES, type HfEvent, type PreviewDeployment } from '../../shared/api/types';
+import { EVENT_TYPES, eventKey, type HfEvent, type PreviewDeployment } from '../../shared/api/types';
 import { formatTime } from '../../shared/format/time';
 import { useStreamEvents, useStreamResync } from '../../shared/stream/stream';
 import { Empty, ErrorState, Loading, Panel, ui } from '../../shared/ui';
@@ -94,7 +94,7 @@ export function EventsPage() {
               <thead><tr><th>Время</th><th>Тип</th><th>Ловушка</th><th>Источник</th><th>Подробности</th></tr></thead>
               <tbody>
                 {b.events.map((e) => (
-                  <tr key={e.event_id} data-testid="event-row">
+                  <tr key={eventKey(e)} data-testid="event-row">
                     <td>{formatTime(e.occurred_at)}</td>
                     <td>{eventLabel(e.type)}</td>
                     <td className="mono">{e.deployment_id}</td>

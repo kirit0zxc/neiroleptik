@@ -9,9 +9,11 @@ describe('мастер запуска: выбор (F7)', () => {
     expect(hostChoice({ status: 'revoked' })).toEqual({ selectable: false, note: 'доступ агента отозван' });
   });
 
-  it('High — только на хост с KVM', () => {
-    expect(profileFitsHost('high', { capabilities: ['docker'] })).toMatch(/KVM/);
-    expect(profileFitsHost('high', { capabilities: ['docker', 'kvm'] })).toBeNull();
-    expect(profileFitsHost('medium', { capabilities: ['docker'] })).toBeNull();
+  it('профиль требует поддержки своего уровня хостом (HostRead.capabilities)', () => {
+    // capabilities по контракту — поддерживаемые уровни взаимодействия.
+    expect(profileFitsHost('high', { capabilities: ['low', 'medium'] })).toMatch(/VM/);
+    expect(profileFitsHost('high', { capabilities: ['low', 'medium', 'high'] })).toBeNull();
+    expect(profileFitsHost('medium', { capabilities: ['low', 'medium'] })).toBeNull();
+    expect(profileFitsHost('medium', { capabilities: ['low'] })).toBe('Хост не поддерживает уровень medium');
   });
 });

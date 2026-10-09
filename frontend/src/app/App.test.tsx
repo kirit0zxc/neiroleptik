@@ -9,13 +9,33 @@ import { App, makeQueryClient } from './App';
 
 const server = setupServer(...handlers);
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => { server.resetHandlers(); vi.unstubAllEnvs(); });
+afterEach(() => { server.resetHandlers(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 afterAll(() => server.close());
 
 function go(path: string) { window.history.pushState({}, '', path); }
 
 describe('приложение на моках (F1, F3, F5, S1, S4)', () => {
   beforeEach(() => { vi.stubEnv('VITE_API_MOCK', '1'); resetMockSession(false); go('/'); });
+
+  it.each(['/', '/events'])('настоящий control-режим %s не вызывает будущие API или WS', async (path) => {
+    vi.stubEnv('VITE_API_MOCK', '0');
+    vi.stubEnv('VITE_TELEMETRY_ENABLED', '0');
+    resetMockSession(true);
+    const connect = vi.fn();
+    vi.stubGlobal('WebSocket', connect);
+    let futureRequests = 0;
+    server.use(
+      http.get('/api/v1/analytics/summary', () => { futureRequests++; return HttpResponse.json({}); }),
+      http.get('/api/v1/events', () => { futureRequests++; return HttpResponse.json({ items: [] }); }),
+    );
+    go(path);
+    render(<App client={makeQueryClient()} />);
+    expect(await screen.findByRole('heading', { name: path === '/' ? 'Парк ловушек' : 'События' })).toBeInTheDocument();
+    if (path === '/') expect(window.location.pathname).toBe('/fleet');
+    else expect(screen.getByText(/подключение серверной телеметрии/)).toBeInTheDocument();
+    expect(connect).not.toHaveBeenCalled();
+    expect(futureRequests).toBe(0);
+  });
 
   it('без сессии — вход; неверный пароль — ошибка; после входа — на исходную страницу', async () => {
     const user = userEvent.setup();

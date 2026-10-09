@@ -15,6 +15,13 @@ npm run dev               # http://127.0.0.1:5173
 `VITE_API_MOCK`, а адрес API задайте в `VITE_API_PROXY` (по умолчанию
 `http://127.0.0.1:8000`) — dev-сервер проксирует `/api` и WebSocket.
 
+Для настоящего API создайте `.env.local` с `VITE_API_MOCK=0`,
+`VITE_TELEMETRY_ENABLED=0`, `VITE_API_PROXY=http://127.0.0.1:8000` и откройте
+`http://localhost:5173` — этот origin разрешён локальным backend. В этом режиме
+работают вход, профили, узлы и planned назначения; события/аналитика ждут
+серверной реализации. После подключения сервера Димы явно установите
+`VITE_TELEMETRY_ENABLED=1`. Для другого origin настройте HF_ALLOWED_ORIGINS.
+
 ## Проверки
 
 | Команда | Что делает |

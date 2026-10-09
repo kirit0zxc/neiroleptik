@@ -3,7 +3,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App, makeQueryClient } from '../../app/App';
 import { handlers, resetMockSession } from '../../mocks/handlers';
 import { nextDemoEvent, publish } from '../../mocks/stream';
@@ -13,7 +13,7 @@ import { StreamClient, type StreamSocket } from '../../shared/stream/StreamClien
 
 const server = setupServer(...handlers);
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => server.resetHandlers());
+afterEach(() => { server.resetHandlers(); vi.unstubAllEnvs(); });
 afterAll(() => server.close());
 
 /** Поток под управлением теста (hello сразу после подключения). */
@@ -41,7 +41,7 @@ function open(create?: () => StreamClient<HfEvent>) {
 }
 
 describe('обзор', () => {
-  beforeEach(() => resetMockSession(true));
+  beforeEach(() => { vi.stubEnv('VITE_API_MOCK', '1'); resetMockSession(true); });
 
   it('плитки: ловушки, хосты, алерты — с предупреждениями и ссылками', async () => {
     open(controlledStream().create);

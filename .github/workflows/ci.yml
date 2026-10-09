@@ -150,9 +150,34 @@ jobs:
       - name: Build runtime image
         run: docker build --tag honeyforge-control:ci .
 
+  telemetry:
+    name: Agent telemetry checks
+    needs: repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install agent dependencies
+        run: |
+          python -m pip install uv==0.11.28
+          uv sync --frozen
+      - name: Validate agent telemetry
+        run: |
+          uv run --frozen ruff check agent tests/telemetry
+          uv run --frozen ruff format --check agent tests/telemetry
+          uv run --frozen mypy
+          uv run --frozen pytest
+          uv run --frozen python -m agent.telemetry.export_contracts --check
+          uv run --frozen python -m agent.telemetry.demo
+
   result:
     name: CI result
-    needs: [repository, frontend, backend]
+    needs: [repository, frontend, backend, telemetry]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -161,11 +186,13 @@ jobs:
         env:
           REPOSITORY_RESULT: ${{ needs.repository.result }}
           BACKEND_RESULT: ${{ needs.backend.result }}
+          TELEMETRY_RESULT: ${{ needs.telemetry.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           FRONTEND_PRESENT: ${{ needs.repository.outputs.frontend }}
         run: |
           test "$REPOSITORY_RESULT" = success
           test "$BACKEND_RESULT" = success
+          test "$TELEMETRY_RESULT" = success
           if [ "$FRONTEND_PRESENT" = true ]; then
             test "$FRONTEND_RESULT" = success
           elif [ "$FRONTEND_PRESENT" = false ]; then

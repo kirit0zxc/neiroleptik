@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createContext, useContext } from 'react';
-import { createBrowserRouter, RouterProvider } from 'react-router';
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router';
 import { AuthProvider, LoginPage, RequireAuth } from '../features/auth/auth';
 import { EventsPage } from '../features/events/EventsPage';
 import { FleetPage } from '../features/fleet/FleetPage';
@@ -27,9 +27,23 @@ export function makeQueryClient() {
 /** Откуда брать поток событий: настоящий WebSocket или подделка в тестах. */
 const StreamFactory = createContext<() => EventStream>(createEventStream);
 
+/** Телеметрию включаем только для готового сервера или явно выбранных моков. */
+function telemetryEnabled() {
+  return import.meta.env.VITE_API_MOCK === '1' || import.meta.env.VITE_TELEMETRY_ENABLED === '1';
+}
+
 /** Каркас вошедшего оператора: поток событий живёт, пока открыта сессия. */
 function LiveShell() {
-  return <StreamProvider create={useContext(StreamFactory)}><AppShell /></StreamProvider>;
+  const create = useContext(StreamFactory);
+  return telemetryEnabled() ? <StreamProvider create={create}><AppShell /></StreamProvider> : <AppShell />;
+}
+
+function HomePage() {
+  return telemetryEnabled() ? <OverviewPage /> : <Navigate to="/fleet" replace />;
+}
+
+function EventsScreen() {
+  return telemetryEnabled() ? <EventsPage /> : <Planned title="События" day="D3 — подключение серверной телеметрии" />;
 }
 
 export const routes = [
@@ -37,13 +51,13 @@ export const routes = [
   {
     element: <RequireAuth><LiveShell /></RequireAuth>,
     children: [
-      { index: true, element: <OverviewPage /> },
+      { index: true, element: <HomePage /> },
       { path: 'fleet', element: <FleetPage /> },
       { path: 'fleet/new', element: <LaunchWizard /> },
       { path: 'profiles', element: <ProfilesPage /> },
       { path: 'profiles/new', element: <ProfileEditor /> },
       { path: 'profiles/:id', element: <ProfileEditor /> },
-      { path: 'events', element: <EventsPage /> },
+      { path: 'events', element: <EventsScreen /> },
       { path: 'sessions/:id', element: <Planned title="Паспорт атаки" day="D3" /> },
       { path: 'alerts', element: <Planned title="Алерты и экспорт" day="D3" /> },
       { path: 'audit', element: <Planned title="Аудит" day="D3" /> },

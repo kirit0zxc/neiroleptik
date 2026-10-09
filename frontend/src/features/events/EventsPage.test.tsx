@@ -3,7 +3,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App, makeQueryClient } from '../../app/App';
 import { handlers, resetMockSession } from '../../mocks/handlers';
 import { publish } from '../../mocks/stream';
@@ -13,7 +13,7 @@ import { StreamClient, type StreamSocket } from '../../shared/stream/StreamClien
 
 const server = setupServer(...handlers);
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => server.resetHandlers());
+afterEach(() => { server.resetHandlers(); vi.unstubAllEnvs(); });
 afterAll(() => server.close());
 
 /** Поток, которым управляет тест: открыть сокет и прислать запись. */
@@ -50,7 +50,7 @@ function open(path: string, create: () => StreamClient<HfEvent>) {
 const rows = () => screen.getAllByTestId('event-row');
 
 describe('живая лента (F10–F12)', () => {
-  beforeEach(() => resetMockSession(true));
+  beforeEach(() => { vi.stubEnv('VITE_API_MOCK', '1'); resetMockSession(true); });
 
   it('живое событие появляется сверху; индикатор — «онлайн»', async () => {
     const s = controlledStream();

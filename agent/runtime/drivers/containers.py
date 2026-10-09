@@ -228,10 +228,12 @@ class DockerCli:
         return argv
 
     async def run(self, spec: ContainerSpec) -> None:
+        """Запускает контейнер из описания; любой отказ docker — BackendError."""
         result = await self._execute(self.run_command(spec))
         self._require_success(result, "docker run")
 
     async def inspect(self, name: str) -> ContainerObservation | None:
+        """Читает состояние контейнера слота; None, если контейнера нет."""
         self._require_managed_name(name)
         result = await self._execute(
             [self._executable, "inspect", "--type", "container", "--format", "{{json .}}", name]
@@ -242,6 +244,7 @@ class DockerCli:
         return self._parse_observation(name, result.output)
 
     async def remove(self, name: str) -> None:
+        """Принудительно удаляет контейнер слота вместе с томами; отсутствующий — не ошибка."""
         self._require_managed_name(name)
         result = await self._execute([self._executable, "rm", "--force", "--volumes", name])
         if result.returncode not in (0, None) and "no such" in result.output.lower():

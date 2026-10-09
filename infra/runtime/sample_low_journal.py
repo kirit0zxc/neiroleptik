@@ -83,6 +83,7 @@ class LowProcess:
             self._process.wait()
 
     def command(self) -> list[str]:
+        """Аргументы запуска того же модуля, что и в контейнере; без shell."""
         launch = self.launch
         return [
             sys.executable,
@@ -256,6 +257,7 @@ def run_sample(output: Path) -> SampleRun:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Точка входа: запуск образца и печать итога; ненулевой код при сбое."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("--output", type=Path, required=True, help="пустой каталог для журнала")
     args = parser.parse_args(argv)

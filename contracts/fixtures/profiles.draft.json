@@ -1,0 +1,98 @@
+[
+  {
+    "id": "p-web-panel",
+    "name": "Веб-панель служебного устройства",
+    "description": "Низкоуровневая ловушка: порты и баннеры.",
+    "archived": false,
+    "revision": 2,
+    "created_at": "2026-10-09T09:00:00Z",
+    "config": {
+      "interaction_level": "low",
+      "hostname": "cam-gw-03",
+      "services": [
+        {
+          "protocol": "http",
+          "port": 8080,
+          "banner": "lighttpd/1.4.59"
+        },
+        {
+          "protocol": "tcp",
+          "port": 23,
+          "banner": "BusyBox telnetd"
+        }
+      ],
+      "logging": {
+        "max_payload_bytes": 8192
+      },
+      "channel": {
+        "flush_interval_ms": 1500,
+        "batch_size": 100
+      },
+      "credential_usernames": []
+    }
+  },
+  {
+    "id": "p-linux-srv",
+    "name": "Тестовый Linux-сервер",
+    "description": "Medium: эмуляция SSH (Cowrie).",
+    "archived": false,
+    "revision": 4,
+    "created_at": "2026-10-09T11:30:00Z",
+    "config": {
+      "interaction_level": "medium",
+      "hostname": "db-prod-02",
+      "services": [
+        {
+          "protocol": "ssh",
+          "port": 2222,
+          "banner": "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"
+        }
+      ],
+      "logging": {
+        "max_payload_bytes": 8192
+      },
+      "channel": {
+        "flush_interval_ms": 1500,
+        "batch_size": 100
+      },
+      "credential_usernames": [
+        "admin"
+      ]
+    }
+  },
+  {
+    "id": "p-linux-vm",
+    "name": "Настоящая Linux VM",
+    "description": "High: настоящая VM за SSH-шлюзом.",
+    "archived": false,
+    "revision": 1,
+    "created_at": "2026-10-09T11:00:00Z",
+    "config": {
+      "interaction_level": "high",
+      "hostname": "build-srv-01",
+      "services": [
+        {
+          "protocol": "ssh",
+          "port": 2224,
+          "banner": ""
+        }
+      ],
+      "logging": {
+        "max_payload_bytes": 8192
+      },
+      "channel": {
+        "flush_interval_ms": 1500,
+        "batch_size": 100
+      },
+      "high": {
+        "template": "ubuntu-ssh-v1",
+        "ttl_seconds": 900,
+        "cpu": 2,
+        "memory_mb": 2048
+      },
+      "credential_usernames": [
+        "deploy"
+      ]
+    }
+  }
+]

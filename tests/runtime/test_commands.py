@@ -336,3 +336,33 @@ def test_transaction_rolls_back_completion_when_metadata_write_fails(tmp_path: P
             request.command_id, CommandStatus.SUCCEEDED, instance_id=str(uuid4())
         )
         assert completed.generation == 1
+
+
+def test_huge_integers_are_rejected_before_serialisation(tmp_path: Path) -> None:
+    """Регрессия: список огромных целых проходил проверку как «байт на элемент»."""
+    import time
+
+    started = time.monotonic()
+    with CommandJournal(tmp_path / "commands.sqlite") as journal:
+        with pytest.raises(ValueError):
+            journal.accept(command(payload=[10**4299] * 50_000))
+        with pytest.raises(ValueError):
+            journal.accept(command(payload={"n": 10**5000}))
+        assert journal.pending is None
+    assert time.monotonic() - started < 2.0
+
+
+def test_a_future_generation_is_also_stale(tmp_path: Path) -> None:
+    with CommandJournal(tmp_path / "commands.sqlite") as journal:
+        with pytest.raises(JournalError) as error:
+            journal.accept(command(generation=5))
+        assert error.value.code is JournalErrorCode.STALE_GENERATION
+        assert journal.pending is None
+
+
+def test_stale_generation_is_reported_before_busy(tmp_path: Path) -> None:
+    with CommandJournal(tmp_path / "commands.sqlite") as journal:
+        journal.accept(command())
+        with pytest.raises(JournalError) as error:
+            journal.accept(command(generation=3))
+        assert error.value.code is JournalErrorCode.STALE_GENERATION

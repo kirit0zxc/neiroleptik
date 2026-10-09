@@ -150,8 +150,9 @@ jobs:
       - name: Build runtime image
         run: docker build --tag honeyforge-control:ci .
 
-  runtime:
-    name: Runtime checks
+  telemetry:
+    name: Agent telemetry checks
+    needs: repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -161,19 +162,48 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: requirements-dev.txt
-      - run: python -m pip install -r requirements-dev.txt
-      - run: python -m ruff check .
-      - run: python -m ruff format --check .
-      - run: python -m mypy
-      - run: python -m pytest
-      - run: python -m build --no-isolation
-      - run: docker compose -f compose.runtime.yml config --quiet
+      - name: Install agent dependencies
+        run: |
+          python -m pip install uv==0.11.28
+          uv sync --frozen
+      - name: Validate agent telemetry
+        run: |
+          uv run --frozen ruff check agent tests/telemetry
+          uv run --frozen ruff format --check agent tests/telemetry
+          uv run --frozen mypy
+          uv run --frozen pytest
+          uv run --frozen python -m agent.telemetry.export_contracts --check
+          uv run --frozen python -m agent.telemetry.demo
+
+  runtime:
+    name: Runtime checks
+    needs: repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install agent dependencies
+        run: |
+          python -m pip install uv==0.11.28
+          uv sync --frozen
+      - name: Validate runtime
+        run: |
+          uv run --frozen ruff check agent honeypots infra tests
+          uv run --frozen ruff format --check agent honeypots infra tests
+          uv run --frozen mypy
+          uv run --frozen pytest tests/low tests/runtime tests/preflight tests/infra
+          uv build --wheel
+      - name: Validate runtime Compose configuration
+        run: docker compose -f compose.runtime.yml config --quiet
 
   result:
     name: CI result
-    needs: [repository, frontend, backend, runtime]
+    needs: [repository, frontend, backend, telemetry, runtime]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -182,12 +212,14 @@ jobs:
         env:
           REPOSITORY_RESULT: ${{ needs.repository.result }}
           BACKEND_RESULT: ${{ needs.backend.result }}
+          TELEMETRY_RESULT: ${{ needs.telemetry.result }}
           RUNTIME_RESULT: ${{ needs.runtime.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           FRONTEND_PRESENT: ${{ needs.repository.outputs.frontend }}
         run: |
           test "$REPOSITORY_RESULT" = success
           test "$BACKEND_RESULT" = success
+          test "$TELEMETRY_RESULT" = success
           test "$RUNTIME_RESULT" = success
           if [ "$FRONTEND_PRESENT" = true ]; then
             test "$FRONTEND_RESULT" = success

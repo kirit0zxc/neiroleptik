@@ -58,33 +58,37 @@ uv run --env-file ../.env --frozen uvicorn honeyforge.main:create_app --factory 
 preflight Linux/KVM, разбор конфигурации центра и драйвер Low (контейнер по профилю).
 Клиент центра, Reconciler, Medium и High в runtime пока не реализованы; локальные тесты
 не подтверждают работу с настоящим Docker, сквозной сценарий или изоляцию реальной VM.
-Runtime не зависит от backend и не имеет зависимостей времени выполнения.
+Код runtime и образ Low не имеют зависимостей времени выполнения (pydantic нужен только
+телеметрии).
 
-Требуется Python 3.12. Команды выполняются из корня репозитория:
+Runtime использует тот же корневой проект `honeyforge-agent`, что и телеметрия
+([агент](agent/README.md)): Python 3.12, uv 0.11.28, инструменты из `uv.lock`.
+Команды выполняются из корня репозитория:
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python -m pip install -r requirements-dev.txt
-.\.venv\Scripts\python -m pytest
-.\.venv\Scripts\python -m ruff check .
-.\.venv\Scripts\python -m ruff format --check .
-.\.venv\Scripts\python -m mypy
-.\.venv\Scripts\python -m build --no-isolation
+```sh
+uv sync --frozen
+uv run --frozen pytest
+uv run --frozen ruff check agent honeypots infra tests
+uv run --frozen ruff format --check agent honeypots infra tests
+uv run --frozen mypy
+uv build --wheel
+docker compose -f compose.runtime.yml config --quiet
 ```
 
-В Linux после создания окружения использовать `.venv/bin/python`. Эти проверки
-относятся только к каталогам runtime (`agent`, `honeypots`, `infra`, `tests`);
-backend проверяется отдельно командами из раздела выше.
+Backend проверяется отдельно командами из раздела выше.
 
 ### Low на локальном компьютере
 
-```powershell
-.\.venv\Scripts\python -m honeypots.low
+```sh
+uv run --frozen python -m honeypots.low
 ```
 
 По умолчанию сервис доступен только на loopback: TCP 2222 и HTTP 8080.
 Журнал JSONL выводится в stdout; это диагностический формат, не согласованный
 Event центра и не устойчивый spool. Ctrl-C завершает сервис.
+
+Файловый журнал для сборщика телеметрии (поколения, ротация, образец) описан в
+[specs/low-journal-v1.md](specs/low-journal-v1.md).
 
 При работающем Docker Engine:
 
@@ -93,14 +97,16 @@ docker compose -f compose.runtime.yml config --quiet
 docker compose -f compose.runtime.yml up --build
 ```
 
-Compose публикует TCP 13222 и HTTP 18080 только на 127.0.0.1. Контейнер ограничен
-по ресурсам и использует внутреннюю сеть. Это локальная конфигурация разработки;
-изоляцию хоста и будущего runtime-сервера необходимо отдельно проверить.
+Compose настроен публиковать TCP 13222 и HTTP 18080 только на 127.0.0.1; контейнер
+ограничен по ресурсам и подключён к сети с `internal: true`. Запуск этой
+конфигурации в Docker не проверялся: неизвестно, публикует ли Docker порты для
+контейнера, подключённого только к внутренней сети. Это локальная конфигурация
+разработки; изоляцию хоста и будущего runtime-сервера необходимо отдельно проверить.
 
 ### Проверка будущего runtime-хоста
 
-```text
-python -m infra.vm.preflight
+```sh
+uv run --frozen python -m infra.vm.preflight
 ```
 
 Команда ничего не создаёт и не изменяет. Linux/KVM/libvirt проверяются статически;
@@ -130,3 +136,9 @@ API. Финальная демонстрация событий требует �
 В разработке frontend использует origin `http://localhost:5173`, cookie
 `hf_session`, `credentials: "include"` и CSRF из login или `/api/v1/auth/me`.
 Другой origin согласуйте и добавьте в `HF_ALLOWED_ORIGINS`.
+
+## Телеметрия участника 4: старт D1
+
+Локальная очередь SQLite WAL, адаптер Low, схемы и синтетические fixtures:
+[запуск и проверки агента](agent/README.md), [контракт](specs/events.md).
+Этот шаг проверяет сохранность событий; живые ingest/WS подключаются следующим этапом.

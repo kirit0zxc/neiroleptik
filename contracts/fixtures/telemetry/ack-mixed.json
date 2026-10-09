@@ -1,0 +1,20 @@
+{
+  "batch_id": "00000000-0000-0000-0000-00000000000d",
+  "accepted_ids": [
+    "cbedf64d-96bc-5f0d-9be6-b514f8c4a543"
+  ],
+  "rejected": [
+    {
+      "index": 1,
+      "event_id": "00000000-0000-0000-0000-00000000000b",
+      "code": "EVENT_ID_CONFLICT",
+      "retryable": false
+    },
+    {
+      "index": 2,
+      "event_id": "00000000-0000-0000-0000-00000000000c",
+      "code": "TEMPORARILY_UNAVAILABLE",
+      "retryable": true
+    }
+  ]
+}

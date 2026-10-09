@@ -1,0 +1,82 @@
+[
+  {
+    "schema_version": 1,
+    "event_id": "00000000-0000-0000-0000-0000000000e1",
+    "agent_id": "00000000-0000-0000-0000-0000000a6e47",
+    "deployment_id": "00000000-0000-0000-0000-0000000dec01",
+    "instance_id": "00000000-0000-0000-0000-000000010571",
+    "session_id": "00000000-0000-0000-0000-0000005e5510",
+    "source_seq": 1,
+    "occurred_at": "2026-10-09T12:00:01.120Z",
+    "received_at": "2026-10-09T12:00:01.370Z",
+    "type": "auth.attempt",
+    "source": {
+      "ip": "192.0.2.23",
+      "port": 51343
+    },
+    "service": {
+      "protocol": "ssh",
+      "port": 2222
+    },
+    "data": {
+      "username": "root",
+      "password": "hunter2",
+      "success": true
+    },
+    "artifact_ids": [],
+    "profile_revision": 4
+  },
+  {
+    "schema_version": 1,
+    "event_id": "00000000-0000-0000-0000-0000000000e2",
+    "agent_id": "00000000-0000-0000-0000-0000000a6e47",
+    "deployment_id": "00000000-0000-0000-0000-0000000dec01",
+    "instance_id": "00000000-0000-0000-0000-000000010571",
+    "session_id": "00000000-0000-0000-0000-0000005e5510",
+    "source_seq": 2,
+    "occurred_at": "2026-10-09T12:00:02.120Z",
+    "received_at": "2026-10-09T12:00:02.370Z",
+    "type": "session.command",
+    "source": {
+      "ip": "192.0.2.23",
+      "port": 51344
+    },
+    "service": {
+      "protocol": "ssh",
+      "port": 2222
+    },
+    "data": {
+      "input": "uname -a; cat /etc/passwd",
+      "truncated": false
+    },
+    "artifact_ids": [],
+    "profile_revision": 4
+  },
+  {
+    "schema_version": 1,
+    "event_id": "00000000-0000-0000-0000-0000000000e3",
+    "agent_id": "00000000-0000-0000-0000-0000000a6e47",
+    "deployment_id": "00000000-0000-0000-0000-0000000dec01",
+    "instance_id": "00000000-0000-0000-0000-000000010571",
+    "session_id": null,
+    "source_seq": 3,
+    "occurred_at": "2026-10-09T12:00:03.120Z",
+    "received_at": "2026-10-09T12:00:03.370Z",
+    "type": "http.request",
+    "source": {
+      "ip": "198.51.100.7",
+      "port": 51345
+    },
+    "service": {
+      "protocol": "http",
+      "port": 8080
+    },
+    "data": {
+      "method": "GET",
+      "path": "/<img src=x onerror=alert(1)>",
+      "truncated": false
+    },
+    "artifact_ids": [],
+    "profile_revision": 4
+  }
+]

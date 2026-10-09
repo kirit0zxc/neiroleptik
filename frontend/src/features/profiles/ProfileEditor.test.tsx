@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { App, makeQueryClient } from '../../app/App';
+import profilesFixture from '../../../../contracts/fixtures/profiles.draft.json';
+import type { Profile } from '../../shared/api/types';
 import { handlers, resetMockSession } from '../../mocks/handlers';
 
 const server = setupServer(...handlers);
@@ -13,8 +15,10 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 function open(path: string) {
+  const client = makeQueryClient();
   window.history.pushState({}, '', path);
-  render(<App client={makeQueryClient()} />);
+  render(<App client={client} />);
+  return client;
 }
 
 describe('форма профиля (F8, F9)', () => {
@@ -60,7 +64,7 @@ describe('форма профиля (F8, F9)', () => {
     const user = userEvent.setup();
     open('/profiles/p-linux-srv');
     expect(await screen.findByRole('region', { name: 'Учётные данные-приманки' })).toBeInTheDocument();
-    expect(screen.getByDisplayValue('admin')).toBeInTheDocument();
+    expect(screen.getByText(/Сохранённые логины: admin/)).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText('Уровень взаимодействия'), 'low');
     expect(screen.queryByRole('region', { name: 'Учётные данные-приманки' })).toBeNull();
@@ -79,9 +83,7 @@ describe('форма профиля (F8, F9)', () => {
     const name = await screen.findByLabelText('Название');
     await user.clear(name);
     await user.type(name, 'Сервер БД');
-    // Сервер не отдаёт пароли учёток — при сохранении их вводят заново.
-    const creds = screen.getByRole('group', { name: 'Учётка 1' });
-    await user.type(within(creds).getByLabelText('Пароль'), 'admin123');
+    // Пароли остаются на сервере, переименование не требует их знания.
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Сохранено: ревизия r5');
     // p-linux-srv начинается с r1..r4; сохранение добавляет r5.
@@ -104,7 +106,6 @@ describe('форма профиля (F8, F9)', () => {
     open('/profiles/p-linux-srv');
     const name = await screen.findByLabelText('Название');
     await user.type(name, ' 2');
-    await user.type(within(screen.getByRole('group', { name: 'Учётка 1' })).getByLabelText('Пароль'), 'admin123');
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Профиль уже изменён: перечитайте текущую версию');
     expect(name).toHaveValue('Тестовый Linux-сервер 2');
@@ -118,7 +119,6 @@ describe('форма профиля (F8, F9)', () => {
     ] }, { status: 422 })));
     open('/profiles/p-linux-srv');
     await screen.findByLabelText('Название');
-    await user.type(within(screen.getByRole('group', { name: 'Учётка 1' })).getByLabelText('Пароль'), 'admin123');
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
     const svc = screen.getByRole('group', { name: 'Сервис 1' });
     expect(await within(svc).findByText('Порт занят другой ловушкой на хосте')).toBeInTheDocument();
@@ -135,10 +135,154 @@ describe('форма профиля (F8, F9)', () => {
     }));
     open('/profiles/p-linux-srv');
     await screen.findByLabelText('Название');
-    await user.type(within(screen.getByRole('group', { name: 'Учётка 1' })).getByLabelText('Пароль'), 'admin123');
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
     await screen.findByRole('alert');
     expect(header).toBe('mock-csrf-token');
+  });
+
+  it('фоновая новая ревизия не меняет lock старой формы; 409 требует явного перечитывания', async () => {
+    const user = userEvent.setup();
+    const original = structuredClone(profilesFixture.find((p) => p.id === 'p-linux-srv')) as Profile;
+    let latest = original;
+    const sent: number[] = [];
+    server.use(
+      http.get('/api/v1/profiles/:id', () => HttpResponse.json(latest)),
+      http.patch('/api/v1/profiles/:id', async ({ request }) => {
+        const body = await request.json() as { expected_revision: number };
+        sent.push(body.expected_revision);
+        return HttpResponse.json({ detail: 'Конфликт версии' }, { status: 409 });
+      }),
+    );
+    const client = open('/profiles/p-linux-srv');
+    const name = await screen.findByLabelText('Название');
+    await user.clear(name);
+    await user.type(name, 'Моя правка');
+    const banner = within(screen.getByRole('group', { name: 'Сервис 1' })).getByLabelText('Баннер');
+    const oldBanner = (banner as HTMLInputElement).value;
+    latest = { ...original, revision: original.revision + 1, name: 'Чужая правка',
+      config: { ...original.config, services: original.config.services.map((svc) => ({ ...svc, banner: 'Новый чужой баннер' })) } };
+    await act(async () => { await client.invalidateQueries({ queryKey: ['profiles', original.id], exact: true }); });
+    expect(client.getQueryData<Profile>(['profiles', original.id])?.revision).toBe(latest.revision);
+    expect(name).toHaveValue('Моя правка');
+    expect(banner).toHaveValue(oldBanner);
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Конфликт версии');
+    expect(sent).toEqual([original.revision]);
+    expect(name).toHaveValue('Моя правка');
+    await user.click(screen.getByRole('button', { name: 'Перечитать профиль и сбросить мои изменения' }));
+    await waitFor(() => expect(name).toHaveValue('Чужая правка'));
+    expect(within(screen.getByRole('group', { name: 'Сервис 1' })).getByLabelText('Баннер')).toHaveValue('Новый чужой баннер');
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    await waitFor(() => expect(sent).toEqual([original.revision, latest.revision]));
+  });
+
+  it('rename сохраняет credentials:null и точный лимит байт', async () => {
+    const user = userEvent.setup();
+    const original = structuredClone(profilesFixture.find((p) => p.id === 'p-linux-srv')) as Profile;
+    original.config.logging = { max_payload_bytes: 1536 };
+    let body: { config: { credentials: unknown; logging: { max_payload_bytes: number } } } | undefined;
+    server.use(
+      http.get('/api/v1/profiles/:id', () => HttpResponse.json(original)),
+      http.patch('/api/v1/profiles/:id', async ({ request }) => {
+        body = await request.json() as typeof body;
+        return HttpResponse.json({ ...original, revision: original.revision + 1 });
+      }),
+    );
+    open('/profiles/p-linux-srv');
+    await user.type(await screen.findByLabelText('Название'), ' 2');
+    expect(screen.queryByLabelText('Пароль')).toBeNull();
+    expect(screen.getByLabelText('Лимит payload, байт')).toHaveValue('1536');
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    await screen.findByRole('status');
+    expect(body?.config.credentials).toBeNull();
+    expect(body?.config.logging.max_payload_bytes).toBe(1536);
+  });
+
+  it('явная замена учёток валидируется; возврат к сохранению не отправляет секреты', async () => {
+    const user = userEvent.setup();
+    let credentials: unknown = 'not-sent';
+    server.use(http.patch('/api/v1/profiles/:id', async ({ request }) => {
+      credentials = (await request.json() as { config: { credentials: unknown } }).config.credentials;
+      return HttpResponse.json({ detail: 'стоп' }, { status: 409 });
+    }));
+    open('/profiles/p-linux-srv');
+    await user.click(await screen.findByLabelText('Заменить учётные данные'));
+    expect(screen.getByLabelText('Логин')).toHaveValue('admin');
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    expect(await screen.findByText('Введите пароль')).toBeInTheDocument();
+    expect(credentials).toBe('not-sent');
+    await user.type(screen.getByLabelText('Пароль'), 'replacement');
+    await user.click(screen.getByLabelText('Заменить учётные данные'));
+    expect(screen.queryByLabelText('Пароль')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    await screen.findByRole('alert');
+    expect(credentials).toBeNull();
+  });
+
+  it('новый Medium требует учётки и предлагает только SSH', async () => {
+    const user = userEvent.setup();
+    open('/profiles/new');
+    await user.type(await screen.findByLabelText('Название'), 'SSH');
+    await user.selectOptions(screen.getByLabelText('Уровень взаимодействия'), 'medium');
+    expect(within(screen.getByLabelText('Протокол')).getAllByRole('option').map((option) => option.textContent)).toEqual(['SSH']);
+    await user.click(screen.getByRole('button', { name: 'Создать профиль' }));
+    expect(await screen.findByText('Medium и High требуют хотя бы одну учётку-приманку')).toBeInTheDocument();
+  });
+
+  it('после успешной записи следующая правка использует новую версию снимка', async () => {
+    const user = userEvent.setup();
+    let latest = structuredClone(profilesFixture.find((p) => p.id === 'p-linux-srv')) as Profile;
+    const sent: number[] = [];
+    server.use(
+      http.get('/api/v1/profiles/:id', () => HttpResponse.json(latest)),
+      http.patch('/api/v1/profiles/:id', async ({ request }) => {
+        const body = await request.json() as { expected_revision: number; name: string };
+        sent.push(body.expected_revision);
+        latest = { ...latest, name: body.name, revision: latest.revision + 1 };
+        return HttpResponse.json(latest);
+      }),
+    );
+    open('/profiles/p-linux-srv');
+    await user.type(await screen.findByLabelText('Название'), ' 1');
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Сохранено: ревизия r5');
+    await user.type(screen.getByLabelText('Название'), ' 2');
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Сохранено: ревизия r6'));
+    expect(sent).toEqual([4, 5]);
+  });
+
+  it('переход Medium → Low явно очищает серверные учётки', async () => {
+    const user = userEvent.setup();
+    let credentials: unknown = 'not-sent';
+    server.use(http.patch('/api/v1/profiles/:id', async ({ request }) => {
+      credentials = (await request.json() as { config: { credentials: unknown } }).config.credentials;
+      return HttpResponse.json({ detail: 'стоп' }, { status: 409 });
+    }));
+    open('/profiles/p-linux-srv');
+    await user.selectOptions(await screen.findByLabelText('Уровень взаимодействия'), 'low');
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    await screen.findByRole('alert');
+    expect(credentials).toEqual([]);
+    await user.selectOptions(screen.getByLabelText('Уровень взаимодействия'), 'medium');
+    expect(screen.queryByLabelText('Заменить учётные данные')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    expect(await screen.findByText('Medium и High требуют хотя бы одну учётку-приманку')).toBeInTheDocument();
+  });
+
+  it('выбранная замена отправляет только введённые логины и пароли', async () => {
+    const user = userEvent.setup();
+    let credentials: unknown = 'not-sent';
+    server.use(http.patch('/api/v1/profiles/:id', async ({ request }) => {
+      credentials = (await request.json() as { config: { credentials: unknown } }).config.credentials;
+      return HttpResponse.json({ detail: 'стоп' }, { status: 409 });
+    }));
+    open('/profiles/p-linux-srv');
+    await user.click(await screen.findByLabelText('Заменить учётные данные'));
+    await user.type(screen.getByLabelText('Пароль'), 'new-secret');
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    await screen.findByRole('alert');
+    expect(credentials).toEqual([{ username: 'admin', password: 'new-secret' }]);
   });
 
   it('список профилей ведёт в редактор', async () => {

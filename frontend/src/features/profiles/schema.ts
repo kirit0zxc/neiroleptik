@@ -16,7 +16,7 @@ export { type Protocol };
 /** Какие протоколы допустимы на уровне взаимодействия. */
 export const ALLOWED: Record<Level, readonly Protocol[]> = {
   low: ['tcp', 'http'],
-  medium: ['ssh', 'http'],
+  medium: ['ssh'],
   high: ['ssh'],
 };
 
@@ -25,14 +25,14 @@ export const hasCredentials = (level: Level) => level !== 'low';
 /** Блок настроек VM показывается только для High. */
 export const hasHigh = (level: Level) => level === 'high';
 
-const HOSTNAME = /^(?=.{1,63}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
+const HOSTNAME = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$/;
 /** Логин учётки — по маске сервера (CredentialInput.username). */
 const USERNAME = /^[a-zA-Z0-9_.-]+$/;
 
 const service = z.object({
   protocol: z.enum(PROTOCOLS),
   port: z.coerce.number({ message: 'Порт — число' }).int('Порт — целое число').min(1, 'Порт от 1').max(65535, 'Порт до 65535'),
-  banner: z.string().max(200, 'Баннер до 200 символов'),
+  banner: z.string().max(200, 'Баннер до 200 символов').refine((v) => !/[\r\n\0]/.test(v), 'Баннер должен быть одной строкой'),
 });
 
 const credential = z.object({
@@ -48,9 +48,11 @@ export const ProfileSchema = z.object({
   hostname: z.string().trim().regex(HOSTNAME, 'Имя хоста: латиница, цифры и дефис, до 63 символов'),
   services: z.array(service).min(1, 'Нужен хотя бы один сервис').max(8, 'Не больше 8 сервисов'),
   credentials: z.array(credential).max(8, 'Не больше 8 учёток'),
+  credentials_mode: z.enum(['preserve', 'replace']),
+  preserved_usernames: z.array(z.string()),
   logging: z.object({
-    // Контракт: max_payload_bytes 256–8192. В форме удобнее КиБ (1–8).
-    payload_limit_kb: z.coerce.number().int().min(1, 'От 1 КиБ').max(8, 'До 8 КиБ'),
+    // Байты сохраняются без округления при редактировании существующей конфигурации.
+    max_payload_bytes: z.coerce.number().int().min(256, 'От 256 байт').max(8192, 'До 8192 байт'),
   }),
   channel: z.object({
     flush_interval_ms: z.coerce.number().int().min(100, 'От 100 мс').max(5000, 'До 5000 мс'),
@@ -81,6 +83,14 @@ export const ProfileSchema = z.object({
   if (p.level === 'high' && p.services.length !== 1) {
     ctx.addIssue({ code: 'custom', path: ['services'], message: 'High — ровно один SSH-сервис (шлюз к VM)' });
   }
+  if (hasCredentials(p.level) && (p.credentials_mode === 'preserve' ? !p.preserved_usernames.length : !p.credentials.length)) {
+    ctx.addIssue({ code: 'custom', path: ['credentials'], message: 'Medium и High требуют хотя бы одну учётку-приманку' });
+  }
+  const usernames = new Set<string>();
+  p.credentials.forEach((c, i) => {
+    if (usernames.has(c.username)) ctx.addIssue({ code: 'custom', path: ['credentials', i, 'username'], message: 'Логины учёток должны быть уникальными' });
+    usernames.add(c.username);
+  });
   if (p.level === 'low' && p.credentials.length) {
     ctx.addIssue({ code: 'custom', path: ['credentials'], message: 'У Low нет входа — учётки не нужны' });
   }
@@ -90,20 +100,19 @@ export type ProfileInput = z.input<typeof ProfileSchema>;
 export type ProfileForm = z.output<typeof ProfileSchema>;
 
 /**
- * Собрать тело запроса (ProfileCreate) из значений формы: пересчитать КиБ в
- * байты, добавить блок High только для уровня high, учётки — только где есть
- * вход. Поля, которых нет на уровне, в config не попадают.
+ * Собрать тело записи профиля. null сохраняет зашифрованные пароли сервера,
+ * список явно заменяет их. При переходе на Low отправляется явная очистка.
  */
 export function formToCreate(f: ProfileForm): { name: string; description: string; config: ProfileConfigInput } {
   const config: ProfileConfigInput = {
     interaction_level: f.level,
     hostname: f.hostname,
     services: f.services.map((s) => ({ protocol: s.protocol, port: s.port, banner: s.banner })),
-    logging: { max_payload_bytes: f.logging.payload_limit_kb * 1024 },
+    logging: { max_payload_bytes: f.logging.max_payload_bytes },
+    credentials: hasCredentials(f.level) && f.credentials_mode === 'preserve' ? null : f.credentials,
     channel: { flush_interval_ms: f.channel.flush_interval_ms, batch_size: f.channel.batch_size },
   };
   if (hasHigh(f.level)) config.high = { template: 'ubuntu-ssh-v1', ...f.high };
-  if (hasCredentials(f.level)) config.credentials = f.credentials;
   return { name: f.name, description: f.description, config };
 }
 
@@ -121,7 +130,7 @@ export function servicesForLevel<S extends { protocol: string }>(level: Level, s
   return fits ? services : emptyProfile(level).services;
 }
 
-/** Новый профиль по уровню — сразу валидный набор полей формы. */
+/** Новый профиль: SSH-уровни требуют явного добавления приманочных учёток. */
 export function emptyProfile(level: Level = 'low'): ProfileForm {
   const services: ProfileForm['services'] = level === 'low'
     ? [{ protocol: 'http', port: 8080, banner: 'nginx' }]
@@ -135,7 +144,9 @@ export function emptyProfile(level: Level = 'low'): ProfileForm {
     hostname: 'srv-01',
     services,
     credentials: [],
-    logging: { payload_limit_kb: 8 },
+    credentials_mode: 'replace',
+    preserved_usernames: [],
+    logging: { max_payload_bytes: 8192 },
     channel: { flush_interval_ms: 1500, batch_size: 100 },
     high: { ttl_seconds: 900, cpu: 2, memory_mb: 2048 },
   };
@@ -143,8 +154,8 @@ export function emptyProfile(level: Level = 'low'): ProfileForm {
 
 /**
  * Значения формы из прочитанного профиля (ProfileConfigPublic). Пароли
- * учёток сервер не отдаёт — подставляются только логины, поле пароля пустое
- * и требует повторного ввода при сохранении.
+ * учёток сервер не отдаёт: по умолчанию сохраняем их, не запрашивая секреты.
+ * Логины нужны для показа имеющихся учёток и явного перехода к замене.
  */
 export function formFromConfig(name: string, description: string, config: {
   interaction_level: Level;
@@ -162,8 +173,10 @@ export function formFromConfig(name: string, description: string, config: {
     level: config.interaction_level,
     hostname: config.hostname ?? base.hostname,
     services: config.services.length ? config.services.map((s) => ({ ...s })) : base.services,
-    credentials: (config.credential_usernames ?? []).map((username) => ({ username, password: '' })),
-    logging: { payload_limit_kb: config.logging ? Math.max(1, Math.round(config.logging.max_payload_bytes / 1024)) : base.logging.payload_limit_kb },
+    credentials: [],
+    credentials_mode: config.credential_usernames?.length && hasCredentials(config.interaction_level) ? 'preserve' : 'replace',
+    preserved_usernames: config.credential_usernames ?? [],
+    logging: { max_payload_bytes: config.logging?.max_payload_bytes ?? base.logging.max_payload_bytes },
     channel: config.channel ? { ...config.channel } : base.channel,
     high: config.high ? { ttl_seconds: config.high.ttl_seconds, cpu: config.high.cpu, memory_mb: config.high.memory_mb } : base.high,
   };

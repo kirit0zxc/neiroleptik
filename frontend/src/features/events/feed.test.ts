@@ -34,9 +34,9 @@ describe('фильтры ленты (F11)', () => {
     const local = '2026-10-09T15:00';
     const q = toQuery({ from: local, type: 'session.command' }, 'c2');
     expect(q.get('from')).toBe(new Date(local).toISOString());
-    // Следующая страница — через after=<next_cursor>, как требует контракт.
-    expect(q.get('after')).toBe('c2');
-    expect(q.get('cursor')).toBeNull();
+    // История использует непрозрачный cursor, не after журнала публикаций.
+    expect(q.get('cursor')).toBe('c2');
+    expect(q.get('after')).toBeNull();
     expect(q.get('limit')).toBe('50');
   });
 
@@ -70,6 +70,7 @@ describe('окно ленты (FeedBuffer)', () => {
     b.pushLive([ev('2')]);
     b.pushLive([ev('3'), ev('2')]);
     expect(b.pending).toBe(2);
+    expect(b.overflow).toBe(0);
     expect(b.events.map((e) => e.event_id)).toEqual(['1']);
     b.flush();
     expect(b.events.map((e) => e.event_id)).toEqual(['3', '2', '1']);
@@ -123,7 +124,43 @@ describe('окно ленты (FeedBuffer)', () => {
     b.pushLive([ev('1'), ev('2'), ev('3'), ev('4')]);
     // Храним не больше лимита отложенных — самые старые забываются.
     expect(b.pending).toBe(2);
+    expect(b.overflow).toBe(2);
     b.flush();
     expect(b.events.map((e) => e.event_id)).toEqual(['4', '3']);
+  });
+
+  it('пересборка REST сохраняет показанные live и отдельный pending на паузе', () => {
+    const b = new FeedBuffer();
+    b.loadPage([ev('history')], false);
+    b.pushLive([ev('shown')]);
+    b.setPaused(true);
+    b.pushLive([ev('pending')]);
+    b.replaceHistory([ev('history'), ev('older')]);
+    expect(b.events.map((e) => e.event_id)).toEqual(['shown', 'history', 'older']);
+    expect(b.pending).toBe(1);
+    expect(b.isPaused).toBe(true);
+  });
+
+  it('REST с pending на паузе не показывает его; повтор в одном batch отсеивается', () => {
+    const b = new FeedBuffer();
+    b.loadPage([ev('history')], false);
+    b.setPaused(true);
+    b.pushLive([ev('new'), ev('new')]);
+    b.replaceHistory([ev('new'), ev('history')]);
+    expect(b.events.map((e) => e.event_id)).toEqual(['history']);
+    expect(b.pending).toBe(1);
+    b.flush();
+    expect(b.events.map((e) => e.event_id)).toEqual(['new', 'history']);
+  });
+
+  it('переполнение остаётся явным после flush и сбрасывается только новым снимком', () => {
+    const b = new FeedBuffer(2);
+    b.setPaused(true);
+    b.pushLive([ev('1'), ev('2'), ev('3')]);
+    b.flush();
+    expect(b.overflow).toBe(1);
+    b.loadPage([ev('3'), ev('2'), ev('1')], false);
+    expect(b.overflow).toBe(0);
+    expect(b.events).toHaveLength(3);
   });
 });

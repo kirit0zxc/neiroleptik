@@ -12,6 +12,12 @@ import s from './fleet.module.css';
  * ход задания до итога. Новый idempotency_key на каждое нажатие.
  */
 export function DeploymentActions({ deployment }: { deployment: PreviewDeployment }) {
+  // Команд и jobs пока нет в control OpenAPI: прямой рендер тоже безопасен.
+  if (import.meta.env.VITE_API_MOCK !== '1') return null;
+  return <PreviewActions deployment={deployment} />;
+}
+
+function PreviewActions({ deployment }: { deployment: PreviewDeployment }) {
   const [jobId, setJobId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Command | null>(null);
 

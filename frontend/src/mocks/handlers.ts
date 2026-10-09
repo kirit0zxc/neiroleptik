@@ -23,6 +23,9 @@ let profiles: Profile[] = structuredClone(profilesFixture) as Profile[];
 /** История ревизий по каждому профилю (RevisionRead). */
 let revisionsById = new Map<string, Revision[]>();
 let nextId = 1;
+/** Непрозрачный курсор привязан к неизменяемому снимку и его фильтрам. */
+let snapshotId = 0;
+const snapshots = new Map<string, { items: HfEvent[]; filter: string }>();
 
 /** Текущую (на запись) конфигурацию превратить в публичную (без паролей). */
 function toPublic(config: ProfileConfigInput): ProfileConfigPublic {
@@ -61,20 +64,37 @@ export const handlers = [
     : HttpResponse.json({ detail: 'Требуется вход' }, { status: 401 }))),
   http.get('/api/v1/hosts', () => HttpResponse.json(hosts)),
   ...jobHandlers(csrfFailure, (id) => profiles.find((p) => p.id === id)?.config.interaction_level as InteractionLevel | undefined),
-  // Новые сверху, фильтры как у сервера, пагинация курсором (after=индекс в выборке).
+  // Снимок не меняется при публикации live; cursor относится только к /events.
   http.get('/api/v1/events', ({ request }) => {
     const q = new URL(request.url).searchParams;
     const from = q.get('from'); const to = q.get('to');
+    const filter = JSON.stringify(['deployment_id', 'type', 'source_ip', 'from', 'to'].map((key) => q.get(key)));
     const all = [...publishedEvents()].reverse().filter((e) =>
       (!q.get('deployment_id') || e.deployment_id === q.get('deployment_id'))
       && (!q.get('type') || e.type === q.get('type'))
       && (!q.get('source_ip') || e.source.ip === q.get('source_ip'))
       // from включительно, to исключительно (согласовано с командой).
       && (!from || Date.parse(e.occurred_at) >= Date.parse(from)) && (!to || Date.parse(e.occurred_at) < Date.parse(to)));
-    const start = Number(q.get('after') ?? 0);
+    const cursor = q.get('cursor');
+    let id: string;
+    let start = 0;
+    if (cursor) {
+      const parts = /^(s\d+):(\d+)$/.exec(cursor);
+      if (!parts || snapshots.get(parts[1]!)?.filter !== filter) {
+        return HttpResponse.json({ detail: 'Курсор не соответствует снимку или фильтрам' }, { status: 422 });
+      }
+      id = parts[1]!;
+      start = Number(parts[2]);
+    } else {
+      id = `s${++snapshotId}`;
+      snapshots.set(id, { items: structuredClone(all), filter });
+      // Мок не накапливает бесконечную историю снимков при автотестах и демо.
+      if (snapshots.size > 100) snapshots.delete(snapshots.keys().next().value!);
+    }
+    const snapshot = snapshots.get(id)!;
     const limit = Number(q.get('limit') ?? 50);
-    const items = all.slice(start, start + limit);
-    const next = start + limit < all.length ? String(start + limit) : null;
+    const items = snapshot.items.slice(start, start + limit);
+    const next = start + limit < snapshot.items.length ? `${id}:${start + limit}` : null;
     return HttpResponse.json({ items, next_cursor: next });
   }),
   ...streamHandlers,
@@ -131,7 +151,12 @@ export const handlers = [
     const revision = p.revision + 1;
     const updated: Profile = {
       ...p, revision, name: body.name ?? p.name, description: body.description ?? p.description,
-      config: body.config ? toPublic(body.config) : p.config, created_at: now,
+      config: body.config ? {
+        ...toPublic(body.config),
+        credential_usernames: body.config.interaction_level === 'low' ? []
+          : body.config.credentials == null ? p.config.credential_usernames
+          : body.config.credentials.map((credential) => credential.username),
+      } : p.config, created_at: now,
     };
     profiles = profiles.map((x) => (x.id === p.id ? updated : x));
     revisionsById.set(p.id, [...(revisionsById.get(p.id) ?? []), { revision, config: updated.config, created_at: now }]);
@@ -147,4 +172,6 @@ export function resetMockSession(open = false) {
   profiles = structuredClone(profilesFixture) as Profile[];
   seedRevisions();
   nextId = 1;
+  snapshots.clear();
+  snapshotId = 0;
 }

@@ -229,8 +229,8 @@ describe('StreamClient: протокол hello/event', () => {
     client.start();
     sockets[0]!.hello('9');
     await flush();
-    // 410: курсор сброшен, подписчикам послан сигнал перечитать историю.
-    expect(resyncs).toEqual([1]);
+    // 410 сбрасывает курсор; REST ждёт hello следующего сокета.
+    expect(resyncs).toEqual([]);
     expect(client.currentCursor).toBeNull();
     // Переподключение: курсор = watermark без повторной догрузки мёртвого '5'.
     gone = false;
@@ -238,8 +238,39 @@ describe('StreamClient: протокол hello/event', () => {
     timers.at(-1)!.fn();
     sockets[1]!.hello('9');
     await flush();
+    expect(resyncs).toEqual([1]);
     expect(client.currentCursor).toBe('9');
     expect(gapCalls).toEqual(['5..9']);   // догрузка по мёртвому курсору была только один раз
+  });
+
+  it('новый hello запускает снимок, live во время снимка ждёт его завершения', async () => {
+    let finish!: () => void;
+    const { client, sockets, got } = setup();
+    client.onResync(() => new Promise<void>((resolve) => { finish = resolve; }));
+    client.start();
+    sockets[0]!.hello('10');
+    sockets[0]!.push('11');
+    expect(client.currentCursor).toBeNull();
+    expect(got).toEqual([]);
+    finish();
+    await flush();
+    expect(got).toEqual(['11']);
+    expect(client.currentCursor).toBe('11');
+  });
+
+  it('не применяет снимок завершившегося старого соединения', async () => {
+    let finish!: () => void;
+    const { client, sockets, got } = setup();
+    client.onResync(() => new Promise<void>((resolve) => { finish = resolve; }));
+    client.start();
+    sockets[0]!.hello('10');
+    sockets[0]!.push('11');
+    client.stop();
+    finish();
+    await flush();
+    expect(client.currentCursor).toBeNull();
+    expect(got).toEqual([]);
+    expect(client.currentStatus).toBe('stopped');
   });
 
   it('stop закрывает сокет', () => {

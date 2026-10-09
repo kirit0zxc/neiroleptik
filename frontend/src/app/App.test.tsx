@@ -3,19 +3,19 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { handlers, resetMockSession } from '../mocks/handlers';
 import { App, makeQueryClient } from './App';
 
 const server = setupServer(...handlers);
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => server.resetHandlers());
+afterEach(() => { server.resetHandlers(); vi.unstubAllEnvs(); });
 afterAll(() => server.close());
 
 function go(path: string) { window.history.pushState({}, '', path); }
 
 describe('приложение на моках (F1, F3, F5, S1, S4)', () => {
-  beforeEach(() => { resetMockSession(false); go('/'); });
+  beforeEach(() => { vi.stubEnv('VITE_API_MOCK', '1'); resetMockSession(false); go('/'); });
 
   it('без сессии — вход; неверный пароль — ошибка; после входа — на исходную страницу', async () => {
     const user = userEvent.setup();

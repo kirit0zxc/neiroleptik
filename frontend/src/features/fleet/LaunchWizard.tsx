@@ -34,21 +34,30 @@ function Wizard() {
   const host = hosts.data?.find((h) => h.id === hostId) ?? null;
   const profile = profiles.data?.find((p) => p.id === profileId) ?? null;
   const revisions = useRevisions(profileId ?? undefined);
-  const unfit = host && profile ? profileFitsHost(profile.config.interaction_level, host) : null;
+  // Неизменяемая выбранная ревизия — единственный источник конфигурации:
+  // текущий профиль может уже иметь другие порты и уровень взаимодействия.
+  const selectedRevision = revisions.data?.find((r) => r.revision === revision) ?? null;
+  const config = selectedRevision?.config;
+  const unfit = host && config ? profileFitsHost(config.interaction_level, host) : null;
+  const ready = !!host && hostChoice(host).selectable && !!profile && !!config
+    && !revisions.isPending && !revisions.isError && !unfit;
 
   const launch = useMutation({
-    mutationFn: () => api<Deployment>('/api/v1/deployments', {
-      method: 'POST',
-      body: JSON.stringify({ host_id: hostId, profile_id: profileId, revision }),
-    }),
+    mutationFn: () => {
+      if (!ready) throw new Error('Выбранная ревизия не готова к запуску на этом хосте');
+      return api<Deployment>('/api/v1/deployments', {
+        method: 'POST',
+        body: JSON.stringify({ host_id: hostId, profile_id: profileId, revision }),
+      });
+    },
     onSuccess: () => setStep(3),
   });
 
   const canNext = useMemo(() => {
     if (step === 0) return !!host && hostChoice(host).selectable;
-    if (step === 1) return !!profile && revision !== null && !unfit;
+    if (step === 1) return ready;
     return false;
-  }, [step, host, profile, revision, unfit]);
+  }, [step, host, ready]);
 
   if (hosts.isPending || profiles.isPending) return <Loading what="хосты и профили" />;
   if (hosts.isError) return <ErrorState message={hosts.error.message} onRetry={() => void hosts.refetch()} />;
@@ -101,12 +110,12 @@ function Wizard() {
             {profiles.data.map((p) => {
               const why = host ? profileFitsHost(p.config.interaction_level, host) : null;
               return (
-                <label key={p.id} className={why ? `${s.choice} ${s.disabled}` : s.choice}>
-                  <input type="radio" name="profile" value={p.id} disabled={!!why}
+                <label key={p.id} className={s.choice}>
+                  <input type="radio" name="profile" value={p.id}
                     checked={profileId === p.id} onChange={() => pickProfile(p)} />
                   <span>{p.name}</span>
                   <span className={s.caps}>{LEVEL[p.config.interaction_level]} · r{p.revision}</span>
-                  {why && <span className={s.note}>{why}</span>}
+                  {why && <span className={s.note}>Последняя ревизия: {why}. Можно выбрать совместимую ревизию из истории.</span>}
                 </label>
               );
             })}
@@ -114,33 +123,39 @@ function Wizard() {
           {profile && (
             <div className={s.revision}>
               <label htmlFor="rev">Ревизия</label>
-              <select id="rev" value={revision ?? ''} onChange={(e) => setRevision(Number(e.target.value))}>
-                {(revisions.data ?? [{ revision: profile.revision, created_at: profile.created_at, config: profile.config }])
+              <select id="rev" value={revision ?? ''} disabled={revisions.isPending || revisions.isError}
+                onChange={(e) => setRevision(Number(e.target.value))}>
+                {(revisions.data ?? [])
                   .slice().sort((a, b) => b.revision - a.revision).map((r) => (
                     <option key={r.revision} value={r.revision}>
                       r{r.revision}{r.revision === profile.revision ? ' (последняя)' : ''} · {formatTime(r.created_at)}
                     </option>
                   ))}
               </select>
+              {revisions.isPending && <Loading what="ревизии профиля" />}
+              {revisions.isError && <ErrorState message={revisions.error.message} onRetry={() => void revisions.refetch()} />}
+              {revisions.isSuccess && !selectedRevision && <ErrorState message="Выбранная ревизия отсутствует в истории. Выберите другую." />}
+              {unfit && <ErrorState message={unfit} />}
             </div>
           )}
         </Panel>
       )}
 
-      {step === 2 && host && profile && (
+      {step === 2 && host && profile && config && (
         <Panel title="Проверьте перед запуском">
           <dl className={s.summary}>
             <dt>Хост</dt><dd className="mono">{host.id} · {host.name}</dd>
             <dt>Профиль</dt><dd>{profile.name} · ревизия r{revision}</dd>
-            <dt>Уровень</dt><dd>{LEVEL[profile.config.interaction_level]}</dd>
-            <dt>Сервисы</dt><dd className="mono">{profile.config.services.map((x) => `${x.protocol}/${x.port}`).join(', ')}</dd>
-            <dt>Легенда</dt><dd className="mono">{profile.config.hostname ?? '—'}</dd>
+            <dt>Уровень</dt><dd>{LEVEL[config.interaction_level]}</dd>
+            <dt>Сервисы</dt><dd className="mono">{config.services.map((x) => `${x.protocol}/${x.port}`).join(', ')}</dd>
+            <dt>Легенда</dt><dd className="mono">{config.hostname ?? '—'}</dd>
           </dl>
           {launch.error && (
             <p role="alert" className={s.err}>{launch.error instanceof ApiError ? launch.error.message : 'Запуск не отправлен'}</p>
           )}
         </Panel>
       )}
+      {step === 2 && !ready && <ErrorState message={revisions.isError ? revisions.error.message : unfit ?? 'Выбранная ревизия недоступна для запуска.'} />}
 
       {step === 3 && (
         <Panel title="Готово">
@@ -155,7 +170,7 @@ function Wizard() {
           {step > 0 && <button className={ui.button} onClick={() => setStep(step - 1)}>Назад</button>}
           {step < 2 && <button className={ui.button} disabled={!canNext} onClick={() => setStep(step + 1)}>Далее</button>}
           {step === 2 && (
-            <button className={ui.button} disabled={launch.isPending} onClick={() => launch.mutate()}>
+            <button className={ui.button} disabled={launch.isPending || !ready} onClick={() => launch.mutate()}>
               {launch.isPending ? 'Отправляем…' : 'Запланировать'}
             </button>
           )}

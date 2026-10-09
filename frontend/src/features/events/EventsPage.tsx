@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import { api } from '../../shared/api/client';
@@ -13,9 +13,6 @@ import s from './events.module.css';
 
 interface EventsResponse { items: HfEvent[]; next_cursor: string | null }
 
-/** Сколько живых событий помним, чтобы не потерять их при догрузке страниц. */
-const LIVE_MEMORY = 500;
-
 /**
  * Лента событий (F10–F13): фильтры в адресе страницы, страницы по курсору,
  * живые события сверху, пауза. Данные атакующего — только текстом (S1).
@@ -24,6 +21,7 @@ export function EventsPage() {
   const [search, setSearch] = useSearchParams();
   const filters = useMemo(() => filtersFromSearch(search), [search]);
   const key = filtersToSearch(filters).toString();
+  const qc = useQueryClient();
 
   const pages = useInfiniteQuery({
     queryKey: ['events', key],
@@ -37,12 +35,13 @@ export function EventsPage() {
   });
 
   const buffer = useRef(new FeedBuffer());
-  const live = useRef<HfEvent[]>([]);
   const [, rerender] = useState(0);
+  const [resyncing, setResyncing] = useState(false);
+  const [resyncError, setResyncError] = useState<string | null>(null);
   const refresh = () => rerender((n) => n + 1);
 
-  // Смена фильтров — живые события из прошлой выборки больше не нужны.
-  useEffect(() => { live.current = []; }, [key]);
+  // Новая выборка не наследует live и pending предыдущих фильтров.
+  useEffect(() => { buffer.current.loadPage([], false); }, [key]);
 
   // Собрать окно: страницы REST + живые события, пришедшие после загрузки.
   // Паузу не трогаем: на паузе живые события остаются в pending, а не
@@ -50,18 +49,38 @@ export function EventsPage() {
   useEffect(() => {
     if (!pages.data) return;
     const b = buffer.current;
-    pages.data.pages.forEach((p, i) => b.loadPage(p.items, i > 0));
-    b.pushLive(live.current);
+    b.replaceHistory(pages.data.pages.flatMap((p) => p.items));
     refresh();
   }, [pages.data]);
 
-  // Курсор потока устарел (410) — перечитать историю заново.
-  useStreamResync(useCallback(() => { live.current = []; void pages.refetch(); }, [pages]));
+  // Старый запрос/курсор снимка не переиспользуем после hello или overflow.
+  // StreamClient ждёт завершения этого Promise и буферизует новый live.
+  const reloadHistory = useCallback(async () => {
+    setResyncing(true);
+    setResyncError(null);
+    try {
+      const queryKey = ['events', key];
+      await qc.cancelQueries({ queryKey, exact: true });
+      qc.setQueryData<InfiniteData<EventsResponse>>(queryKey, (old) => old
+        ? { pages: old.pages.slice(0, 1), pageParams: [null] }
+        : old);
+      buffer.current.loadPage([], false);
+      await pages.refetch({ throwOnError: true });
+    } catch (err) {
+      setResyncError(err instanceof Error ? err.message : 'Не удалось обновить историю');
+      throw err;
+    } finally {
+      setResyncing(false);
+      rerender((n) => n + 1);
+    }
+  }, [qc, key, pages.refetch]);
+  useStreamResync(reloadHistory);
+
+  const recoverOverflow = () => { void reloadHistory().catch(() => {}); };
 
   const onLive = useCallback((events: HfEvent[]) => {
     const fit = events.filter((e) => matches(e, filters));
     if (!fit.length) return;
-    live.current = [...live.current, ...fit].slice(-LIVE_MEMORY);
     buffer.current.pushLive(fit);
     refresh();
   }, [filters]);
@@ -76,17 +95,30 @@ export function EventsPage() {
       <FilterBar value={filters} onApply={apply} />
       <Panel title="Лента">
         <div className={s.toolbar}>
-          <button className={ui.button} aria-pressed={b.isPaused} onClick={() => { b.setPaused(!b.isPaused); refresh(); }}>
+          <button className={ui.button} aria-pressed={b.isPaused} disabled={resyncing} onClick={() => {
+            const resume = b.isPaused;
+            b.setPaused(!b.isPaused);
+            if (resume && b.overflow > 0) recoverOverflow();
+            refresh();
+          }}>
             {b.isPaused ? '▶ Продолжить' : '⏸ Пауза'}
           </button>
           {b.pending > 0 && (
-            <button className={ui.button} onClick={() => { b.flush(); refresh(); }}>
+            <button className={ui.button} disabled={resyncing} onClick={() => {
+              if (b.overflow > 0) recoverOverflow();
+              else b.flush();
+              refresh();
+            }}>
               {b.pending} новых — показать
             </button>
           )}
           <span className={s.count}>Показано: {b.events.length}</span>
         </div>
-        {pages.isPending ? <Loading what="события" />
+        {b.overflow > 0 && <p role="alert">Буфер паузы переполнен: {b.overflow} событий требуют повторной загрузки.{' '}
+          <button className={ui.button} disabled={resyncing} onClick={recoverOverflow}>Обновить историю</button>
+        </p>}
+        {resyncError && <ErrorState message={resyncError} onRetry={recoverOverflow} />}
+        {pages.isPending || resyncing ? <Loading what="события" />
           : pages.isError ? <ErrorState message={pages.error.message} onRetry={() => void pages.refetch()} />
           : !b.events.length ? <Empty>{key ? 'Под фильтры ничего не подходит.' : 'Событий пока нет — ловушки ждут гостей.'}</Empty>
           : (
@@ -108,7 +140,7 @@ export function EventsPage() {
           )}
         {pages.hasNextPage && (
           <p className={s.more}>
-            <button className={ui.button} disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>
+            <button className={ui.button} disabled={pages.isFetchingNextPage || resyncing} onClick={() => void pages.fetchNextPage()}>
               {pages.isFetchingNextPage ? 'Загружаем…' : 'Показать ещё'}
             </button>
           </p>

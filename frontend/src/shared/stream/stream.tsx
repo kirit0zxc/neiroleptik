@@ -18,8 +18,7 @@ export function createEventStream(): EventStream {
       return wrapWebSocket(new WebSocket(`${proto}//${location.host}/api/v1/stream`));
     },
     fetchGap: (after, until, page) => {
-      const q = new URLSearchParams({ after, until, limit: '100' });
-      if (page) q.set('cursor', page);
+      const q = new URLSearchParams({ after: page ?? after, until, limit: '100' });
       return api<GapPage<HfEvent>>(`/api/v1/stream-events?${q}`);
     },
     // Уникальность события — пара (agent_id, event_id).
@@ -68,7 +67,7 @@ export function useStreamEvents(fn: (events: HfEvent[]) => void) {
  * Подписка на пересинхронизацию потока (после устаревшего курсора, 410).
  * Экран ленты по этому сигналу перечитывает историю заново.
  */
-export function useStreamResync(fn: () => void) {
+export function useStreamResync(fn: () => void | Promise<void>) {
   const stream = useContext(StreamContext);
   useEffect(() => {
     if (!stream) return;

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { api } from '../../shared/api/client';
-import type { Host, PreviewDeployment } from '../../shared/api/types';
+import type { Deployment, Host, PreviewDeployment } from '../../shared/api/types';
 import { ago } from '../../shared/format/time';
 import { Empty, ErrorState, Loading, Panel, StatusBadge, ui } from '../../shared/ui';
 import { canEdit, useMe } from '../auth/auth';
@@ -10,11 +10,18 @@ import { deploymentStatus, hostStatus } from './status';
 
 const LEVEL = { low: 'Low', medium: 'Medium', high: 'High' } as const;
 
+/** Превью распознаём только в явно включённом демо; реальный API — DeploymentRead. */
+function previewOf(deployment: Deployment | PreviewDeployment): PreviewDeployment | null {
+  return import.meta.env.VITE_API_MOCK === '1' && 'desired_revision' in deployment
+    ? deployment : null;
+}
+
 /** Парк: хосты и ловушки (F4, F5), команды ловушек (F6). Мастер запуска — D3. */
 export function FleetPage() {
   const editable = canEdit(useMe()?.user.role);
+  const commandsVisible = editable && import.meta.env.VITE_API_MOCK === '1';
   const hosts = useQuery({ queryKey: ['hosts'], queryFn: () => api<Host[]>('/api/v1/hosts'), refetchInterval: 10_000 });
-  const deps = useQuery({ queryKey: ['deployments'], queryFn: () => api<PreviewDeployment[]>('/api/v1/deployments'), refetchInterval: 10_000 });
+  const deps = useQuery({ queryKey: ['deployments'], queryFn: () => api<Array<Deployment | PreviewDeployment>>('/api/v1/deployments'), refetchInterval: 10_000 });
 
   return (
     <>
@@ -50,18 +57,21 @@ export function FleetPage() {
           : !deps.data.length ? <Empty>Ловушек пока нет.</Empty>
           : (
             <table className={ui.table}>
-              <thead><tr><th>Ловушка</th><th>Уровень</th><th>Хост</th><th>Состояние</th><th>Профиль</th>{editable && <th>Действия</th>}</tr></thead>
+              <thead><tr><th>Ловушка</th><th>Уровень</th><th>Хост</th><th>Состояние</th><th>Профиль</th>{commandsVisible && <th>Действия</th>}</tr></thead>
               <tbody>
                 {deps.data.map((d) => {
-                  const st = deploymentStatus(d);
+                  const preview = previewOf(d);
+                  const st = preview ? deploymentStatus(preview) : { tone: 'idle', label: 'запланирована' } as const;
+                  // DeploymentRead не содержит уровень: не подменяем его текущим профилем.
+                  const revision = preview?.desired_revision ?? ('revision' in d ? d.revision : '—');
                   return (
                     <tr key={d.id}>
                       <td className="mono">{d.id}</td>
-                      <td>{LEVEL[d.interaction_level] ?? d.interaction_level}</td>
+                      <td>{preview ? LEVEL[preview.interaction_level] : '—'}</td>
                       <td className="mono">{d.host_id}</td>
                       <td><StatusBadge tone={st.tone}>{st.label}</StatusBadge></td>
-                      <td className="mono">{d.profile_id} · r{d.desired_revision}</td>
-                      {editable && <td><DeploymentActions deployment={d} /></td>}
+                      <td className="mono">{d.profile_id} · r{revision}</td>
+                      {commandsVisible && <td>{preview && <DeploymentActions deployment={preview} />}</td>}
                     </tr>
                   );
                 })}

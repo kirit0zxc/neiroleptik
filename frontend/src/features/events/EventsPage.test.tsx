@@ -1,12 +1,14 @@
 // @vitest-environment happy-dom
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { setupServer } from 'msw/node';
+import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { App, makeQueryClient } from '../../app/App';
 import { handlers, resetMockSession } from '../../mocks/handlers';
 import { publish } from '../../mocks/stream';
 import type { HfEvent } from '../../shared/api/types';
+import { ApiError } from '../../shared/api/client';
 import { StreamClient, type StreamSocket } from '../../shared/stream/StreamClient';
 
 const server = setupServer(...handlers);
@@ -130,5 +132,88 @@ describe('живая лента (F10–F12)', () => {
     expect(await screen.findByText('cmd-bulk-0')).toBeInTheDocument();
     expect(rows()).toHaveLength(58);
     expect(screen.queryByRole('button', { name: 'Показать ещё' })).toBeNull();
+  });
+
+  it('догрузка стабильного снимка на паузе сохраняет ранее показанный live', async () => {
+    const user = userEvent.setup();
+    for (let i = 0; i < 55; i++) publish(ev(`history-${i}`));
+    const s = controlledStream();
+    open('/events', s.create);
+    await screen.findByText('онлайн');
+    await screen.findAllByTestId('event-row');
+    publish(ev('shown'));
+    s.send(ev('shown'));
+    await screen.findByText('cmd-shown');
+    await user.click(screen.getByRole('button', { name: '⏸ Пауза' }));
+    publish(ev('pending'));
+    s.send(ev('pending'));
+    await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    await screen.findByText('cmd-history-0');
+    expect(screen.getByText('cmd-shown')).toBeInTheDocument();
+    expect(screen.queryByText('cmd-pending')).toBeNull();
+    expect(screen.getByRole('button', { name: '1 новых — показать' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '▶ Продолжить' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('переполнение не скрывается: продолжение обновляет снимок и позволяет найти вытесненное событие', async () => {
+    const user = userEvent.setup();
+    const s = controlledStream();
+    open('/events', s.create);
+    await screen.findByText('онлайн');
+    await screen.findAllByTestId('event-row');
+    await user.click(screen.getByRole('button', { name: '⏸ Пауза' }));
+    act(() => {
+      for (let i = 0; i < 501; i++) { const event = ev(`overflow-${i}`); publish(event); s.send(event); }
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('1 событий требуют повторной загрузки');
+    await user.click(screen.getByRole('button', { name: '▶ Продолжить' }));
+    await screen.findByText('cmd-overflow-500');
+    expect(screen.queryByRole('alert')).toBeNull();
+    // Новая выборка содержит и запись, не поместившуюся в pending.
+    for (let page = 1; page <= 10; page++) {
+      await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
+      await waitFor(() => expect(rows()).toHaveLength(Math.min((page + 1) * 50, 504)));
+    }
+    expect(screen.getByText('cmd-overflow-0')).toBeInTheDocument();
+  }, 15000);
+
+  it('после 410 получает новый hello до REST, события во время снимка не теряются', async () => {
+    let reads = 0;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    server.use(http.get('/api/v1/events', async () => {
+      reads += 1;
+      if (reads > 1) await waiting;
+      return HttpResponse.json({ items: reads === 1 ? [ev('9')] : [ev('10'), ev('9')], next_cursor: null });
+    }));
+    const sockets: StreamSocket[] = [];
+    const timers: Array<() => void> = [];
+    let stream!: StreamClient<HfEvent>;
+    const create = () => (stream = new StreamClient<HfEvent>({
+      cursor: '5',
+      connect: () => {
+        const socket: StreamSocket = { onopen: null, onmessage: null, onclose: null, onerror: null, close: () => socket.onclose?.({ code: 1000 }) };
+        sockets.push(socket);
+        return socket;
+      },
+      fetchGap: async () => { throw new ApiError(410, 'История утрачена'); },
+      isGone: (error) => error instanceof ApiError && error.status === 410,
+      setTimer: (fn) => { timers.push(fn); return timers.length; }, clearTimer: () => {},
+    }));
+    try {
+      open('/events', create);
+      await screen.findByText('cmd-9');
+      act(() => sockets[0]!.onmessage?.({ data: JSON.stringify({ type: 'hello', watermark: '9' }) }));
+      await waitFor(() => expect(timers).toHaveLength(1));
+      expect(reads).toBe(1); // Нельзя читать снимок до нового handshake.
+      act(() => { timers[0]!(); sockets[1]!.onmessage?.({ data: JSON.stringify({ type: 'hello', watermark: '10' }) }); });
+      await waitFor(() => expect(reads).toBe(2));
+      act(() => sockets[1]!.onmessage?.({ data: JSON.stringify({ type: 'event', stream_seq: '11', event: ev('11') }) }));
+      expect(screen.queryByText('cmd-11')).toBeNull();
+      release();
+      expect(await screen.findByText('cmd-10')).toBeInTheDocument();
+      expect(await screen.findByText('cmd-11')).toBeInTheDocument();
+      expect(stream.currentCursor).toBe('11');
+    } finally { release(); }
   });
 });

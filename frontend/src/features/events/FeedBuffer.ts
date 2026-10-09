@@ -22,6 +22,8 @@ export class FeedBuffer {
   private keys = new Set<string>();
   /** Ключи отложенных на паузе событий — отдельно, чтобы не мешать показу. */
   private pendingKeys = new Set<string>();
+  /** Число записей, вытесненных до показа: требуется свежий REST-снимок. */
+  private droppedPending = 0;
   private paused = false;
   private readonly liveLimit: number;
 
@@ -31,6 +33,7 @@ export class FeedBuffer {
   get events(): readonly HfEvent[] { return [...this.liveItems, ...this.historyItems]; }
   get pending(): number { return this.pendingItems.length; }
   get isPaused(): boolean { return this.paused; }
+  get overflow(): number { return this.droppedPending; }
 
   /** Страница из REST: заменить окно (первая) или дописать историю снизу (следующие). */
   loadPage(page: HfEvent[], append: boolean) {
@@ -40,6 +43,7 @@ export class FeedBuffer {
       this.pendingItems = [];
       this.keys.clear();
       this.pendingKeys.clear();
+      this.droppedPending = 0;
     }
     for (const e of page) {
       const k = eventKey(e);
@@ -49,11 +53,27 @@ export class FeedBuffer {
     }
   }
 
+  /** Пересобрать REST-страницы, сохранив показанные live и очередь паузы. */
+  replaceHistory(page: HfEvent[]) {
+    const reserved = new Set([...this.liveItems, ...this.pendingItems].map(eventKey));
+    this.historyItems = [];
+    for (const event of page) {
+      const key = eventKey(event);
+      if (reserved.has(key)) continue;
+      reserved.add(key);
+      this.historyItems.push(event);
+    }
+    this.keys = new Set([...this.liveItems, ...this.historyItems].map(eventKey));
+  }
+
   /** Живые события сверху (самое новое — первым). На паузе уходят в pending. */
   pushLive(events: HfEvent[]) {
+    const batchKeys = new Set<string>();
     const fresh = events.filter((e) => {
       const k = eventKey(e);
-      return !this.keys.has(k) && !this.pendingKeys.has(k);
+      if (this.keys.has(k) || this.pendingKeys.has(k) || batchKeys.has(k)) return false;
+      batchKeys.add(k);
+      return true;
     });
     if (!fresh.length) return;
     if (this.paused) {
@@ -92,10 +112,11 @@ export class FeedBuffer {
     this.liveItems = this.liveItems.slice(0, this.liveLimit);
   }
 
-  /** Отложенных на паузе — тоже не больше лимита; лишние старые забываем. */
+  /** Ограничить память и отметить пропуск для явного обновления снимка. */
   private boundPending() {
     if (this.pendingItems.length <= this.liveLimit) return;
     const drop = this.pendingItems.length - this.liveLimit;
+    this.droppedPending += drop;
     for (const e of this.pendingItems.slice(0, drop)) this.pendingKeys.delete(eventKey(e));
     this.pendingItems = this.pendingItems.slice(drop);
   }

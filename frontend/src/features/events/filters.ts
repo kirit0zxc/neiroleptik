@@ -61,8 +61,8 @@ export function localToUtc(local: string): string | null {
 
 /**
  * Параметры запроса `GET /events` (время — уже UTC). Следующая страница
- * запрашивается через `after=<next_cursor>` — так требует согласованный
- * контракт потока (а не `cursor=`, из-за чего раньше первая страница повторялась).
+ * запрашивается через `cursor=<next_cursor>`. Это непрозрачный курсор
+ * снимка истории; числовой after относится к отдельному /stream-events.
  */
 export function toQuery(f: EventFilters, cursor?: string | null, limit = 50): URLSearchParams {
   const q = new URLSearchParams();
@@ -73,7 +73,7 @@ export function toQuery(f: EventFilters, cursor?: string | null, limit = 50): UR
   const to = f.to && localToUtc(f.to);
   if (from) q.set('from', from);
   if (to) q.set('to', to);
-  if (cursor) q.set('after', cursor);
+  if (cursor) q.set('cursor', cursor);
   q.set('limit', String(limit));
   return q;
 }

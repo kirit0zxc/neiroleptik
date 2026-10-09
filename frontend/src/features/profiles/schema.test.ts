@@ -1,17 +1,17 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { emptyProfile, formToCreate, ProfileSchema, servicesForLevel, type ProfileForm } from './schema';
+import { emptyProfile, formFromConfig, formToCreate, ProfileSchema, servicesForLevel, type ProfileForm } from './schema';
 
-const valid = (patch: Partial<ProfileForm> = {}): ProfileForm => ({ ...emptyProfile('medium'), name: 'Тестовый сервер', ...patch });
+const valid = (patch: Partial<ProfileForm> = {}): ProfileForm => ({ ...emptyProfile('medium'), name: 'Тестовый сервер', credentials: [{ username: 'admin', password: 'demo' }], ...patch });
 const issues = (p: unknown) => {
   const r = ProfileSchema.safeParse(p);
   return r.success ? [] : r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
 };
 
 describe('схема профиля (F8)', () => {
-  it('профиль по умолчанию для каждого уровня проходит, если задано имя', () => {
+  it('новый SSH-профиль требует учётку даже при заданном имени', () => {
     for (const level of ['low', 'medium', 'high'] as const) {
-      expect(issues({ ...emptyProfile(level), name: 'x' })).toEqual([]);
+      expect(issues({ ...emptyProfile(level), name: 'x' })).toEqual(level === 'low' ? [] : ['credentials: Medium и High требуют хотя бы одну учётку-приманку']);
     }
   });
 
@@ -26,7 +26,7 @@ describe('схема профиля (F8)', () => {
   });
 
   it('повтор порта отмечается у второго сервиса', () => {
-    const p = valid({ services: [{ protocol: 'ssh', port: 22, banner: '' }, { protocol: 'http', port: 22, banner: '' }] });
+    const p = valid({ services: [{ protocol: 'ssh', port: 22, banner: '' }, { protocol: 'ssh', port: 22, banner: '' }] });
     expect(issues(p)).toEqual(['services.1.port: Порт уже занят сервисом №1']);
   });
 
@@ -57,11 +57,11 @@ describe('схема профиля (F8)', () => {
 
   it('лимиты логирования, канала и High', () => {
     const p = valid({
-      logging: { payload_limit_kb: 9 },
+      logging: { max_payload_bytes: 8193 },
       channel: { flush_interval_ms: 50, batch_size: 200 },
     });
     expect(issues(p)).toEqual(expect.arrayContaining([
-      'logging.payload_limit_kb: До 8 КиБ', 'channel.flush_interval_ms: От 100 мс', 'channel.batch_size: До 100',
+      'logging.max_payload_bytes: До 8192 байт', 'channel.flush_interval_ms: От 100 мс', 'channel.batch_size: До 100',
     ]));
     const h = { ...emptyProfile('high'), name: 'x', high: { ttl_seconds: 10, cpu: 4, memory_mb: 512 } };
     expect(issues(h)).toEqual(expect.arrayContaining([
@@ -84,19 +84,19 @@ describe('схема профиля (F8)', () => {
     expect(servicesForLevel('high', twoSsh)).toEqual(emptyProfile('high').services);
     expect(servicesForLevel('low', [])).toEqual(emptyProfile('low').services);
     for (const level of ['low', 'medium', 'high'] as const) {
-      expect(issues({ ...emptyProfile(level), name: 'x', services: servicesForLevel(level, twoSsh) })).toEqual([]);
+      expect(issues({ ...emptyProfile(level), name: 'x', credentials: level === 'low' ? [] : [{ username: 'demo', password: 'x' }], services: servicesForLevel(level, twoSsh) })).toEqual([]);
     }
   });
 });
 
 describe('сборка тела запроса по контракту (formToCreate)', () => {
-  it('low: КиБ→байты, без учёток и High', () => {
+  it('low: точные байты, явная очистка учёток и без High', () => {
     const { name, description, config } = formToCreate({ ...emptyProfile('low'), name: 'L', description: 'd' });
     expect(name).toBe('L');
     expect(description).toBe('d');
     expect(config.interaction_level).toBe('low');
     expect(config.logging?.max_payload_bytes).toBe(8 * 1024);
-    expect(config.credentials).toBeUndefined();
+    expect(config.credentials).toEqual([]);
     expect(config.high).toBeUndefined();
     expect(config.channel).toEqual({ flush_interval_ms: 1500, batch_size: 100 });
   });
@@ -106,5 +106,54 @@ describe('сборка тела запроса по контракту (formToCr
     const { config } = formToCreate(form);
     expect(config.high).toEqual({ template: 'ubuntu-ssh-v1', ttl_seconds: 900, cpu: 2, memory_mb: 2048 });
     expect(config.credentials).toEqual([{ username: 'deploy', password: 'x' }]);
+  });
+});
+
+describe('редактирование прочитанной конфигурации', () => {
+  const config = { interaction_level: 'medium' as const, hostname: 'ssh-node',
+    services: [{ protocol: 'ssh' as const, port: 22, banner: 'SSH' }],
+    credential_usernames: ['admin'], logging: { max_payload_bytes: 256 } };
+
+  it('сохраняет существующие пароли через null без повторного ввода', () => {
+    const form = formFromConfig('Название', '', config);
+    expect(issues(form)).toEqual([]);
+    expect(formToCreate(form).config.credentials).toBeNull();
+    expect(form.credentials).toEqual([]);
+  });
+
+  it.each([256, 257, 1536, 8191, 8192])('сохраняет %i байт без округления', (bytes) => {
+    const form = formFromConfig('Название', '', { ...config, logging: { max_payload_bytes: bytes } });
+    expect(issues(form)).toEqual([]);
+    expect(formToCreate(form).config.logging?.max_payload_bytes).toBe(bytes);
+  });
+
+  it('явная замена требует хотя бы одну валидную учётку', () => {
+    const form = formFromConfig('Название', '', config);
+    form.credentials_mode = 'replace';
+    expect(issues(form)).toContain('credentials: Medium и High требуют хотя бы одну учётку-приманку');
+    form.credentials = [{ username: 'admin', password: '' }];
+    expect(issues(form)).toContain('credentials.0.password: Введите пароль');
+    form.credentials[0]!.password = 'new-secret';
+    expect(issues(form)).toEqual([]);
+    expect(formToCreate(form).config.credentials).toEqual([{ username: 'admin', password: 'new-secret' }]);
+  });
+
+  it('нет сохранённых логинов — нельзя сохранить пустые Medium/High', () => {
+    for (const level of ['medium', 'high'] as const) {
+      const form = { ...emptyProfile(level), name: 'x', credentials_mode: 'preserve' as const };
+      expect(issues(form)).toContain('credentials: Medium и High требуют хотя бы одну учётку-приманку');
+    }
+  });
+
+  it('Medium запрещает HTTP даже рядом с SSH', () => {
+    expect(issues(valid({ services: [...config.services, { protocol: 'http', port: 80, banner: '' }] })))
+      .toContain('services.1.protocol: На уровне medium нельзя http');
+  });
+
+  it('повтор логина и многострочный баннер отклоняются до запроса', () => {
+    expect(issues(valid({ credentials: [{ username: 'same', password: 'x' }, { username: 'same', password: 'y' }] })))
+      .toContain('credentials.1.username: Логины учёток должны быть уникальными');
+    expect(issues(valid({ services: [{ protocol: 'ssh', port: 22, banner: 'one\ntwo' }] })))
+      .toContain('services.0.banner: Баннер должен быть одной строкой');
   });
 });

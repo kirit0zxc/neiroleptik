@@ -2,6 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useEffect, useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { Link, useNavigate, useParams } from 'react-router';
+import type { Profile } from '../../shared/api/types';
 import { ApiError } from '../../shared/api/client';
 import { formatTime } from '../../shared/format/time';
 import { ErrorState, Loading, Panel, ui } from '../../shared/ui';
@@ -20,33 +21,47 @@ export function ProfileEditor() {
   const { id } = useParams();
   const existing = useProfile(id);
   if (id && existing.isPending) return <Loading what="профиль" />;
-  if (id && existing.isError) return <ErrorState message={existing.error.message} onRetry={() => void existing.refetch()} />;
+  if (id && existing.isError && !existing.data) return <ErrorState message={existing.error.message} onRetry={() => void existing.refetch()} />;
   const initial = existing.data
     ? formFromConfig(existing.data.name, existing.data.description, existing.data.config)
     : emptyProfile();
   // key — чтобы форма пересоздалась с данными нужного профиля.
-  return <ProfileFormView key={id ?? 'new'} id={id} initial={initial} name={existing.data?.name} revision={existing.data?.revision} />;
+  return <ProfileFormView key={id ?? 'new'} id={id} initial={initial} name={existing.data?.name} revision={existing.data?.revision} onReload={async () => {
+    const result = await existing.refetch();
+    if (result.error) throw result.error;
+    return result.data;
+  }} />;
 }
 
-function ProfileFormView({ id, initial, name, revision }: {
-  id?: string; initial: ProfileForm; name?: string; revision?: number;
+function ProfileFormView({ id, initial, name, revision, onReload }: {
+  id?: string; initial: ProfileForm; name?: string; revision?: number; onReload: () => Promise<Profile | undefined>;
 }) {
   const me = useMe();
   const editable = canEdit(me?.user.role);
   const navigate = useNavigate();
-  const save = useSaveProfile(id, revision);
+  // Версия принадлежит снимку формы, а не последнему фоновому ответу запроса.
+  const [snapshot, setSnapshot] = useState({ name, revision });
+  const save = useSaveProfile(id, snapshot.revision);
+  const [reloading, setReloading] = useState(false);
+  const [reloadError, setReloadError] = useState<string | null>(null);
   const revisions = useRevisions(id);
   const [saved, setSaved] = useState<number | null>(null);
   const form = useForm<ProfileInput, unknown, ProfileForm>({ resolver: zodResolver(ProfileSchema), defaultValues: initial, mode: 'onTouched' });
   const services = useFieldArray({ control: form.control, name: 'services' });
   const creds = useFieldArray({ control: form.control, name: 'credentials' });
   const level = form.watch('level');
+  const credentialsMode = form.watch('credentials_mode');
+  const preservedUsernames = form.watch('preserved_usernames');
   const { errors } = form.formState;
 
   // Смена уровня: у Low нет входа — учётки убираем; сервисы, которые уровню
   // не подходят, заменяем набором по умолчанию.
   useEffect(() => {
-    if (!hasCredentials(level) && creds.fields.length) creds.replace([]);
+    if (!hasCredentials(level)) {
+      if (creds.fields.length) creds.replace([]);
+      if (form.getValues('credentials_mode') !== 'replace') form.setValue('credentials_mode', 'replace');
+      if (form.getValues('preserved_usernames').length) form.setValue('preserved_usernames', []);
+    }
     const current = form.getValues('services');
     const next = servicesForLevel(level, current);
     if (next !== current) services.replace(next);
@@ -55,6 +70,8 @@ function ProfileFormView({ id, initial, name, revision }: {
   const onSubmit = form.handleSubmit((values) => save.mutate(formToCreate(values), {
     onSuccess: (p) => {
       setSaved(p.revision);
+      setSnapshot({ name: p.name, revision: p.revision });
+      form.reset(formFromConfig(p.name, p.description, p.config));
       if (!id) navigate(`/profiles/${encodeURIComponent(p.id)}`, { replace: true });
     },
     // 422: ошибки сервера — к своим полям (путь после «config»).
@@ -66,14 +83,32 @@ function ProfileFormView({ id, initial, name, revision }: {
       }
     },
   }));
+  // Перечитывание намеренно явное: конфликт не стирает несохранённые изменения.
+  const reload = async () => {
+    setReloading(true);
+    setReloadError(null);
+    try {
+      const p = await onReload();
+      if (!p) throw new Error('Не удалось перечитать профиль');
+      setSnapshot({ name: p.name, revision: p.revision });
+      form.reset(formFromConfig(p.name, p.description, p.config));
+      save.reset();
+      setSaved(null);
+    } catch (err) {
+      setReloadError(err instanceof Error ? err.message : 'Не удалось перечитать профиль');
+    } finally {
+      setReloading(false);
+    }
+  };
+  const conflict = save.error instanceof ApiError && save.error.status === 409;
   const failure = save.error instanceof ApiError ? save.error.message : save.error ? 'Не удалось сохранить' : null;
 
   return (
     <>
       <p><Link to="/profiles">← Все профили</Link></p>
-      <h1>{id ? `Профиль ${name ?? ''}` : 'Новый профиль'}</h1>
+      <h1>{id ? `Профиль ${snapshot.name ?? ''}` : 'Новый профиль'}</h1>
       <form onSubmit={onSubmit} noValidate aria-label="Профиль ловушки">
-        <fieldset disabled={!editable} className={s.grid}>
+        <fieldset disabled={!editable || save.isPending || reloading} className={s.grid}>
           {!editable && <p className={s.note}>Роль «наблюдатель» — только просмотр.</p>}
 
           <Panel title="Основное">
@@ -128,7 +163,20 @@ function ProfileFormView({ id, initial, name, revision }: {
           {hasCredentials(level) && (
             <Panel title="Учётные данные-приманки">
               <p className={s.note}>Ненастоящие логины и пароли, которые «подойдут» атакующему. Не больше 8.</p>
-              {creds.fields.map((f, i) => (
+              {preservedUsernames.length > 0 && (
+                <>
+                  <p className={s.note}>Сохранённые логины: {preservedUsernames.join(', ')}. Пароли остаются на сервере.</p>
+                  <label>
+                    <input type="checkbox" checked={credentialsMode === 'replace'} onChange={(e) => {
+                      form.setValue('credentials_mode', e.target.checked ? 'replace' : 'preserve', { shouldDirty: true });
+                      creds.replace(e.target.checked ? preservedUsernames.map((username) => ({ username, password: '' })) : []);
+                    }} /> Заменить учётные данные
+                  </label>
+                </>
+              )}
+              {errors.credentials?.root && <p className={s.error} role="alert">{errors.credentials.root.message}</p>}
+              {errors.credentials?.message && <p className={s.error} role="alert">{errors.credentials.message}</p>}
+              {credentialsMode === 'replace' && creds.fields.map((f, i) => (
                 <div key={f.id} className={s.row} role="group" aria-label={`Учётка ${i + 1}`}>
                   <Field label="Логин" error={errors.credentials?.[i]?.username}>
                     {(a) => <input {...a} autoComplete="off" {...form.register(`credentials.${i}.username`)} />}
@@ -139,9 +187,10 @@ function ProfileFormView({ id, initial, name, revision }: {
                   <button type="button" className={s.remove} onClick={() => creds.remove(i)} aria-label={`Удалить учётку ${i + 1}`}>×</button>
                 </div>
               ))}
-              {id && <p className={s.note}>Сервер не отдаёт пароли учёток — при сохранении введите их заново.</p>}
-              <button type="button" className={ui.button} disabled={creds.fields.length >= 8}
-                onClick={() => creds.append({ username: '', password: '' })}>+ Учётка</button>
+              {credentialsMode === 'replace' && (
+                <button type="button" className={ui.button} disabled={creds.fields.length >= 8}
+                  onClick={() => creds.append({ username: '', password: '' })}>+ Учётка</button>
+              )}
             </Panel>
           )}
 
@@ -163,8 +212,8 @@ function ProfileFormView({ id, initial, name, revision }: {
 
           <Panel title="Логирование и канал">
             <div className={s.row}>
-              <Field label="Лимит payload, КиБ" error={errors.logging?.payload_limit_kb}>
-                {(a) => <input {...a} inputMode="numeric" {...form.register('logging.payload_limit_kb')} />}
+              <Field label="Лимит payload, байт" error={errors.logging?.max_payload_bytes}>
+                {(a) => <input {...a} inputMode="numeric" {...form.register('logging.max_payload_bytes')} />}
               </Field>
               <Field label="Интервал отправки, мс" error={errors.channel?.flush_interval_ms}>
                 {(a) => <input {...a} inputMode="numeric" {...form.register('channel.flush_interval_ms')} />}
@@ -182,6 +231,8 @@ function ProfileFormView({ id, initial, name, revision }: {
               </button>
               {saved !== null && <span role="status" className={s.ok}>Сохранено: ревизия r{saved}</span>}
               {failure && <span role="alert" className={s.error}>{failure}</span>}
+              {conflict && <button type="button" className={ui.button} onClick={() => void reload()}>Перечитать профиль и сбросить мои изменения</button>}
+              {reloadError && <span role="alert" className={s.error}>{reloadError}</span>}
             </div>
           )}
         </fieldset>

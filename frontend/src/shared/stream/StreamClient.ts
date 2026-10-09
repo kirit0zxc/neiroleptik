@@ -87,8 +87,8 @@ export class StreamClient<E extends { event_id: string }> {
    */
   private listenerSeq = new WeakMap<(records: StreamRecord<E>[]) => void, bigint>();
   private statusListeners = new Set<(s: StreamStatus) => void>();
-  /** Подписчики на пересинхронизацию после устаревшего курсора (410). */
-  private resyncListeners = new Set<() => void>();
+  /** Перечитывание снимка после hello; ожидаем завершения всех подписчиков. */
+  private resyncListeners = new Set<() => unknown>();
   private status: StreamStatus = 'idle';
   private attempt = 0;
   private timer: unknown = null;
@@ -117,8 +117,8 @@ export class StreamClient<E extends { event_id: string }> {
     return () => { this.statusListeners.delete(fn); };
   }
 
-  /** Подписка на требование перечитать историю заново (после 410). */
-  onResync(fn: () => void) {
+  /** История читается после новой WS-границы, пока live остаётся в буфере. */
+  onResync(fn: () => unknown) {
     this.resyncListeners.add(fn);
     return () => { this.resyncListeners.delete(fn); };
   }
@@ -164,7 +164,10 @@ export class StreamClient<E extends { event_id: string }> {
     try {
       const gap: StreamRecord<E>[] = [];
       if (this.cursor === null) {
-        // Первое подключение: историю показывает GET /events, поток — с watermark.
+        // Новый снимок получаем ПОСЛЕ hello: запись между прежним REST и
+        // handshake попадёт в снимок, а запись после watermark — в буфер.
+        await Promise.all([...this.resyncListeners].map((fn) => fn()));
+        if (socket !== this.socket) return;
         this.cursor = watermark;
       } else if (big(watermark) > big(this.cursor)) {
         let page: string | null = null;
@@ -179,18 +182,19 @@ export class StreamClient<E extends { event_id: string }> {
       const pending = [...gap, ...this.buffer];
       this.buffer = [];
       this.deliver(pending);
+      // Пустой участок журнала тоже обработан; не повторяем его на reconnect.
+      if (this.cursor === null || big(this.cursor) < big(watermark)) this.cursor = watermark;
       this.attempt = 0;
       this.setStatus('live');
     } catch (err) {
       if (socket !== this.socket) return;
       // Курсор устарел (410): инкрементальная догрузка невозможна. Сбрасываем
-      // курсор, просим перечитать историю заново и переподключаемся с чистого
-      // листа, а не долбим мёртвый курсор в бесконечном цикле.
+      // курсор. Перечитывание начнётся после hello НОВОГО сокета, чтобы
+      // между снимком и следующим handshake не возникло окно потери.
       if (this.opts.isGone?.(err)) {
         this.cursor = null;
         this.delivered.clear();
         this.listenerSeq = new WeakMap();
-        for (const fn of this.resyncListeners) fn();
       }
       // Догрузка не удалась — переподключаемся, курсор уже либо прежний, либо сброшен.
       socket.close();

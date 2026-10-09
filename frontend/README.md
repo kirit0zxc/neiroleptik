@@ -38,5 +38,5 @@ src/mocks/        MSW по фикстурам из ../contracts/fixtures
 e2e/              Playwright
 ```
 
-Типы API в `src/shared/api/types.ts` — черновые до утверждения OpenAPI в
-D1; потом заменяются сгенерированными.
+Типы control API в `src/shared/api/types.ts` соответствуют общему OpenAPI.
+Типы команд и телеметрии пока описывают превью следующих этапов.

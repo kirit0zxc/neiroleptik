@@ -1,16 +1,18 @@
 // @vitest-environment happy-dom
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App, makeQueryClient } from '../../app/App';
 import { handlers, resetMockSession } from '../../mocks/handlers';
 import { failNextJobs } from '../../mocks/jobs';
+import { DeploymentActions } from './DeploymentActions';
 
 const server = setupServer(...handlers);
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => server.resetHandlers());
+afterEach(() => { server.resetHandlers(); vi.unstubAllEnvs(); });
 afterAll(() => server.close());
 
 function open() {
@@ -22,7 +24,7 @@ const row = async (id: string) => (await screen.findByText(id)).closest('tr')!;
 const JOB_WAIT = { timeout: 8000 };
 
 describe('команды ловушек (F6)', () => {
-  beforeEach(() => resetMockSession(true));
+  beforeEach(() => { resetMockSession(true); vi.stubEnv('VITE_API_MOCK', '1'); });
 
   it('применить профиль: ход задания до «выполнено», drift исчезает', async () => {
     const user = userEvent.setup();
@@ -108,5 +110,18 @@ describe('команды ловушек (F6)', () => {
     await row('decoy-medium-01');
     expect(screen.queryByRole('columnheader', { name: 'Действия' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Остановить' })).toBeNull();
+  });
+
+  it('даже прямой рендер превью команд отключён без mock-флага', () => {
+    vi.stubEnv('VITE_API_MOCK', '0');
+    const { container } = render(
+      <QueryClientProvider client={makeQueryClient()}>
+        <DeploymentActions deployment={{
+          id: 'decoy', host_id: 'host', profile_id: 'profile', interaction_level: 'low',
+          state: 'running', desired_revision: 1, applied_revision: 1,
+        }} />
+      </QueryClientProvider>,
+    );
+    expect(container).toBeEmptyDOMElement();
   });
 });

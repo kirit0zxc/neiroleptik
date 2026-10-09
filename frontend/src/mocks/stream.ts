@@ -5,7 +5,7 @@ import type { StreamRecord } from '../shared/stream/StreamClient';
 /**
  * Мок журнала публикаций по согласованному протоколу (specs, раздел 5):
  *   WS:   {"type":"hello","watermark":"N"}, затем {"type":"event","stream_seq":"N+1","event":{…}}
- *   REST: GET /stream-events?after=&until=&limit=&cursor= → {items, watermark, next_cursor}
+ *   REST: GET /stream-events?after=&until=&limit= → {items, watermark, next_cursor}
  * Номера — строки.
  */
 let journal: StreamRecord<HfEvent>[] = [];
@@ -36,10 +36,9 @@ export const streamHandlers = [
     const after = BigInt(q.get('after') ?? '0');
     const until = BigInt(q.get('until') ?? watermark());
     const limit = Number(q.get('limit') ?? 100);
-    const start = Number(q.get('cursor') ?? 0);
     const range = journal.filter((r) => BigInt(r.stream_seq) > after && BigInt(r.stream_seq) <= until);
-    const items = range.slice(start, start + limit);
-    const next = start + limit < range.length ? String(start + limit) : null;
+    const items = range.slice(0, limit);
+    const next = items.length < range.length ? items.at(-1)!.stream_seq : null;
     return HttpResponse.json({ items, watermark: String(until), next_cursor: next });
   }),
   socket.addEventListener('connection', ({ client }) => {

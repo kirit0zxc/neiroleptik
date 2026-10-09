@@ -75,6 +75,13 @@ def test_valid_spec_is_accepted() -> None:
         {"user": "0:0"},
         {"user": "0:5"},
         {"user": "5:0"},
+        {"user": "00:5"},
+        {"user": "5:000"},
+        {"network": "host"},
+        {"network": "NONE"},
+        {"log_max_size": "10"},
+        {"log_max_size": "0m"},
+        {"log_max_files": 0},
         {"memory_mb": 8},
         {"memory_mb": 4097},
         {"memory_mb": True},
@@ -203,9 +210,8 @@ def test_error_message_is_bounded_and_single_line() -> None:
 
 def inspect_json(**state: Any) -> str:
     body = {
-        "Id": "abc",
         "State": {"Status": "running", "Running": True, "ExitCode": 0, **state},
-        "Config": {"Labels": {"honeyforge.managed": "true", "honeyforge.revision": "3"}},
+        "Labels": {"honeyforge.managed": "true", "honeyforge.revision": "3"},
     }
     return json.dumps(body)
 
@@ -219,7 +225,15 @@ def test_inspect_parses_state_and_labels() -> None:
     assert (observed.status, observed.running, observed.exit_code) == ("running", True, 0)
     assert observed.labels["honeyforge.revision"] == "3"
     assert runner.commands == [
-        ["docker", "inspect", "--type", "container", "--format", "{{json .}}", NAME]
+        [
+            "docker",
+            "inspect",
+            "--type",
+            "container",
+            "--format",
+            '{"State":{{json .State}},"Labels":{{json .Config.Labels}}}',
+            NAME,
+        ]
     ]
 
 
@@ -233,7 +247,7 @@ def test_inspect_of_exited_container() -> None:
 
 
 def test_inspect_null_labels_and_odd_exit_code() -> None:
-    body = {"State": {"Status": "created", "Running": False, "ExitCode": "x"}, "Config": {}}
+    body = {"State": {"Status": "created", "Running": False, "ExitCode": "x"}, "Labels": None}
     docker, _ = cli(CommandResult(0, json.dumps(body)))
 
     observed = asyncio.run(docker.inspect(NAME))
@@ -300,3 +314,100 @@ def test_foreign_containers_are_never_touched(operation: str, name: str) -> None
         asyncio.run(getattr(docker, operation)(name))
 
     assert runner.commands == []
+
+
+# --- Различение «контейнера нет» и «Docker недоступен» -------------------------------------
+
+UNAVAILABLE_OUTPUTS = [
+    "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. "
+    "Is the docker daemon running?",
+    'error during connect: Get "http://%2F%2F.%2Fpipe%2Fdocker_engine/v1.47/containers/x/json": '
+    "open //./pipe/docker_engine: The system cannot find the file specified.",
+    "dial unix /var/run/docker.sock: connect: no such file or directory",
+    "permission denied while trying to connect to the Docker daemon socket "
+    "at unix:///var/run/docker.sock",
+]
+
+
+@pytest.mark.parametrize("operation", ["inspect", "remove", "stop"])
+@pytest.mark.parametrize(
+    "output", UNAVAILABLE_OUTPUTS, ids=["daemon", "windows-pipe", "no-socket", "denied"]
+)
+def test_unavailable_daemon_is_never_taken_for_a_missing_container(
+    operation: str, output: str
+) -> None:
+    """Регрессия: «connect: no such file or directory» принималось за отсутствие контейнера."""
+    docker, _ = cli(CommandResult(1, output))
+
+    with pytest.raises(BackendError) as error:
+        if operation == "stop":
+            asyncio.run(docker.stop(NAME, 5))
+        else:
+            asyncio.run(getattr(docker, operation)(NAME))
+
+    assert error.value.unavailable is True
+
+
+@pytest.mark.parametrize(
+    "output",
+    ["Error response from daemon: No such container: x", "Error: No such object: x"],
+    ids=["container", "object"],
+)
+def test_precise_missing_messages_mean_no_container(output: str) -> None:
+    docker, _ = cli(CommandResult(1, output))
+
+    assert asyncio.run(docker.inspect(NAME)) is None
+    asyncio.run(docker.remove(NAME))
+    asyncio.run(docker.stop(NAME, 5))
+
+
+def test_inspect_skips_cli_warnings_before_the_json_line() -> None:
+    warning = "WARNING: Error loading config file: /home/x/.docker/config.json: permission denied"
+    docker, _ = cli(CommandResult(0, warning + "\n" + inspect_json()))
+
+    observed = asyncio.run(docker.inspect(NAME))
+
+    assert observed is not None and observed.running
+
+
+# --- Мягкая остановка, журнал контейнера, отказ от скачивания образов ------------------------
+
+
+def test_stop_sends_sigterm_with_a_bounded_timeout() -> None:
+    docker, runner = cli(CommandResult(0, NAME))
+
+    asyncio.run(docker.stop(NAME, 10))
+
+    assert runner.commands == [["docker", "stop", "--time", "10", NAME]]
+
+
+@pytest.mark.parametrize("timeout", [-1, 26, True])
+def test_stop_timeout_is_bounded(timeout: int) -> None:
+    docker, runner = cli()
+
+    with pytest.raises(BackendError):
+        asyncio.run(docker.stop(NAME, timeout))
+    assert runner.commands == []
+
+
+def test_run_limits_container_logs_and_never_pulls_images() -> None:
+    argv = DockerCli().run_command(spec())
+    pairs = set(zip(argv, argv[1:], strict=False))
+
+    assert {
+        ("--log-driver", "local"),
+        ("--log-opt", "max-size=10m"),
+        ("--log-opt", "max-file=3"),
+        ("--pull", "never"),
+    } <= pairs
+    assert argv.index("--pull") < argv.index("honeyforge-low:local")
+
+
+def test_image_and_network_checks_are_reusable() -> None:
+    ContainerSpec.check_image("ghcr.io/kirit0zxc/honeyforge-low@sha256:" + "a" * 64)
+    ContainerSpec.check_network("honeyforge-low")
+    for bad in ("host", "none"):
+        with pytest.raises(ValueError):
+            ContainerSpec.check_network(bad)
+    with pytest.raises(ValueError):
+        ContainerSpec.check_image("--privileged")

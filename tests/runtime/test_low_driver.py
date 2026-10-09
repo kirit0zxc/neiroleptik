@@ -30,6 +30,7 @@ from agent.runtime.drivers.containers import (
 )
 from agent.runtime.drivers.low import (
     LABEL_INSTANCE,
+    HealthCheckFailed,
     LowDriver,
     LowHealthCheck,
     LowProfileTranslator,
@@ -106,6 +107,7 @@ class InProcessBackend:
     run_error: BackendError | None = None
     remove_error: BackendError | None = None
     inspect_error: BackendError | None = None
+    stop_error: BackendError | None = None
     listen: bool = True
     tamper_banner: str | None = None
     run_delay: float = 0.0
@@ -159,6 +161,18 @@ class InProcessBackend:
             container.labels,
         )
 
+    async def stop(self, name: str, timeout: int) -> None:
+        """Как docker stop: процесс получает сигнал и корректно завершается."""
+        self.calls.append(("stop", name))
+        if self.stop_error is not None:
+            raise self.stop_error
+        container = self.containers.get(name)
+        if container is not None and container.running:
+            if container.service is not None:
+                await container.service.stop()
+            container.running = False
+            container.exit_code = 0
+
     async def remove(self, name: str) -> None:
         self.calls.append(("remove", name))
         if self.remove_error is not None:
@@ -201,7 +215,7 @@ def run_scenario(
         try:
             await scenario(fake, driver)
         finally:
-            fake.run_error = fake.remove_error = fake.inspect_error = None
+            fake.run_error = fake.remove_error = fake.inspect_error = fake.stop_error = None
             await fake.close()
 
     asyncio.run(main())
@@ -331,6 +345,12 @@ def test_wildcard_bind_is_probed_through_loopback() -> None:
         {"start_timeout": 0},
         {"probe_interval": -1},
         {"probe_timeout": True},
+        {"image": "--privileged"},
+        {"image": "two words"},
+        {"network": "host"},
+        {"network": "none"},
+        {"stop_timeout": 26},
+        {"stop_timeout": True},
     ],
 )
 def test_invalid_settings_are_rejected(changes: dict[str, Any]) -> None:
@@ -716,8 +736,142 @@ def test_health_check_gives_up_by_the_deadline() -> None:
     started = asyncio.new_event_loop()
     try:
         began = started.time()
-        with pytest.raises(Exception, match="."):
+        with pytest.raises(HealthCheckFailed) as failure:
             started.run_until_complete(check.wait_until_healthy(translator().health_targets(plan)))
-        assert started.time() - began < 2.0
+        assert str(failure.value) != "проверка не выполнялась"
+        assert started.time() - began < 1.5
     finally:
         started.close()
+
+
+# --- Регрессии по итогам ревью PR2 ----------------------------------------------------------
+
+
+def test_removal_is_always_preceded_by_a_graceful_stop() -> None:
+    """Ловушка получает SIGTERM до удаления: иначе она не закроет соединения и журнал."""
+    tcp = free_port()
+
+    async def scenario(fake: InProcessBackend, driver: LowDriver) -> None:
+        await driver.start(deployment(revision=1, tcp_port=tcp))
+        await driver.reset()
+        await driver.apply_config(deployment(revision=2, tcp_port=tcp))
+        await driver.stop()
+
+        actions = [action for action, _ in fake.calls if action in ("stop", "remove")]
+        assert actions == ["stop", "remove"] * 3
+
+    run_scenario(scenario)
+
+
+@pytest.mark.parametrize("operation", ["stop", "apply_config"])
+def test_foreign_container_with_the_slot_name_survives_stop_and_apply(operation: str) -> None:
+    """Регрессия: stop и apply_config удаляли чужой контейнер, который start не трогал."""
+    tcp = free_port()
+
+    async def scenario(fake: InProcessBackend, driver: LowDriver) -> None:
+        await driver.start(deployment(tcp_port=tcp))
+        await fake.remove(NAME)
+        fake.add_foreign(NAME)
+        before = len(fake.calls)
+
+        with pytest.raises(DriverError) as error:
+            if operation == "stop":
+                await driver.stop()
+            else:
+                await driver.apply_config(deployment(revision=2, tcp_port=tcp))
+
+        assert error.value.code is DriverErrorCode.CLEANUP_FAILED
+        assert NAME in fake.containers and fake.containers[NAME].labels == {"x": "y"}
+        assert [action for action, _ in fake.calls[before:]] == ["inspect"]
+        assert (await driver.inspect()).state is DriverState.FAILED
+
+    run_scenario(scenario)
+
+
+def test_cancelled_apply_config_never_claims_the_removed_instance_is_healthy() -> None:
+    """Регрессия: отмена во время проверки здоровья оставляла RUNNING healthy старого экземпляра."""
+    tcp = free_port()
+
+    async def scenario(fake: InProcessBackend, driver: LowDriver) -> None:
+        first = await driver.start(deployment(revision=1, tcp_port=tcp))
+        fake.listen = False  # новый экземпляр не ответит на пробы
+        task = asyncio.create_task(driver.apply_config(deployment(revision=2, tcp_port=tcp)))
+        await asyncio.sleep(0.15)  # старый контейнер уже удалён, идёт проверка здоровья
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        status = await driver.inspect()  # ждёт завершения начатой операции под замком
+
+        assert not (status.healthy and status.instance_id == first.instance_id)
+        assert (status.state, status.healthy) == (DriverState.FAILED, False)
+        assert not fake.containers, "неудачный экземпляр убран"
+
+    run_scenario(scenario, driver_settings=settings(start_timeout=0.6))
+
+
+def test_cancelled_start_completes_before_the_next_operation() -> None:
+    """Регрессия: отмена отпускала замок, пока docker run ещё шёл, и stop опережал запуск."""
+    backend = InProcessBackend(run_delay=0.3)
+
+    async def scenario(fake: InProcessBackend, driver: LowDriver) -> None:
+        task = asyncio.create_task(driver.start(deployment(tcp_port=free_port())))
+        await asyncio.sleep(0.05)  # docker run уже выполняется
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        stopped = await driver.stop()
+
+        assert stopped.state is DriverState.STOPPED
+        assert not fake.containers, "stop дождался запуска и убрал его контейнер"
+        assert fake.max_simultaneous == 1
+
+    run_scenario(scenario, backend=backend)
+
+
+def test_exited_leftover_after_host_reboot_keeps_a_fresh_slot_stopped() -> None:
+    """После перезагрузки хоста (restart=no) свежий драйвер видит остановленный контейнер."""
+    tcp = free_port()
+
+    async def scenario(fake: InProcessBackend, driver: LowDriver) -> None:
+        plan = translator().blueprint(deployment(tcp_port=tcp))
+        await fake.run(translator().container_spec(plan, str(uuid4())))
+        await fake.crash(NAME, exit_code=0)
+
+        status = await driver.inspect()
+        assert status.state is DriverState.STOPPED and "остановленный" in status.detail
+
+        started = await driver.start(deployment(tcp_port=tcp))
+        assert started.healthy and len(fake.containers) == 1
+
+    run_scenario(scenario)
+
+
+def test_cleanup_failure_keeps_the_original_cause() -> None:
+    backend = InProcessBackend(
+        run_error=BackendError("образ не найден"), remove_error=BackendError("занят")
+    )
+
+    async def scenario(fake: InProcessBackend, driver: LowDriver) -> None:
+        with pytest.raises(DriverError) as error:
+            await driver.start(deployment(tcp_port=free_port()))
+
+        assert error.value.code is DriverErrorCode.CLEANUP_FAILED
+        assert "образ не найден" in error.value.message
+
+    run_scenario(scenario, backend=backend)
+
+
+def test_failed_graceful_stop_still_removes_the_container() -> None:
+    tcp = free_port()
+
+    async def scenario(fake: InProcessBackend, driver: LowDriver) -> None:
+        await driver.start(deployment(tcp_port=tcp))
+        fake.stop_error = BackendError("docker stop: истёк таймаут", unavailable=True)
+
+        status = await driver.stop()
+
+        assert status.state is DriverState.STOPPED and not fake.containers
+
+    run_scenario(scenario)

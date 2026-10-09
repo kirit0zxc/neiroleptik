@@ -36,6 +36,10 @@ MIN_MEMORY_MB = 1024
 MAX_MEMORY_MB = 4096
 # Верхняя граница списка credentials берётся из ProfileConfigInput центра (max_length=8).
 MAX_CREDENTIALS = 8
+# Ограничения учётных записей берутся из входной схемы центра (CredentialInput): выходная
+# AgentCredential их не описывает, а иных значений центр не сохранит.
+MAX_USERNAME_LENGTH = 64
+MAX_PASSWORD_LENGTH = 128
 
 # Значения по умолчанию совпадают с default в схемах центра.
 DEFAULT_HOSTNAME = "service-node"
@@ -47,8 +51,11 @@ DEFAULT_CPU = 2
 DEFAULT_MEMORY_MB = 2048
 HIGH_TEMPLATE = "ubuntu-ssh-v1"
 
-_HOSTNAME = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9-]{0,62}")
-_USERNAME = re.compile(r"[a-zA-Z0-9_.-]{1,64}")
+# Шаблоны совпадают с центром (без якорей ^ и $); тест дрейфа сверяет их с OpenAPI.
+HOSTNAME_PATTERN = "[a-zA-Z0-9][a-zA-Z0-9-]{0,62}"
+USERNAME_PATTERN = "[a-zA-Z0-9_.-]+"
+_HOSTNAME = re.compile(HOSTNAME_PATTERN)
+_USERNAME = re.compile(USERNAME_PATTERN)
 _PROTOCOLS_BY_LEVEL: dict[str, frozenset[str]] = {
     "low": frozenset({"tcp", "http"}),
     "medium": frozenset({"ssh"}),
@@ -197,18 +204,21 @@ class AgentConfigParser:
             raise ContractError("$.deployments", "ожидается массив")
         accepted: list[DeploymentSpec] = []
         rejected: list[RejectedDeployment] = []
-        seen: set[str] = set()
+        # Повтор идентификатора неоднозначен: отклоняются все записи с ним, в том числе
+        # когда одна из них ещё и некорректна. Иначе один id попал бы и в принятые, и в
+        # отклонённые.
+        ids = [self._safe_deployment_id(item) for item in raw]
+        repeated = {value for value in ids if value is not None and ids.count(value) > 1}
         for index, item in enumerate(raw):
             try:
-                deployment = self._deployment(item, f"$.deployments[{index}]")
-                if deployment.deployment_id in seen:
+                if ids[index] in repeated:
                     raise ContractError(
                         f"$.deployments[{index}].deployment_id", "идентификатор повторяется"
                     )
+                deployment = self._deployment(item, f"$.deployments[{index}]")
             except ContractError as error:
-                rejected.append(RejectedDeployment(self._safe_deployment_id(item), str(error)))
+                rejected.append(RejectedDeployment(ids[index], str(error)))
                 continue
-            seen.add(deployment.deployment_id)
             accepted.append(deployment)
         return AgentConfig(host_id, tuple(accepted), tuple(rejected))
 
@@ -307,12 +317,21 @@ class AgentConfigParser:
     def _credential(self, raw: object, path: str) -> CredentialSpec:
         item = self._mapping(raw, path)
         username = self._string(self._required(item, "username", path), f"{path}.username")
-        if _USERNAME.fullmatch(username) is None:
+        if _USERNAME.fullmatch(username) is None or len(username) > MAX_USERNAME_LENGTH:
             raise ContractError(f"{path}.username", "недопустимое имя пользователя")
         password = self._string(self._required(item, "password", path), f"{path}.password")
-        if not password or any(ord(char) < 32 or ord(char) == 127 for char in password):
-            # Значение пароля в сообщение не попадает.
-            raise ContractError(f"{path}.password", "пароль пуст или содержит управляющие символы")
+        # Граница длины — из CredentialInput центра. Запрещены только переводы строки
+        # (NUL отсекает _string): пароль попадёт в построчные файлы Medium, а остальное центр
+        # допускает. Значение пароля в сообщение не попадает.
+        if (
+            not password
+            or len(password) > MAX_PASSWORD_LENGTH
+            or "\r" in password
+            or "\n" in password
+        ):
+            raise ContractError(
+                f"{path}.password", "пароль пуст, слишком длинный или многострочный"
+            )
         return CredentialSpec(username, Secret(password))
 
     def _logging(self, raw: object, path: str) -> LoggingSpec:

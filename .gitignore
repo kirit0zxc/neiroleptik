@@ -29,3 +29,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 .idea/
+
+# Результаты локального и CI-тестирования
+/backend/test-results.xml

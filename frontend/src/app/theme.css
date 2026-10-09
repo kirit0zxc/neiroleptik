@@ -1,0 +1,103 @@
+/*
+ * Тема HoneyForge (specs/frontend.md, раздел 6a): тёмный интерфейс в
+ * стиле плавающего окна Юми. Это единственный источник цветов, шрифтов и
+ * рамок — окно маскота (--yumi-*) берёт значения отсюда же.
+ */
+@import '@fontsource/pixelify-sans/cyrillic-600.css';
+@import '@fontsource/pixelify-sans/latin-600.css';
+
+:root {
+  color-scheme: dark;
+
+  /* Фон и текст */
+  --bg: #0d0820;
+  --bg-elev: #160f33;
+  --bg-panel: #1d1442;
+  --line: #3a2a6e;
+  --text: #ece6ff;
+  --text-dim: #a99bd6;
+
+  /* Акценты и состояния */
+  --accent: #ff5cbe;
+  --accent-2: #45d6ff;
+  --ok: #41e6a4;
+  --warn: #ffc84a;
+  --bad: #ff5c7a;
+  --idle: #8a82a8;
+  --focus: #45d6ff;
+
+  /* Ретро-окно — как у Юми. Текст заголовка темнее, чем у её светлого
+     окна: на розовом нужен контраст не ниже 4.5:1 (здесь ~6:1). */
+  --win-border: #9b6b9e;
+  --win-border-dark: #5a3560;
+  --win-title: #dfa3d9;
+  --win-title-text: #3d1c47;
+  --win-body: var(--bg-panel);
+  --win-shadow: 3px 3px 0 var(--win-border-dark), 6px 6px 0 rgba(10, 4, 24, .55);
+
+  --radius: 0;
+  --font-ui: system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+  --font-pixel: "Pixelify Sans", var(--font-ui);
+
+  /* Место под маскота: ширина левого нижнего угла, который не занимаем. */
+  --mascot-reserve: 0px;
+}
+
+/* Окно Юми — из тех же токенов, когда её подключат (specs, раздел 9). */
+.yumi-window, .yumi-tab, .yumi-dock {
+  --yumi-border: var(--win-border);
+  --yumi-border-dark: var(--win-border-dark);
+  --yumi-title: var(--win-title);
+  --yumi-title-text: var(--win-title-text);
+  --yumi-font: var(--font-pixel);
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background:
+    radial-gradient(120% 60% at 50% 0%, #2a0f4d 0%, transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+  color: var(--text);
+  font: 14px/1.45 var(--font-ui);
+}
+a { color: var(--accent-2); }
+:focus-visible { outline: 2px dashed var(--focus); outline-offset: 2px; }
+h1, h2 { font-family: var(--font-pixel); font-weight: 600; letter-spacing: .02em; }
+h1 { color: var(--accent); text-shadow: 2px 2px 0 var(--win-border-dark); }
+code, .mono { font-family: var(--font-mono); }
+
+/* Ретро-окно: рамка, ступенчатая тень, заголовок-полоска. Используется
+   панелями, плитками, фильтрами, карточкой входа и диалогами. */
+.win {
+  background: var(--win-body);
+  border: 3px solid var(--win-border);
+  box-shadow: var(--win-shadow);
+}
+.win-titlebar {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 28px; padding: 2px 8px;
+  background: var(--win-title);
+  border-bottom: 3px solid var(--win-border);
+  color: var(--win-title-text);
+  font: 600 16px/1.2 var(--font-pixel);
+}
+.win-titlebar h2 { all: unset; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Пиктограмма окна — как у Юми. */
+.win-icon {
+  flex: 0 0 16px; height: 12px;
+  border: 2px solid var(--win-title-text);
+  background: #f6c1d3;
+  box-shadow: inset 0 -3px 0 var(--win-title-text);
+}
+/* Декоративные «кнопки» окна — только вид, без действий. */
+.win-controls { display: flex; gap: 4px; }
+.win-controls span { width: 10px; height: 10px; border: 2px solid var(--win-title-text); }
+.win-body { padding: 14px 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}

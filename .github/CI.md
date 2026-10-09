@@ -24,15 +24,16 @@ CI использует одноразовые тестовые ключи и Б
 
 ## Проверки runtime
 
-Job `Runtime checks` проверяет только каталоги runtime: `agent`, `honeypots`, `infra`
-и `tests`. Python 3.12, зависимости из `requirements-dev.txt`. Выполняются Ruff
-(ошибки и форматирование), строгий mypy, pytest, сборка wheel
-(`python -m build --no-isolation`) и `docker compose -f compose.runtime.yml config --quiet`.
+Job `Runtime checks` проверяет код runtime и ловушек: `agent`, `honeypots`, `infra`
+и `tests`. Python 3.12, зависимости и версии инструментов из общего `uv.lock`
+(`uv sync --frozen`). Выполняются Ruff (ошибки и форматирование), строгий mypy,
+pytest для `tests/low`, `tests/runtime`, `tests/preflight` и `tests/infra`, сборка
+wheel (`uv build --wheel`) и `docker compose -f compose.runtime.yml config --quiet`.
 Последняя команда проверяет только синтаксис Compose-конфигурации: контейнеры не
 запускаются. Root-конфигурация Ruff исключает `backend`, `frontend` и `scripts`,
 чтобы они проверялись только своими конфигурациями.
 
-Зелёный `Runtime checks` не доказывает работу KVM, Cowrie, сетевую изоляцию и
+Зелёный `Runtime checks` не доказывает работу KVM, Cowrie, Docker, сетевую изоляцию и
 интеграцию с центром: такие проверки требуют отдельного живого стенда.
 
 ## Frontend
@@ -46,11 +47,18 @@ Stream/events/replay в этом PR имеют только проект кон�
 
 ## Ревью
 
-Обязательный итоговый check: `CI result`. Он требует успешных repository, backend
-и runtime, а также frontend, когда последний присутствует. Ошибка, отмена или неожиданный пропуск
+Обязательный итоговый check: `CI result`. Он требует успешных repository, backend,
+telemetry и runtime, а также frontend, когда последний присутствует. Ошибка, отмена или неожиданный пропуск
 проверок блокируют итоговый check. Проверка ветки самим GitHub зависит от настроенных
 rulesets/branch protection; этот файл не устанавливает защиту ветки.
 
 Процесс задаёт `AGENTS.md`: три субагента перед push, проверка с актуальным main,
 финальное одобрение человеком. Агент не одобряет и не сливает PR. Для PR владельца
 нужен другой человек, назначенный владельцем для независимого одобрения.
+
+## Agent telemetry checks
+
+Обязательная job телеметрии устанавливает корневой uv.lock на Python 3.12,
+запускает Ruff, mypy, pytest (весь каталог tests), сверку входных JSON Schema
+и синтетическое offline-демо. PostgreSQL этим набором не проверяется.
+Итоговый CI result также требует успешных telemetry и runtime job.

@@ -163,9 +163,11 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
                   disabled={services.fields.length === 1} aria-label={`Удалить сервис ${i + 1}`}>×</button>
               </div>
             ))}
-            {!addProtocol && level === 'low' && (
-              <p className={s.note} role="status">На Low — не больше одного TCP и одного HTTP.</p>
-            )}
+            {/* Живой регион есть всегда: читалка объявит подсказку, когда кнопка «+ Сервис» пропадёт. */}
+            <p className={s.note} role="status">
+              {addProtocol || level === 'high' ? ''
+                : level === 'low' ? 'На Low — не больше одного TCP и одного HTTP.' : 'Не больше 8 сервисов.'}
+            </p>
             {addProtocol && (
               <button type="button" className={ui.button}
                 onClick={() => services.append({ protocol: addProtocol, port: '' as unknown as number, banner: '' }, { focusName: `services.${services.fields.length}.protocol` })}>

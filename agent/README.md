@@ -1,6 +1,6 @@
 # Телеметрия: первый шаг D1
 
-Рабочая ветка: `create-problem`. Правила команды находятся в корневом `AGENTS.md`.
+Правила команды находятся в корневом `AGENTS.md`.
 Контекст: `HoneyForge-plan.html`, персональная зона `HoneyForge-4-Telemetry.html`.
 Подробности и следующие шаги: `specs/events.md`, `specs/architecture.md`.
 

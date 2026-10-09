@@ -1,0 +1,8 @@
+{
+  "user": {
+    "id": "u-operator-1",
+    "username": "operator",
+    "role": "operator"
+  },
+  "csrf_token": "mock-csrf-token"
+}

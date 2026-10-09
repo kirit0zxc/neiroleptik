@@ -9,7 +9,7 @@ import type { Me, Role } from '../../shared/api/types';
 import { Loading, ui, WindowTitle } from '../../shared/ui';
 import s from './auth.module.css';
 
-/** Сессия оператора (F1–F3). Источник — `GET /api/v1/me`. */
+/** Сессия оператора (F1–F3). Источник — `GET /api/v1/auth/me`. */
 const AuthContext = createContext<Me | null>(null);
 const ME_KEY = ['me'] as const;
 

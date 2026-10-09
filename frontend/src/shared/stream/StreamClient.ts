@@ -68,6 +68,12 @@ export class StreamClient<E extends { event_id: string }> {
   private syncing = false;
   private delivered = new Set<string>();
   private listeners = new Set<(records: StreamRecord<E>[]) => void>();
+  /**
+   * Последний stream_seq, успешно переданный каждому подписчику. Нужен,
+   * чтобы после падения одного подписчика повторная доставка дошла только
+   * до него, а остальные не получили те же события второй раз.
+   */
+  private listenerSeq = new WeakMap<(records: StreamRecord<E>[]) => void, bigint>();
   private statusListeners = new Set<(s: StreamStatus) => void>();
   private status: StreamStatus = 'idle';
   private attempt = 0;
@@ -203,7 +209,22 @@ export class StreamClient<E extends { event_id: string }> {
       fresh.push(r);
     }
     if (!fresh.length) return;
-    for (const fn of this.listeners) fn(fresh);
+    // Каждый подписчик получает только то, что ещё не принял. Ошибку первого
+    // упавшего пробрасываем после обхода всех: курсор не сдвигается, и при
+    // повторе событие получит лишь тот, кто его не обработал.
+    let failure: { error: unknown } | null = null;
+    for (const fn of this.listeners) {
+      const seen = this.listenerSeq.get(fn);
+      const part = seen === undefined ? fresh : fresh.filter((r) => big(r.stream_seq) > seen);
+      if (!part.length) continue;
+      try {
+        fn(part);
+        this.listenerSeq.set(fn, big(part.at(-1)!.stream_seq));
+      } catch (error) {
+        failure ??= { error };
+      }
+    }
+    if (failure) throw failure.error;
     for (const r of fresh) this.delivered.add(r.event.event_id);
     this.cursor = fresh.at(-1)!.stream_seq;
     if (this.delivered.size > SEEN_LIMIT) this.delivered = new Set(fresh.map((r) => r.event.event_id));

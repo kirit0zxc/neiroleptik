@@ -23,6 +23,15 @@ describe('sanitizeTerminal (S2)', () => {
     expect(sanitizeTerminal('ls\r\nфайл\tтест\rok')).toBe('ls\nфайл\tтест\nok');
   });
 
+  it('удаляет bidi-переключатели и символы нулевой ширины', () => {
+    expect(sanitizeTerminal('rm -rf /\u202e/tmp\u202c')).toBe('rm -rf //tmp');
+    expect(sanitizeTerminal('a\u2066b\u2069c\u200bd\ufeffe\u200ff\u2060g\u061ch')).toBe('abcdefgh');
+  });
+
+  it('сохраняет ZWJ и ZWNJ в эмодзи и тексте', () => {
+    expect(sanitizeTerminal('👨\u200d👩\u200d👧 می\u200cخواهم')).toBe('👨\u200d👩\u200d👧 می\u200cخواهم');
+  });
+
   it('удаляет NUL, BEL, backspace и DEL', () => {
     expect(sanitizeTerminal('a\u0000b\u0007c\bd\u007fe')).toBe('abcde');
   });

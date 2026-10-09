@@ -23,6 +23,11 @@ const C1_CSI = /\u009b[0-?]*[ -/]*[@-~]/g;
 const ESC_OTHER = /\u001b[@-Z\\-_]?/g;
 // Управляющие символы, кроме \t и \n; \r превращаем в перевод строки ниже.
 const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
+// Символы управления направлением текста и невидимые символы нулевой ширины.
+// Через них можно визуально переставить или скрыть части команды (Trojan Source).
+// ZWNJ/ZWJ (U+200C, U+200D) оставляем: без них ломаются составные эмодзи
+// и написание в персидском и индийских письменностях.
+const INVISIBLE = /[\u061c\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
 
 export function sanitizeTerminal(raw: string): string {
   return raw
@@ -32,7 +37,8 @@ export function sanitizeTerminal(raw: string): string {
     .replace(C1_CSI, '')
     .replace(ESC_OTHER, '')
     .replace(/\r\n?/g, '\n')
-    .replace(CONTROL, '');
+    .replace(CONTROL, '')
+    .replace(INVISIBLE, '');
 }
 
 /**

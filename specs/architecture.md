@@ -35,3 +35,21 @@ Deployment создаётся в состоянии planned. Это запись
 применение конфигурации. Участник 4: telemetry/realtime/analysis.
 Общие миграции и изменения OpenAPI согласуются через владельца backend.
 Форматы событий не фиксируются молча в рамках этого PR.
+
+## Frontend (участник 1)
+
+- frontend/: React + TypeScript, Vite; требования — specs/frontend.md.
+- src/app/: оболочка приложения, маршруты, тема.
+- src/features/: экраны auth, overview, events, fleet (мастер запуска, команды),
+  profiles; бизнес-логика экранов вынесена в отдельные модули рядом со страницами.
+- src/shared/api/: HTTP-клиент с CSRF и черновые типы ответов.
+- src/shared/stream/: черновой клиент (сейчас только на моках; серверный WS
+  — следующий этап) StreamClient — WebSocket с курсором, догрузкой пропусков
+  и переподключением; провайдер React поверх него.
+- src/shared/security/: очистка вывода терминала атакующего, маскирование секретов.
+- src/mocks/: MSW-заглушки на основе contracts/fixtures/*.draft.json.
+
+Фронт -> HTTP /api/v1 и WebSocket потока событий -> FastAPI. Типы фронта и пути
+/events, /stream, /jobs, /analytics/summary пока черновые и не совпадают с
+contracts/openapi.json; до слияния во frontend их нужно согласовать с владельцем
+backend и участником 4. Без согласования фронт работает только на моках.

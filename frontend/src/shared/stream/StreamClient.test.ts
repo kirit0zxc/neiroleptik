@@ -188,6 +188,21 @@ describe('StreamClient: протокол hello/event', () => {
     expect(client.currentCursor).toBe('1');
   });
 
+  it('при падении одного подписчика остальные не получают событие повторно', async () => {
+    const { client, sockets, got } = setup({ cursor: '0' });
+    let broken = true;
+    const retried: string[] = [];
+    client.subscribe((rs) => { if (broken) throw new Error('render'); retried.push(...rs.map((r) => r.stream_seq)); });
+    client.start();
+    sockets[0]!.hello('0');
+    await flush();
+    expect(() => sockets[0]!.push('1')).toThrow();
+    broken = false;
+    sockets[0]!.push('1');
+    expect(got).toEqual(['1']);
+    expect(retried).toEqual(['1']);
+  });
+
   it('stop закрывает сокет', () => {
     const { client, sockets, statuses } = setup();
     client.start();

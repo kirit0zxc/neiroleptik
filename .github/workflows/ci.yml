@@ -139,9 +139,30 @@ jobs:
       - run: python manage.py makemigrations --check --dry-run
       - run: python manage.py test --noinput
 
+  runtime:
+    name: Runtime checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m ruff check .
+      - run: python -m ruff format --check .
+      - run: python -m mypy
+      - run: python -m pytest
+      - run: python -m build --no-isolation
+      - run: docker compose -f compose.runtime.yml config --quiet
+
   result:
     name: CI result
-    needs: [repository, frontend, backend]
+    needs: [repository, frontend, backend, runtime]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2

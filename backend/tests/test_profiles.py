@@ -161,3 +161,22 @@ def test_invalid_text_is_validation_error_and_does_not_change_profile(admin, fie
     )
     assert response.status_code == 422
     assert admin.get(f"/api/v1/profiles/{profile['id']}").json()["revision"] == 1
+
+
+@pytest.mark.parametrize("bad_password", ["secret\x00value", "secret\ud800value"])
+def test_invalid_decoy_password_is_rejected_before_agent_config(admin, bad_password):
+    payload = profile_payload("medium", 2222)
+    payload["config"]["credentials"][0]["password"] = bad_password
+    headers = {"Content-Type": "application/json"}
+    response = admin.post("/api/v1/profiles", content=json.dumps(payload), headers=headers)
+    assert response.status_code == 422
+    assert "secret" not in response.text
+    profile = admin.post("/api/v1/profiles", json=profile_payload("medium", 2222)).json()
+    response = admin.patch(
+        f"/api/v1/profiles/{profile['id']}",
+        content=json.dumps({"expected_revision": 1, "config": payload["config"]}),
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert "secret" not in response.text
+    assert admin.get(f"/api/v1/profiles/{profile['id']}").json()["revision"] == 1

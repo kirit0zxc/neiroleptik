@@ -1,5 +1,6 @@
 """Проверки ролей, cookie, CSRF и ограничения перебора."""
 
+import json
 from datetime import timedelta
 from uuid import uuid4
 
@@ -131,3 +132,20 @@ def test_security_headers_and_cookie_http_only(admin):
     response = admin.get("/api/v1/auth/me")
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-content-type-options"] == "nosniff"
+
+
+@pytest.mark.parametrize("bad_secret", ["secret\x00value", "secret\ud800value"])
+def test_invalid_secret_text_returns_422_without_echo(client, bad_secret):
+    requests = [
+        ("/api/v1/auth/login", {"username": "admin", "password": bad_secret}),
+        (
+            "/agent/v1/enroll",
+            {"name": "host", "capabilities": ["low"], "enrollment_token": "x" * 20 + bad_secret},
+        ),
+    ]
+    for path, payload in requests:
+        response = client.post(
+            path, content=json.dumps(payload), headers={"Content-Type": "application/json"}
+        )
+        assert response.status_code == 422
+        assert "secret" not in response.text

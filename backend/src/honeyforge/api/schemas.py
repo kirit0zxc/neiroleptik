@@ -19,11 +19,12 @@ class StrictModel(BaseModel):
     @classmethod
     def validate_text(cls, value: Any) -> Any:
         """PostgreSQL text не принимает NUL и некорректные Unicode-последовательности."""
-        if isinstance(value, str):
-            if "\x00" in value:
+        text = value.get_secret_value() if isinstance(value, SecretStr) else value
+        if isinstance(text, str):
+            if "\x00" in text:
                 raise ValueError("Текст не должен содержать NUL")
             try:
-                value.encode("utf-8")
+                text.encode("utf-8")
             except UnicodeEncodeError as error:
                 raise ValueError("Текст должен быть корректным Unicode") from error
         return value

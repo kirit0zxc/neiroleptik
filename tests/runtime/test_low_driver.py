@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import io
+import json
 import socket
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -36,7 +38,8 @@ from agent.runtime.drivers.low import (
     LowSettings,
 )
 from honeypots.low import JsonLineEventSink, LowService
-from honeypots.low.__main__ import build_parser, config_from_args
+from honeypots.low.__main__ import build_parser, config_from_args, journal_from_args
+from honeypots.low.journal import RotatingJournalSink
 
 DEPLOYMENT_ID = "11111111-1111-4111-8111-111111111111"
 OTHER_DEPLOYMENT_ID = "99999999-9999-4999-8999-999999999999"
@@ -89,6 +92,7 @@ class FakeContainer:
     service: LowService | None
     running: bool = True
     exit_code: int | None = None
+    sink: RotatingJournalSink | None = None
 
     @property
     def labels(self) -> dict[str, str]:
@@ -136,12 +140,24 @@ class InProcessBackend:
             http_port=http.host_port if http else 0,
         )
         service: LowService | None = None
+        journal_sink: RotatingJournalSink | None = None
         if self.listen:
             stream = io.StringIO()
             self.streams[spec.name] = stream
-            service = LowService(config, JsonLineEventSink(stream))
+            parsed = build_parser().parse_args(command)
+            journal = journal_from_args(parsed)
+            sink: Any = JsonLineEventSink(stream)
+            if journal is not None:
+                # Docker подставил бы каталог хоста на место /journal; делаем то же самое.
+                mount = next(m for m in spec.mounts if Path(m.target) == journal.directory)
+                journal_sink = RotatingJournalSink(
+                    dataclasses.replace(journal, directory=Path(mount.source))
+                )
+                journal_sink.open()
+                sink = journal_sink
+            service = LowService(config, sink)
             await service.start()
-        self.containers[spec.name] = FakeContainer(spec, service)
+        self.containers[spec.name] = FakeContainer(spec, service, sink=journal_sink)
         self.max_simultaneous = max(self.max_simultaneous, len(self.containers))
 
     async def inspect(self, name: str) -> ContainerObservation | None:
@@ -166,6 +182,8 @@ class InProcessBackend:
         container = self.containers.pop(name, None)
         if container is not None and container.service is not None:
             await container.service.stop()
+        if container is not None and container.sink is not None:
+            container.sink.close()
 
     async def crash(self, name: str, exit_code: int = 137) -> None:
         container = self.containers[name]
@@ -244,7 +262,9 @@ def test_blueprint_command_is_built_from_the_profile() -> None:
         "--tcp-port=2222",
         "--http-port=8080",
         "--max-input-bytes=2048",
+        "--tcp-public-port=2200",
         "--banner=SSH-2.0-OpenSSH_9.6",
+        "--http-public-port=8800",
         "--http-body=Welcome",
     )
 
@@ -331,6 +351,9 @@ def test_wildcard_bind_is_probed_through_loopback() -> None:
         {"start_timeout": 0},
         {"probe_interval": -1},
         {"probe_timeout": True},
+        {"journal_root": "relative/dir"},
+        {"journal_max_bytes": 0},
+        {"journal_quota_bytes": True},
     ],
 )
 def test_invalid_settings_are_rejected(changes: dict[str, Any]) -> None:
@@ -721,3 +744,124 @@ def test_health_check_gives_up_by_the_deadline() -> None:
         assert started.time() - began < 2.0
     finally:
         started.close()
+
+
+# --- Файловый журнал для сборщика --------------------------------------------------------
+
+
+def journal_files(root: Path, deployment_id: str = DEPLOYMENT_ID) -> list[Path]:
+    return sorted((root / deployment_id).glob("low-*.jsonl"))
+
+
+def journal_records(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in path.read_text(encoding="ascii").splitlines()]
+
+
+def test_blueprint_and_spec_carry_journal_arguments_and_the_mount(tmp_path: Path) -> None:
+    translator_with_journal = LowProfileTranslator(
+        LowSettings(journal_root=tmp_path, journal_max_bytes=300000, journal_quota_bytes=900000)
+    )
+    plan = translator_with_journal.blueprint(deployment(revision=6, tcp_port=2200))
+    instance = str(uuid4())
+
+    container = translator_with_journal.container_spec(plan, instance)
+
+    assert "--journal-dir=/journal" in container.command
+    assert f"--instance-id={instance}" in container.command
+    assert f"--deployment-id={DEPLOYMENT_ID}" in container.command
+    assert "--profile-revision=6" in container.command
+    assert "--journal-max-bytes=300000" in container.command
+    assert "--journal-quota-bytes=900000" in container.command
+    [mount] = container.mounts
+    assert (mount.source, mount.target) == (str(tmp_path / DEPLOYMENT_ID), "/journal")
+
+
+def test_without_journal_root_there_is_no_mount_and_no_journal_arguments() -> None:
+    plan = translator().blueprint(deployment(tcp_port=2200))
+
+    container = translator().container_spec(plan, str(uuid4()))
+
+    assert container.mounts == ()
+    assert not any(part.startswith("--journal") for part in container.command)
+
+
+def test_started_trap_writes_a_collectable_journal_on_the_host(tmp_path: Path) -> None:
+    tcp, http = free_port(), free_port()
+
+    async def scenario(backend: InProcessBackend, driver: LowDriver) -> None:
+        status = await driver.start(deployment(revision=7, tcp_port=tcp, http_port=http))
+        assert (tmp_path / DEPLOYMENT_ID).is_dir()
+        response = await fetch(http, b"GET /probe HTTP/1.1\r\nHost: x\r\n\r\n")
+        assert response.startswith(b"HTTP/1.1 200")
+        await fetch(tcp)
+        [path] = journal_files(tmp_path)
+        # Событие request TCP появляется, когда сервер заметит закрытие соединения клиентом.
+        async with asyncio.timeout(3):
+            while len(journal_records(path)) < 1 + 2 * 4:
+                await asyncio.sleep(0.02)
+
+        header, *events = journal_records(path)
+        assert header["record"] == "header"
+        assert header["instance_id"] == status.instance_id
+        assert header["deployment_id"] == DEPLOYMENT_ID
+        assert header["profile_revision"] == 7
+        # Проба здоровья при запуске тоже оставила события; запрос клиента идёт после них.
+        http_events = [e for e in events if e["protocol"] == "http"]
+        assert http_events[-1]["service"] == {"protocol": "http", "port": http}
+        assert {e["service"]["port"] for e in events if e["protocol"] == "tcp"} == {tcp}
+        assert [e["seq"] for e in events] == list(range(1, len(events) + 1))
+        connection_ids = {e["connection_id"] for e in events}
+        assert len(connection_ids) * 2 == len(events), "у каждого соединения два события"
+
+    run_scenario(scenario, driver_settings=settings(journal_root=tmp_path))
+
+
+def test_every_new_instance_starts_its_own_journal_and_old_ones_are_closed(
+    tmp_path: Path,
+) -> None:
+    tcp = free_port()
+
+    async def scenario(backend: InProcessBackend, driver: LowDriver) -> None:
+        first = await driver.start(deployment(revision=1, tcp_port=tcp))
+        second = await driver.reset()
+        third = await driver.apply_config(deployment(revision=2, tcp_port=tcp))
+
+        paths = journal_files(tmp_path)
+        by_instance = {journal_records(p)[0]["instance_id"]: p for p in paths}
+        assert set(by_instance) == {first.instance_id, second.instance_id, third.instance_id}
+        for old in (first, second):
+            footer = journal_records(by_instance[old.instance_id])[-1]
+            assert (footer["record"], footer["reason"]) == ("footer", "shutdown")
+        assert journal_records(by_instance[third.instance_id])[0]["profile_revision"] == 2
+
+    run_scenario(scenario, driver_settings=settings(journal_root=tmp_path))
+
+
+def test_stop_closes_the_journal_with_a_footer(tmp_path: Path) -> None:
+    tcp = free_port()
+
+    async def scenario(backend: InProcessBackend, driver: LowDriver) -> None:
+        await driver.start(deployment(tcp_port=tcp))
+        await driver.stop()
+
+        [path] = journal_files(tmp_path)
+        assert journal_records(path)[-1]["record"] == "footer"
+
+    run_scenario(scenario, driver_settings=settings(journal_root=tmp_path))
+
+
+def test_unusable_journal_directory_fails_the_start_before_running_anything(
+    tmp_path: Path,
+) -> None:
+    blocker = tmp_path / "occupied"
+    blocker.write_text("файл, а не каталог")
+
+    async def scenario(backend: InProcessBackend, driver: LowDriver) -> None:
+        with pytest.raises(DriverError) as error:
+            await driver.start(deployment(tcp_port=free_port()))
+        assert error.value.code is DriverErrorCode.START_FAILED
+        assert "журнала" in error.value.message
+        assert ("run", NAME) not in backend.calls
+        assert (await driver.inspect()).state is DriverState.FAILED
+
+    run_scenario(scenario, driver_settings=settings(journal_root=blocker / "journal"))

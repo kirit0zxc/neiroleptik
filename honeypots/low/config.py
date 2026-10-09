@@ -17,6 +17,9 @@ class LowConfig:
     read_timeout: float = 2.0
     max_input_bytes: int = 4096
     max_connections: int = 32
+    # Порты, которые видит клиент (публикация контейнера); None — порт привязки.
+    tcp_public_port: int | None = None
+    http_public_port: int | None = None
 
     def __post_init__(self) -> None:
         """Отсекает неоднозначные типы и неограниченные значения конфигурации."""
@@ -30,6 +33,12 @@ class LowConfig:
             self._integer(name, value, 0, 65535)
         if self.tcp_port and self.tcp_port == self.http_port:
             raise ValueError("Ненулевые TCP- и HTTP-порты должны различаться")
+        for public_name, public_port in (
+            ("tcp_public_port", self.tcp_public_port),
+            ("http_public_port", self.http_public_port),
+        ):
+            if public_port is not None:
+                self._integer(public_name, public_port, 1, 65535)
         self._integer("max_input_bytes", self.max_input_bytes, 1, 65536)
         self._integer("max_connections", self.max_connections, 1, 1024)
         if (

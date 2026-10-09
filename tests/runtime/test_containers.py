@@ -11,6 +11,7 @@ import pytest
 
 from agent.runtime.drivers.containers import (
     BackendError,
+    BindMount,
     ContainerSpec,
     DockerCli,
     PortPublish,
@@ -300,3 +301,72 @@ def test_foreign_containers_are_never_touched(operation: str, name: str) -> None
         asyncio.run(getattr(docker, operation)(name))
 
     assert runner.commands == []
+
+
+# --- Монтирование каталога хоста ---------------------------------------------------------
+
+JOURNAL_HOST = "/var/lib/honeyforge/low/11111111-1111-4111-8111-111111111111"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [JOURNAL_HOST, r"C:\Users\Karp\Desktop\lovyshka jopera\journal", "/srv/my journal (1)"],
+    ids=["posix", "windows-with-spaces", "posix-with-spaces"],
+)
+def test_bind_mount_accepts_ordinary_absolute_paths(source: str) -> None:
+    assert BindMount(source, "/journal").argument() == f"type=bind,source={source},target=/journal"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "",
+        "relative/path",
+        "journal",
+        "/a/../b",
+        r"C:\x\..\y",
+        "/a,readonly",
+        '/a"b',
+        "/a=b",
+        "/a\nb",
+    ],
+    ids=[
+        "empty",
+        "relative",
+        "bare",
+        "dotdot",
+        "dotdot-windows",
+        "comma",
+        "quote",
+        "equals",
+        "newline",
+    ],
+)
+def test_bind_mount_refuses_unsafe_sources(source: str) -> None:
+    with pytest.raises(ValueError):
+        BindMount(source, "/journal")
+
+
+@pytest.mark.parametrize("target", ["journal", "/", "/a/../b", "/a b", "/a,b", ""])
+def test_bind_mount_refuses_unsafe_targets(target: str) -> None:
+    with pytest.raises(ValueError):
+        BindMount("/srv/journal", target)
+
+
+def test_spec_with_a_mount_renders_the_mount_option() -> None:
+    argv = DockerCli().run_command(spec(mounts=(BindMount(JOURNAL_HOST, "/journal"),)))
+
+    assert ("--mount", f"type=bind,source={JOURNAL_HOST},target=/journal") in set(
+        zip(argv, argv[1:], strict=False)
+    )
+    assert "--read-only" in argv, "корневая файловая система остаётся только для чтения"
+    assert argv.index("--mount") < argv.index("honeyforge-low:local")
+
+
+def test_spec_without_mounts_has_no_mount_option() -> None:
+    assert "--mount" not in DockerCli().run_command(spec())
+
+
+def test_duplicate_mount_targets_are_refused() -> None:
+    with pytest.raises(ValueError):
+        spec(mounts=(BindMount("/a", "/journal"), BindMount("/b", "/journal")))

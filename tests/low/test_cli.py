@@ -1,9 +1,12 @@
 """Разбор аргументов командной строки Low и нормализация терминаторов строк."""
 
+from pathlib import Path
+
 import pytest
 
 from honeypots.low import LowConfig
-from honeypots.low.__main__ import build_parser, config_from_args
+from honeypots.low.__main__ import build_parser, config_from_args, journal_from_args
+from honeypots.low.journal import JournalSettings
 
 
 def config(*argv: str) -> LowConfig:
@@ -53,3 +56,70 @@ def test_numeric_options_reach_configuration() -> None:
 
     assert (result.host, result.tcp_port, result.http_port) == ("0.0.0.0", 2200, 8800)
     assert (result.max_input_bytes, result.max_connections, result.read_timeout) == (512, 7, 1.5)
+
+
+# --- Параметры файлового журнала и публичные порты -------------------------------------
+
+INSTANCE = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+DEPLOYMENT = "11111111-1111-4111-8111-111111111111"
+
+
+def journal(*argv: str) -> object:
+    return journal_from_args(build_parser().parse_args(argv))
+
+
+def test_public_ports_reach_configuration() -> None:
+    result = config("--tcp-public-port=2200", "--http-public-port=8800")
+
+    assert (result.tcp_public_port, result.http_public_port) == (2200, 8800)
+    assert config().tcp_public_port is None
+
+
+@pytest.mark.parametrize("value", ["0", "65536", "-1"])
+def test_invalid_public_port_is_rejected(value: str) -> None:
+    with pytest.raises(ValueError):
+        config(f"--http-public-port={value}")
+
+
+def test_without_journal_dir_there_is_no_file_journal() -> None:
+    assert journal() is None
+    assert journal(f"--instance-id={INSTANCE}") is None
+
+
+def test_journal_options_build_settings() -> None:
+    settings = journal(
+        "--journal-dir=/journal",
+        f"--instance-id={INSTANCE}",
+        f"--deployment-id={DEPLOYMENT}",
+        "--profile-revision=4",
+        "--journal-max-bytes=300000",
+        "--journal-quota-bytes=900000",
+        "--journal-fsync",
+    )
+
+    assert isinstance(settings, JournalSettings)
+    assert settings.directory == Path("/journal")
+    assert (settings.instance_id, settings.deployment_id) == (INSTANCE, DEPLOYMENT)
+    assert settings.profile_revision == 4
+    assert (settings.max_file_bytes, settings.max_total_bytes) == (300000, 900000)
+    assert settings.fsync_each_event is True
+
+
+@pytest.mark.parametrize(
+    "missing",
+    ["--instance-id", "--deployment-id", "--profile-revision"],
+)
+def test_journal_dir_requires_all_identifiers(missing: str) -> None:
+    arguments = {
+        "--instance-id": INSTANCE,
+        "--deployment-id": DEPLOYMENT,
+        "--profile-revision": "1",
+    }
+    del arguments[missing]
+
+    with pytest.raises(ValueError, match="требует"):
+        journal("--journal-dir=/journal", *(f"{key}={value}" for key, value in arguments.items()))
+
+
+def test_config_from_args_ignores_journal_only_options() -> None:
+    assert config("--journal-dir=/journal", f"--instance-id={INSTANCE}") == LowConfig()

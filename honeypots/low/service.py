@@ -5,6 +5,7 @@ import base64
 import re
 from datetime import UTC, datetime
 from functools import partial
+from uuid import uuid4
 
 from honeypots.low.config import LowConfig
 from honeypots.low.events import EventSink
@@ -27,6 +28,9 @@ class LowService:
         self._tasks: set[asyncio.Task[None]] = set()
         self._lock = asyncio.Lock()
         self._stopping = True
+        # Сквозной номер события за время жизни сервиса: не сбрасывается при ротации файлов
+        # журнала, пропуск номера означает событие, которое не удалось записать.
+        self._seq = 0
         self.last_error: Exception | None = None
 
     @property
@@ -114,12 +118,14 @@ class LowService:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, protocol: str
     ) -> None:
         """Ошибки клиента закрывают соединение; ошибка журнала не позволяет отвечать успешно."""
+        # Стабильный идентификатор соединения: общий для всех его событий.
+        connection_id = str(uuid4())
         try:
-            self._emit("connection", protocol, writer, b"")
+            self._emit("connection", protocol, writer, b"", connection_id)
             if protocol == "tcp":
-                await self._tcp(reader, writer)
+                await self._tcp(reader, writer, connection_id)
             else:
-                await self._http(reader, writer)
+                await self._http(reader, writer, connection_id)
         except (_SinkFailure, ConnectionError, TimeoutError):
             pass
         finally:
@@ -131,13 +137,30 @@ class LowService:
             finally:
                 self._writers.discard(writer)
 
-    def _emit(self, kind: str, protocol: str, writer: asyncio.StreamWriter, payload: bytes) -> None:
+    def _service_port(self, protocol: str) -> int:
+        """Порт, который видит клиент: публичный из профиля, иначе фактический порт привязки."""
+        if protocol == "tcp":
+            return self.config.tcp_public_port or self.tcp_port or self.config.tcp_port
+        return self.config.http_public_port or self.http_port or self.config.http_port
+
+    def _emit(
+        self,
+        kind: str,
+        protocol: str,
+        writer: asyncio.StreamWriter,
+        payload: bytes,
+        connection_id: str,
+    ) -> None:
         """Кодирует недоверенные байты, не вставляя их в строки журнала как текст."""
         peer = writer.get_extra_info("peername")
+        self._seq += 1
         event: dict[str, object] = {
+            "seq": self._seq,
             "event": kind,
             "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "connection_id": connection_id,
             "protocol": protocol,
+            "service": {"protocol": protocol, "port": self._service_port(protocol)},
             "peer": {"host": str(peer[0]), "port": int(peer[1])} if peer else None,
             "payload_b64": base64.b64encode(payload[: self.config.max_input_bytes]).decode("ascii"),
         }
@@ -154,7 +177,9 @@ class LowService:
             )
             raise _SinkFailure from error
 
-    async def _tcp(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def _tcp(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, connection_id: str
+    ) -> None:
         """Отправляет фиксированный баннер и собирает вход только до лимита или срока."""
         writer.write(self.config.banner.encode("ascii"))
         await asyncio.wait_for(writer.drain(), timeout=self.config.read_timeout)
@@ -168,15 +193,17 @@ class LowService:
                     payload.extend(chunk)
         except TimeoutError:
             pass
-        self._emit("request", "tcp", writer, bytes(payload))
+        self._emit("request", "tcp", writer, bytes(payload), connection_id)
 
-    async def _http(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def _http(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, connection_id: str
+    ) -> None:
         """Сохраняет ограниченный запрос перед отправкой статического ответа."""
         payload, status = await self._read_headers(reader)
         head = False
         if status == 200:
             status, head = self._parse_headers(payload)
-        self._emit("request", "http", writer, payload)
+        self._emit("request", "http", writer, payload, connection_id)
         descriptions = {
             200: "OK",
             400: "Bad Request",

@@ -12,6 +12,7 @@ import contextlib
 import ipaddress
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import ClassVar
 from uuid import UUID, uuid4
 
@@ -26,6 +27,7 @@ from agent.runtime.drivers.base import (
 from agent.runtime.drivers.containers import (
     LABEL_MANAGED,
     BackendError,
+    BindMount,
     ContainerBackend,
     ContainerObservation,
     ContainerSpec,
@@ -39,6 +41,8 @@ LABEL_DEPLOYMENT = "honeyforge.deployment_id"
 LABEL_INSTANCE = "honeyforge.instance_id"
 LABEL_REVISION = "honeyforge.revision"
 LABEL_LEVEL = "honeyforge.level"
+# Каталог журнала внутри контейнера: единственное место, куда ловушка может писать.
+JOURNAL_CONTAINER_DIR = "/journal"
 _MAX_BANNER_WITH_CRLF = 255
 
 
@@ -49,12 +53,25 @@ class LowSettings:
     image: str = "honeyforge-low:local"
     bind_address: str = "127.0.0.1"
     network: str | None = None
+    # Корень журналов на хосте: каталог слота <journal_root>/<deployment_id> монтируется в
+    # контейнер. None — файловый журнал выключен, ловушка пишет диагностику в stdout.
+    journal_root: Path | None = None
+    journal_max_bytes: int | None = None
+    journal_quota_bytes: int | None = None
     start_timeout: float = 15.0
     probe_interval: float = 0.2
     probe_timeout: float = 1.0
 
     def __post_init__(self) -> None:
         ipaddress.ip_address(self.bind_address)
+        if self.journal_root is not None:
+            object.__setattr__(self, "journal_root", Path(self.journal_root))
+            if not Path(self.journal_root).is_absolute():
+                raise ValueError("journal_root должен быть абсолютным путём")
+        for name in ("journal_max_bytes", "journal_quota_bytes"):
+            value = getattr(self, name)
+            if value is not None and (type(value) is not int or value < 1):
+                raise ValueError(f"{name} должен быть положительным целым")
         for name in ("start_timeout", "probe_interval", "probe_timeout"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
@@ -111,6 +128,7 @@ class LowProfileTranslator:
             f"--max-input-bytes={profile.logging.max_payload_bytes}",
         ]
         if tcp:
+            command.append(f"--tcp-public-port={tcp[0].port}")
             banner = tcp[0].banner
             if not banner:
                 raise self._unsupported("tcp-сервису Low нужен непустой баннер")
@@ -119,6 +137,8 @@ class LowProfileTranslator:
             ):
                 raise self._unsupported("баннер tcp должен быть печатным ASCII")
             command.append(f"--banner={banner}")
+        if http:
+            command.append(f"--http-public-port={http[0].port}")
         if http and http[0].banner:
             body = http[0].banner
             if any(ord(char) < 32 or ord(char) == 127 for char in body):
@@ -132,7 +152,28 @@ class LowProfileTranslator:
             command=tuple(command),
         )
 
+    def journal_directory(self, deployment_id: str) -> Path | None:
+        """Каталог журнала слота на хосте либо None, если файловый журнал выключен."""
+        root = self._settings.journal_root
+        return None if root is None else root / deployment_id
+
     def container_spec(self, blueprint: LowBlueprint, instance_id: str) -> ContainerSpec:
+        command = blueprint.command
+        mounts: tuple[BindMount, ...] = ()
+        journal = self.journal_directory(blueprint.deployment_id)
+        if journal is not None:
+            extra = [
+                f"--journal-dir={JOURNAL_CONTAINER_DIR}",
+                f"--instance-id={instance_id}",
+                f"--deployment-id={blueprint.deployment_id}",
+                f"--profile-revision={blueprint.revision}",
+            ]
+            if self._settings.journal_max_bytes is not None:
+                extra.append(f"--journal-max-bytes={self._settings.journal_max_bytes}")
+            if self._settings.journal_quota_bytes is not None:
+                extra.append(f"--journal-quota-bytes={self._settings.journal_quota_bytes}")
+            command = command + tuple(extra)
+            mounts = (BindMount(str(journal), JOURNAL_CONTAINER_DIR),)
         publish: list[PortPublish] = []
         if blueprint.tcp is not None:
             publish.append(
@@ -147,8 +188,9 @@ class LowProfileTranslator:
         return ContainerSpec(
             name=self.container_name(blueprint.deployment_id),
             image=self._settings.image,
-            command=blueprint.command,
+            command=command,
             publish=tuple(publish),
+            mounts=mounts,
             labels=(
                 (LABEL_MANAGED, "true"),
                 (LABEL_LEVEL, "low"),
@@ -391,6 +433,7 @@ class LowDriver(Driver):
         spec = self._translator.container_spec(blueprint, instance_id)
         try:
             await self._free_slot()
+            self._prepare_journal_directory()
             try:
                 await self._backend.run(spec)
             except BackendError as error:
@@ -410,6 +453,18 @@ class LowDriver(Driver):
         self._revision = blueprint.revision
         self._detail = ""
         return self._status()
+
+    def _prepare_journal_directory(self) -> None:
+        """Создаёт каталог журнала слота. Владельца и права задаёт подготовка хоста."""
+        directory = self._translator.journal_directory(self.deployment_id)
+        if directory is None:
+            return
+        try:
+            directory.mkdir(parents=True, exist_ok=True, mode=0o750)
+        except OSError as error:
+            raise DriverError(
+                DriverErrorCode.START_FAILED, "каталог журнала недоступен для создания"
+            ) from error
 
     async def _free_slot(self) -> None:
         """Перед запуском убирает остаток прежнего запуска; чужой контейнер не трогает."""

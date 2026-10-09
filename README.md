@@ -117,6 +117,7 @@ python -m infra.vm.preflight
 - [Передача интерфейсов участникам](specs/integration-handoff.md).
 - [Серверный стенд](specs/server-checklist.md), [CI](.github/CI.md).
 - Runtime: [требования D1](specs/runtime-d1.md), [драйверы](specs/runtime-drivers.md),
+  [журнал Low для сборщика](specs/low-journal-v1.md),
   [предложения общих контрактов](specs/runtime-contract-proposal.md) (ожидают
   согласования участников 2 и 4), [подготовка runtime и Cowrie spike](infra/runtime/README.md).
 - Правила изменений, ревью и человеческого одобрения: [AGENTS.md](AGENTS.md).

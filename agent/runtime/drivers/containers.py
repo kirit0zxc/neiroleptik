@@ -15,6 +15,7 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Protocol
 
 from infra.process import BoundedRunner, CommandResult, Runner
@@ -27,6 +28,10 @@ _NETWORK = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}")
 _IMAGE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.:/@-]{0,254}")
 _LABEL_KEY = re.compile(r"[a-z0-9][a-z0-9_.-]{0,62}")
 _USER = re.compile(r"\d{1,10}:\d{1,10}")
+# Путь к каталогу хоста попадает в одно значение --mount, разобранное как CSV: запятые,
+# кавычки и "=" в нём недопустимы.
+_MOUNT_SOURCE = re.compile(r"[A-Za-z0-9_.:/\\ +@()-]{1,512}")
+_MOUNT_TARGET = re.compile(r"/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*")
 _MAX_ARGUMENT = 1024
 _MAX_LABEL_VALUE = 256
 
@@ -67,6 +72,32 @@ class PortPublish:
 
 
 @dataclass(frozen=True)
+class BindMount:
+    """Каталог хоста, доступный контейнеру на запись.
+
+    Единственный разрешённый вид монтирования: корневая файловая система остаётся только
+    для чтения, поэтому контейнер пишет лишь сюда (например, журнал для сборщика).
+    """
+
+    source: str
+    target: str
+
+    def __post_init__(self) -> None:
+        absolute = (
+            PurePosixPath(self.source).is_absolute() or PureWindowsPath(self.source).is_absolute()
+        )
+        parts = re.split(r"[\\/]", self.source)
+        if _MOUNT_SOURCE.fullmatch(self.source) is None or not absolute or ".." in parts:
+            raise ValueError("недопустимый путь каталога хоста")
+        if _MOUNT_TARGET.fullmatch(self.target) is None or ".." in self.target.split("/"):
+            raise ValueError("недопустимый путь внутри контейнера")
+
+    def argument(self) -> str:
+        """Значение docker --mount."""
+        return f"type=bind,source={self.source},target={self.target}"
+
+
+@dataclass(frozen=True)
 class ContainerSpec:
     """Запуск одного контейнера с обязательными мерами ограничения.
 
@@ -78,6 +109,7 @@ class ContainerSpec:
     image: str
     command: tuple[str, ...]
     publish: tuple[PortPublish, ...] = ()
+    mounts: tuple[BindMount, ...] = ()
     labels: tuple[tuple[str, str], ...] = ()
     network: str | None = None
     user: str = "65532:65532"
@@ -116,6 +148,9 @@ class ContainerSpec:
                 raise ValueError("недопустимый ключ метки")
             if len(value) > _MAX_LABEL_VALUE or _has_control_character(value):
                 raise ValueError("недопустимое значение метки")
+        targets = [mount.target for mount in self.mounts]
+        if len(set(targets)) != len(targets):
+            raise ValueError("цели монтирования повторяются")
         host_ports = [(item.host_ip, item.host_port) for item in self.publish]
         if len(set(host_ports)) != len(host_ports):
             raise ValueError("публикуемые порты хоста повторяются")
@@ -184,6 +219,8 @@ class DockerCli:
             argv += ["--network", spec.network]
         for item in spec.publish:
             argv += ["--publish", item.argument()]
+        for mount in spec.mounts:
+            argv += ["--mount", mount.argument()]
         for key, value in spec.labels:
             argv += ["--label", f"{key}={value}"]
         argv.append(spec.image)

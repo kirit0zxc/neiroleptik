@@ -68,3 +68,9 @@ API. Финальная демонстрация событий требует �
 В разработке frontend использует origin `http://localhost:5173`, cookie
 `hf_session`, `credentials: "include"` и CSRF из login или `/api/v1/auth/me`.
 Другой origin согласуйте и добавьте в `HF_ALLOWED_ORIGINS`.
+
+## Телеметрия участника 4: старт D1
+
+Локальная очередь SQLite WAL, адаптер Low, схемы и синтетические fixtures:
+[запуск и проверки агента](agent/README.md), [контракт](specs/events.md).
+Этот шаг проверяет сохранность событий; живые ingest/WS подключаются следующим этапом.

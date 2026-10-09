@@ -1,0 +1,124 @@
+{
+  "$defs": {
+    "RejectedEvent": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "retryable": {
+                "const": false
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "code": {
+                "enum": [
+                  "INSTANCE_NOT_REGISTERED",
+                  "TEMPORARILY_UNAVAILABLE"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "retryable": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event_id": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "code": {
+                "const": "INVALID_EVENT"
+              }
+            }
+          }
+        }
+      ],
+      "description": "Позиция связывает отказ с исходным событием даже при неразобранном ID.",
+      "properties": {
+        "index": {
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Event Id"
+        },
+        "code": {
+          "enum": [
+            "INVALID_EVENT",
+            "EVENT_ID_CONFLICT",
+            "DEPLOYMENT_MISMATCH",
+            "INSTANCE_NOT_REGISTERED",
+            "TEMPORARILY_UNAVAILABLE"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "index",
+        "event_id",
+        "code",
+        "retryable"
+      ],
+      "title": "RejectedEvent",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "batch_id": {
+      "format": "uuid",
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "accepted_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Accepted Ids",
+      "type": "array"
+    },
+    "rejected": {
+      "items": {
+        "$ref": "#/$defs/RejectedEvent"
+      },
+      "title": "Rejected",
+      "type": "array"
+    }
+  },
+  "required": [
+    "batch_id",
+    "accepted_ids",
+    "rejected"
+  ],
+  "title": "Ack",
+  "type": "object"
+}

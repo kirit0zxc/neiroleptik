@@ -25,11 +25,20 @@ Authorization: Bearer; heartbeat каждые 10 секунд. /agent/v1/config 
 
 ## Telemetry (участник 4)
 
-Идентификаторы host/deployment/profile revision уже определены. Сессии и события
-пока не добавлены: согласовать Event v1, instance_id, таблицы events/outbox,
-accepted_ids/rejected и stream_seq. Добавлять модуль внутрь backend/src/honeyforge,
+Идентификаторы host/deployment/profile revision уже определены. Подход Event v1,
+ACK и серверного outbox принят backend с уточнениями 09.10.2026:
+обязательный index каждого rejected, ровно один результат на входной элемент,
+канонизация оригинала до UI-маскирования, Bearer identity и UNIQUE в PostgreSQL.
+Локальный ACK/карантин реализуется в agent; серверные таблицы и endpoints ещё
+не добавлены. Точный контракт и сценарии сбоев — specs/events.md.
+Согласовать instance_id/lifecycle с Данилом и миграции с backend.
+Добавлять серверный модуль внутрь backend/src/honeyforge,
 использовать общие Settings, Session и отдельную агентскую авторизацию.
-Агент должен писать только за свой host/deployment. ACK после commit.
+Агент должен писать только за свой host/deployment по проверенному токену.
+ACK после commit event+outbox. Один worker атомарно пишет уникальную publication
+и processed outbox; WS, REST и watermark читают committed журнал публикаций.
+Потеря ACK после commit, конфликт среди хороших элементов, конкурентные повторы
+и сбои worker до/после commit требуют будущих PostgreSQL integration-тестов.
 
 ## Что пользователь может отправить коллегам сейчас
 

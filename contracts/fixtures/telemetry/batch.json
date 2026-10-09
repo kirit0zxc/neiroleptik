@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "batch_id": "00000000-0000-0000-0000-00000000000a",
+  "events": [
+    {
+      "schema_version": 1,
+      "event_id": "cbedf64d-96bc-5f0d-9be6-b514f8c4a543",
+      "agent_id": "00000000-0000-4000-8000-000000000001",
+      "deployment_id": "00000000-0000-4000-8000-000000000002",
+      "instance_id": "00000000-0000-4000-8000-000000000003",
+      "session_id": null,
+      "source_seq": 0,
+      "occurred_at": "2026-10-09T12:00:00Z",
+      "type": "http.request",
+      "source": {
+        "ip": "192.0.2.23",
+        "port": 51342
+      },
+      "service": {
+        "protocol": "http",
+        "port": 8080
+      },
+      "data": {
+        "method": "GET",
+        "path": "/",
+        "truncated": false
+      },
+      "artifact_ids": [],
+      "profile_revision": 1
+    }
+  ]
+}

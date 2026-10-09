@@ -50,7 +50,7 @@ export function AppShell() {
             </div>
           )}
         </header>
-        <aside className={s.side}>
+        <aside className={s.side} aria-label="Навигация и Юми">
           <nav className={s.nav} aria-label="Разделы">
             {NAV.map((n) => (
               <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => (isActive ? s.active : undefined)}>

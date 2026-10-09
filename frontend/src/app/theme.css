@@ -4,6 +4,8 @@
  * каркасный рельеф на фоне. Это единственный источник цветов, шрифтов и
  * рамок — окно маскота (--yumi-*) берёт значения отсюда же.
  */
+@import '@fontsource/pixelify-sans/cyrillic-400.css';
+@import '@fontsource/pixelify-sans/latin-400.css';
 @import '@fontsource/pixelify-sans/cyrillic-600.css';
 @import '@fontsource/pixelify-sans/latin-600.css';
 @import '@fontsource/press-start-2p/cyrillic-400.css';
@@ -27,7 +29,7 @@
   --ok: #9fe6c6;
   --warn: #ffd98a;
   --bad: #ff8fa6;
-  --idle: #77739c;
+  --idle: #8c88b8;
   --focus: #e7e4ff;
 
   /* Окно-лист: тонкая рамка, заголовок — полоска с пиксельным шрифтом. */
@@ -58,6 +60,8 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
+/* Видимая высота с учётом панелей мобильного браузера. */
+@supports (height: 100dvh) { #root { height: 100dvh; } }
 body {
   margin: 0;
   background: radial-gradient(70% 50% at 50% 20%, #15132f 0%, var(--bg) 75%) fixed, var(--bg);

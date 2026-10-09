@@ -13,7 +13,7 @@ function draw(c: HTMLCanvasElement) {
   const g = w && h ? c.getContext('2d') : null;
   if (!g) return;
   const dpr = window.devicePixelRatio || 1;
-  c.width = w * dpr; c.height = h * dpr;
+  c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
   g.scale(dpr, dpr);
   const css = getComputedStyle(c);
   g.strokeStyle = css.getPropertyValue('--terrain-line').trim() || '#b9b3ff';
@@ -45,10 +45,24 @@ export function Terrain() {
   useEffect(() => {
     const c = ref.current;
     if (!c) return;
-    const redraw = () => draw(c);
-    redraw();
+    // Перерисовка не чаще кадра; при переносе окна на экран с другой плотностью пикселей — тоже.
+    let frame = 0;
+    const redraw = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => draw(c)); };
+    let dpr: MediaQueryList | null = null;
+    const watchDpr = () => {
+      dpr?.removeEventListener('change', onDpr);
+      dpr = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      dpr.addEventListener('change', onDpr);
+    };
+    const onDpr = () => { watchDpr(); redraw(); };
+    draw(c);
+    watchDpr();
     window.addEventListener('resize', redraw);
-    return () => window.removeEventListener('resize', redraw);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', redraw);
+      dpr?.removeEventListener('change', onDpr);
+    };
   }, []);
   return (
     <div className={s.backdrop} aria-hidden="true">

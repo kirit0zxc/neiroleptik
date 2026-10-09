@@ -30,21 +30,25 @@
 .nav a:last-child { border-bottom: 0; }
 .nav a:hover { background: rgba(185, 179, 255, .1); color: var(--text); }
 .nav .active { background: var(--accent); color: var(--bg); text-shadow: none; box-shadow: 0 0 12px rgba(185, 179, 255, .35); }
-.nav .active::before { content: "♥ "; }
+.nav .active::before { content: "♥ " / ""; }
 .nav .active:hover { background: var(--accent-2); color: var(--bg); }
 .mascot { padding: 14px; }
 
 .main {
   padding: 20px; display: grid; gap: 16px; align-content: start; min-width: 0; min-height: 0; overflow: auto;
-  /* Не уходим под окно маскота, если его вынесут поверх (specs, раздел 9). */
+  /* Резерв на случай плавающего окна маскота поверх контента (specs, раздел 9). */
   padding-left: max(20px, var(--mascot-reserve));
 }
 .main h1 { margin: 0; }
 .planned { color: var(--text-dim); }
 
+/* Узкий или низкий экран: лист целиком не помещается — возвращаем прокрутку страницы. */
+@media (max-width: 860px), (max-height: 560px) {
+  .shell { height: auto; min-height: 100%; overflow: visible; padding: 8px; }
+  .main { overflow: visible; }
+}
 @media (max-width: 860px) {
-  .shell { padding: 8px; }
-  .sheet { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr); }
+  .sheet { grid-template-columns: 1fr; grid-template-rows: auto auto auto; }
   .side { border-right: 0; border-bottom: 1px solid var(--line); }
   .nav { grid-auto-flow: column; overflow-x: auto; border-bottom: 0; }
   .nav a { border-bottom: 0; border-right: 1px solid var(--line-faint); white-space: nowrap; }

@@ -21,7 +21,7 @@ export function YumiConsole() {
   return (
     <section className={s.console} aria-labelledby="yumi-console-title">
       <div className={s.consoleHead}><h2 id="yumi-console-title">Юми › анализ</h2></div>
-      <p className={s.consoleBody}>
+      <p className={s.consoleBody} tabIndex={0}>
         Здесь Юми будет разбирать атаки: стадию, что произошло и что проверить дальше.
         <span className={s.cursor} aria-hidden="true" />
       </p>

@@ -115,7 +115,8 @@ jobs:
       HF_ALLOWED_ORIGINS: '["http://localhost:5173"]'
     services:
       postgres:
-        image: postgres:17-alpine
+        # Тот же PostgreSQL 17 из официального зеркала Docker; digest закреплён.
+        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_DB: honeyforge_test
           POSTGRES_USER: honeyforge
@@ -155,7 +156,10 @@ jobs:
       - name: Integration and contract tests on PostgreSQL
         run: uv run --frozen pytest --junitxml=test-results.xml
       - name: Build runtime image
-        run: docker build --tag honeyforge-control:ci .
+        run: >-
+          docker build
+          --build-arg PYTHON_IMAGE=public.ecr.aws/docker/library/python:3.12-slim
+          --tag honeyforge-control:ci .
 
   telemetry:
     name: Agent telemetry checks

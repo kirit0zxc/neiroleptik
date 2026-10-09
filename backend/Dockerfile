@@ -1,4 +1,6 @@
-FROM python:3.12-slim
+# CI может выбрать официальное зеркало; обычная сборка сохраняет прежнюю базу.
+ARG PYTHON_IMAGE=python:3.12-slim
+FROM ${PYTHON_IMAGE}
 # Версия установщика закреплена; зависимости берутся из uv.lock.
 RUN pip install --no-cache-dir uv==0.11.28
 WORKDIR /app

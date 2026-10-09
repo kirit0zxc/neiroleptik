@@ -10,6 +10,11 @@ actionlint 1.7.12 скачивается из [официального выпу
 как Linux amd64 binary; SHA-256 архива закреплён в workflow и проверяется до
 извлечения и запуска. Так проверка workflow не зависит от Docker Hub pull limit.
 Ошибка скачивания или checksum блокирует job; проверка не пропускается.
+В CI PostgreSQL 17 и базовый Python 3.12 скачиваются из официального зеркала
+Docker в ECR Public, чтобы не обращаться к Docker Hub со shared runner.
+Для PostgreSQL закреплён digest, совпадающий с проверенным postgres:17-alpine.
+Dockerfile позволяет переопределить PYTHON_IMAGE только при сборке; его обычное
+значение остаётся python:3.12-slim. Локальный Compose и существующие серверы не меняются.
 
 ## Проверки backend
 

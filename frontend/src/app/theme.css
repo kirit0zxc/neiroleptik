@@ -61,7 +61,7 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 /* Видимая высота с учётом панелей мобильного браузера. */
-@supports (height: 100dvh) { #root { height: 100dvh; } }
+@supports (height: 100dvh) { html, body, #root { height: 100dvh; } }
 body {
   margin: 0;
   background: radial-gradient(70% 50% at 50% 20%, #15132f 0%, var(--bg) 75%) fixed, var(--bg);

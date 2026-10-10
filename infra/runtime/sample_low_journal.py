@@ -47,7 +47,7 @@ class LowSample:
             except ConnectionResetError:
                 pass
 
-    def run(self, output: Path, *, rotate: bool = False) -> SampleResult:
+    def run(self, output: Path) -> SampleResult:
         """Отказывает для занятого каталога и дожидается штатного завершения Low."""
         output = Path(output).resolve()
         if output.exists() and (not output.is_dir() or any(output.iterdir())):
@@ -71,8 +71,6 @@ class LowSample:
             f"--deployment-id={deployment}",
             "--profile-revision=1",
         ]
-        if rotate:
-            command.extend(["--journal-max-bytes=262144", "--journal-quota-bytes=2097152"])
         creation_flags = 0
         if sys.platform == "win32":
             creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -112,11 +110,6 @@ class LowSample:
             self._exchange(http, b"HEAD / HTTP/1.0\r\n\r\n")
             self._exchange(http, b"GET /probe HTTP/1.0\r\n\r\n")
             self._exchange(http, b"GET / HTTP/1.0\r\nX-Payload: " + b"x" * 2500)
-            if rotate:
-                # Синтетические усечённые запросы заполняют минимальный файл журнала;
-                # следующий header получает новый journal_id и больший journal_seq.
-                for _ in range(160):
-                    self._exchange(http, b"POST /rotation HTTP/1.0\r\nX-Payload: " + b"r" * 2500)
             try:
                 if sys.platform == "win32":
                     process.send_signal(signal.CTRL_BREAK_EVENT)
@@ -134,7 +127,6 @@ class LowSample:
                 tuple(sorted(output.glob("low-*.jsonl"))),
                 instance,
                 deployment,
-                connections=167 if rotate else 7,
             )
             if result.return_code != 0:
                 raise RuntimeError("Low завершился с ошибкой")
@@ -147,19 +139,18 @@ class LowSample:
             process.stderr.close()
 
 
-def run_sample(output: Path, *, rotate: bool = False) -> SampleResult:
+def run_sample(output: Path) -> SampleResult:
     """Точка входа для локального smoke и тестов."""
-    return LowSample().run(output, rotate=rotate)
+    return LowSample().run(output)
 
 
 def main() -> None:
     """Создаёт образец только в явно указанном каталоге."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--rotate", action="store_true", help="Создать реальные файлы ротации")
     args = parser.parse_args()
     try:
-        result = run_sample(args.output, rotate=args.rotate)
+        result = run_sample(args.output)
     except (ValueError, RuntimeError) as error:
         parser.exit(1, str(error) + "\n")
     print(json.dumps(asdict(result), default=str, ensure_ascii=False))

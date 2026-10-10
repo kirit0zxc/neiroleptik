@@ -37,7 +37,9 @@ export function EventsPage() {
   const buffer = useRef(new FeedBuffer());
   const [, rerender] = useState(0);
   const [resyncing, setResyncing] = useState(false);
-  const [resyncError, setResyncError] = useState<string | null>(null);
+  // Ошибка хранит режим запроса: повтор восстановления курсора не должен
+  // превращаться в полный сброс live и очереди паузы.
+  const [resyncError, setResyncError] = useState<{ message: string; keepWindow: boolean } | null>(null);
   const refresh = () => rerender((n) => n + 1);
 
   // Новая выборка не наследует live и pending предыдущих фильтров.
@@ -69,7 +71,7 @@ export function EventsPage() {
       if (!keepWindow) buffer.current.loadPage([], false);
       await pages.refetch({ throwOnError: true });
     } catch (err) {
-      setResyncError(err instanceof Error ? err.message : 'Не удалось обновить историю');
+      setResyncError({ message: err instanceof Error ? err.message : 'Не удалось обновить историю', keepWindow });
       throw err;
     } finally {
       setResyncing(false);
@@ -141,9 +143,9 @@ export function EventsPage() {
           <button className={ui.button} disabled={resyncing} onClick={recoverOverflow}>Обновить историю</button>
         </p>}
         {restarted && <p role="status">Список событий обновлён — загружен заново.</p>}
-        {resyncError && <ErrorState message={resyncError} onRetry={recoverOverflow} />}
+        {resyncError && <ErrorState message={resyncError.message} onRetry={() => void reloadHistoryWith(resyncError.keepWindow).catch(() => {})} />}
         {pages.isPending || resyncing ? <Loading what="события" />
-          : pages.isError ? <ErrorState message={pages.error.message} onRetry={() => void pages.refetch()} />
+          : pages.isError ? (resyncError ? null : <ErrorState message={pages.error.message} onRetry={() => void pages.refetch()} />)
           : !b.events.length ? <Empty>{key ? 'Под фильтры ничего не подходит.' : 'Событий пока нет — ловушки ждут гостей.'}</Empty>
           : (
             <table className={ui.table}>

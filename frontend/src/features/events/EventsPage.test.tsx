@@ -287,3 +287,24 @@ describe('живая лента (F10–F12)', () => {
     } finally { release(); }
   });
 });
+it('повтор после 422 и ошибки REST сохраняет очередь паузы', async () => {
+  vi.stubEnv('VITE_API_MOCK','1'); resetMockSession(true);
+  const pending=ev('review-retry'); let expired=false; let fail=true;
+  server.use(http.get('/api/v1/events',({request})=>{
+    if(new URL(request.url).searchParams.has('cursor')) {expired=true;return HttpResponse.json({detail:'expired'},{status:422});}
+    if(expired && fail) return HttpResponse.json({detail:'temporary recovery error'},{status:503});
+    return HttpResponse.json({items:expired?[pending,ev('old')]:[ev('old')],next_cursor:'expired'});
+  }));
+  const s=controlledStream(); const user=userEvent.setup();const client=makeQueryClient();client.setDefaultOptions({queries:{retry:false}});
+  window.history.pushState({},'','/events');render(<App client={client} createStream={s.create}/>);
+  await screen.findByText('онлайн');await screen.findByText('cmd-old');
+  await user.click(screen.getByRole('button',{name:'⏸ Пауза'}));s.send(pending);
+  expect(screen.getByRole('button',{name:'1 новых — показать'})).toBeInTheDocument();
+  await user.click(screen.getByRole('button',{name:'Показать ещё'}));
+  await waitFor(()=>expect(screen.getAllByRole('button',{name:'Повторить'})).toHaveLength(1));
+  expect(screen.getByRole('button',{name:'1 новых — показать'})).toBeInTheDocument();
+  fail=false;await user.click(screen.getAllByRole('button',{name:'Повторить'})[0]!);
+  await waitFor(()=>expect(screen.queryAllByRole('button',{name:'Повторить'})).toHaveLength(0));
+  expect(screen.queryByText('cmd-review-retry')).toBeNull();
+  expect(screen.getByRole('button',{name:'1 новых — показать'})).toBeInTheDocument();
+});

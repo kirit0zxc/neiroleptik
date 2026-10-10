@@ -95,14 +95,18 @@ export class ReplayTape {
           // ведущий `\r` — это ещё одно нажатие Enter, его не трогаем.
           if (text[0] === '\n') text = text.slice(1);
           this.skipLf = false;
-        } else {
-          // Другое направление — эхо нажатия (`\r\n`, возможно разрезанное между
-          // чанками). Поглощаем ведущий `\r`, затем ведущий `\n`; одинокий `\r`
-          // оставляет ожидание `\n` следующего чанка эха.
+        } else if (this.skipLfDir === 'in' && c.direction === 'out') {
+          // Эхо нажатия Enter: `\r` пришёл из ввода (in), центр отвечает `\r\n`
+          // в выводе (out), возможно разрезанным между чанками. Поглощаем ведущий
+          // `\r`, затем `\n`; одинокий `\r` оставляет ожидание `\n` следующего чанка.
           let consumedCr = false;
           if (text[0] === '\r') { text = text.slice(1); consumedCr = true; }
           if (text[0] === '\n') { text = text.slice(1); this.skipLf = false; }
           else if (!consumedCr || text.length > 0) this.skipLf = false;
+        } else {
+          // Вывод (out) закончился `\r`, а дальше ввод (in) — это НЕ эхо, а новое
+          // нажатие: ничего не поглощаем, иначе потеряли бы перевод строки.
+          this.skipLf = false;
         }
       }
       const cut = this.holdBack(text);

@@ -17,9 +17,17 @@ export class ReplayClock {
    * не копит реальное время и при приходе данных запись не прыгает вперёд.
    */
   private held = false;
+  /** Завершена ли запись (последнее известное значение) — чтобы seek/setSpeed/play
+   *  знали, нужно ли замораживаться у живого края без аргумента `complete`. */
+  private complete = false;
   speed: Speed = 1;
 
   get playing() { return this.startedAt !== null; }
+
+  /** Остаться у живого края замороженными: играем, запись идёт, и мы на краю. */
+  private freezeAtLiveEdge(duration: number) {
+    this.held = this.playing && !this.complete && this.base >= duration;
+  }
 
   position(now: number, duration: number): number {
     const raw = this.startedAt === null || this.held
@@ -35,6 +43,7 @@ export class ReplayClock {
    * снимается и воспроизведение продолжается от прежней позиции — плавно, без скачка.
    */
   tick(now: number, duration: number, complete = true) {
+    this.complete = complete;
     if (!this.playing) return;
     const pos = this.position(now, duration);
     if (pos < duration) {
@@ -50,10 +59,11 @@ export class ReplayClock {
   /** `complete=false` — запись идёт: с конца не прыгаем в начало, ждём новых данных. */
   play(now: number, duration: number, complete = true) {
     if (this.playing) return;
+    this.complete = complete;
     // Из конца завершённой записи — с начала, как у обычного проигрывателя.
     if (complete && this.base >= duration) this.base = 0;
     this.startedAt = now;
-    this.held = false;
+    this.freezeAtLiveEdge(duration);
   }
 
   pause(now: number, duration: number) {
@@ -65,14 +75,16 @@ export class ReplayClock {
   seek(ms: number, now: number, duration: number) {
     this.base = Math.min(Math.max(ms, 0), duration);
     if (this.playing) this.startedAt = now;
-    this.held = false;
+    // Перемотка в конец живой записи — остаёмся замороженными у края; в середину — играем.
+    this.freezeAtLiveEdge(duration);
   }
 
   setSpeed(speed: Speed, now: number, duration: number) {
     this.base = this.position(now, duration);
     if (this.playing) this.startedAt = now;
-    this.held = false;
     this.speed = speed;
+    // Смена скорости у живого края не снимает заморозку: простой не должен копить время.
+    this.freezeAtLiveEdge(duration);
   }
 }
 

@@ -126,6 +126,15 @@ describe('Replay: Enter атакующего', () => {
     expect(textOf(split)).toBe(textOf(together));
   });
 
+  it('Enter во вводе после вывода с \\r не считается эхом — перевод строки не теряется', () => {
+    // Вывод ловушки закончился возвратом каретки, затем атакующий нажал Enter.
+    const split = new ReplayTape();
+    split.append([chunk('out', 'prompt\r'), chunk('in', '\r')]);
+    split.finish();
+    // И вывод, и нажатие дают свой перевод строки; ни один не съеден как «эхо».
+    expect(textOf(split)).toBe('prompt\n\n');
+  });
+
   it('эхо CRLF в out, разрезанное между чанками, даёт один перевод (как слитное)', () => {
     // Enter в in, затем эхо центра CRLF, разрезанное на два out-чанка.
     seq = 0;

@@ -50,12 +50,22 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (res.status === 401 && !path.startsWith('/api/v1/auth/login')) onUnauthorized();
   if (!res.ok) throw await errorFrom(res);
   if (res.status === 204) return undefined as T;
-  // Обрыв или порча тела успешного ответа: сервер мог выполнить запрос (например,
-  // принять команду), но ответ потерян — результат неизвестен, как при сбое сети.
+  // Обрыв тела успешного ответа: сервер мог выполнить запрос (например, принять
+  // команду), но ответ потерян — результат неизвестен, как при сбое сети.
+  let text: string;
   try {
-    return (await res.json()) as T;
+    text = await res.text();
   } catch {
     throw new ApiError(0, 'Ответ сервера получен не полностью — результат неизвестен');
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // Тело получено целиком, но это не JSON. Изменяющий запрос мог выполниться —
+    // результат неизвестен; чтение (например, страница прокси вместо API) —
+    // отказ, а не бесконечный повтор.
+    if (UNSAFE.has(method)) throw new ApiError(0, 'Ответ сервера получен не полностью — результат неизвестен');
+    throw new ApiError(res.status, 'Сервер вернул непонятный ответ', [], 'BAD_RESPONSE');
   }
 }
 

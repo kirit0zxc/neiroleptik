@@ -1,28 +1,21 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { api, ApiError } from '../../shared/api/client';
+import { ApiError } from '../../shared/api/client';
 import type { Deployment } from '../../shared/api/types';
 import { StatusBadge, ui, WindowTitle, type Tone } from '../../shared/ui';
 import { availableCommands, COMMAND_LABEL, commandRejectText, CONFIRM, jobLabel, type Command } from './commands';
+import { useOperation } from './operations';
 import { transient, useJob } from './useJob';
 import s from './fleet.module.css';
 
 /**
- * Действие пользователя: команда, ключ идемпотентности и поколение, по
- * которому он видел ловушку. Ключ создаётся один раз на действие и
- * повторяется при повторной отправке после сбоя (specs, «Команды ловушки»).
- */
-interface Action { command: Command; key: string; generation: number }
-
-/**
  * Команды одной ловушки (F6): кнопки по состоянию, подтверждение опасных,
- * ход задания до итога, понятные отказы. Кнопки видит только operator/admin —
- * это решает парк.
+ * ход задания до итога, понятные отказы. Сама операция (действие, ключ,
+ * задание) живёт в хранилище Operations — строка только показывает её.
+ * Кнопки видит только operator/admin — это решает парк.
  */
 export function DeploymentActions({ deployment }: { deployment: Deployment }) {
-  const qc = useQueryClient();
-  const [action, setAction] = useState<Action | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [op, ops] = useOperation(deployment.id);
+  const { action, jobId, sending, error } = op;
   const [confirm, setConfirm] = useState<Command | null>(null);
   const status = useRef<HTMLSpanElement>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
@@ -35,29 +28,17 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
     setFocusStatus(false);
   }, [focusStatus, confirm]);
 
-  const send = useMutation({
-    mutationFn: (a: Action) => api<{ job_id: string }>(
-      `/api/v1/deployments/${encodeURIComponent(deployment.id)}/commands`,
-      { method: 'POST', body: JSON.stringify({ command: a.command, idempotency_key: a.key, expected_generation: a.generation }) },
-    ),
-    onSuccess: (r) => setJobId(r.job_id),
-    // Отказ центра (409) — данные устарели или изменились: перечитываем парк.
-    onError: (e) => { if (e instanceof ApiError && e.status === 409) void qc.invalidateQueries({ queryKey: ['deployments'] }); },
-  });
-
   const { job, finished, polling } = useJob(jobId);
   // Задание завершилось — следующее нажатие будет новым действием с новым ключом.
-  useEffect(() => { if (finished) setAction(null); }, [finished]);
+  useEffect(() => { if (finished) ops.finish(deployment.id); }, [finished, ops, deployment.id]);
 
-  // Неотправленная команда (нет связи) ждёт «Повторить»: другие команды до
-  // этого неактивны, иначе за возможно созданным заданием никто не следил бы.
-  const unsent = transient(send.error) && !!action;
-  const busy = send.isPending || (!!jobId && !finished) || unsent;
+  // Неотправленная команда (нет связи или результат неизвестен) ждёт
+  // «Повторить»: другие команды до этого неактивны, иначе за возможно
+  // созданным заданием никто не следил бы.
+  const unsent = transient(error) && !!action;
+  const busy = sending || (!!jobId && !finished) || unsent;
   const start = (command: Command) => {
-    const next = { command, key: crypto.randomUUID(), generation: deployment.generation };
-    setAction(next);
-    setJobId(null);
-    send.mutate(next);
+    ops.begin(deployment.id, command, deployment.generation);
     // Нажатая кнопка сейчас станет неактивной — фокус переходит к ходу задания.
     setFocusStatus(true);
   };
@@ -68,7 +49,7 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
   };
 
   const commands = availableCommands(deployment);
-  const stale = send.error instanceof ApiError && send.error.code === 'STALE_GENERATION';
+  const stale = error instanceof ApiError && error.code === 'STALE_GENERATION';
   // После STALE_GENERATION повторяем новым действием, когда парк перечитан
   // (поколение сменилось) и команда всё ещё доступна.
   const reread = stale && !!action && deployment.generation !== action.generation;
@@ -93,14 +74,15 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
       <span role="status" ref={status} tabIndex={-1}>
         {progress && <StatusBadge tone={progress.tone}>{progress.text}</StatusBadge>}
       </span>
-      {send.error && !send.isPending && (
+      {!!error && !sending && (
         <span role="alert" className={s.err}>
-          {commandRejectText(send.error)}
+          {commandRejectText(error)}
           {unsent && (
             <>
-              {' '}<button className={`${ui.button} ${s.small}`} onClick={() => { send.mutate(action!); setFocusStatus(true); }}>Повторить</button>
+              {' Повтор безопасен: вторая команда не создастся.'}
+              {' '}<button className={`${ui.button} ${s.small}`} onClick={() => { ops.retry(deployment.id); setFocusStatus(true); }}>Повторить</button>
               {/* Выход без перезагрузки, если сбой не проходит; парк покажет, дошла ли команда. */}
-              {' '}<button className={`${ui.button} ${s.small}`} onClick={() => { send.reset(); setAction(null); void qc.invalidateQueries({ queryKey: ['deployments'] }); }}>Отменить</button>
+              {' '}<button className={`${ui.button} ${s.small}`} onClick={() => ops.cancel(deployment.id)}>Отменить</button>
             </>
           )}
           {staleRetry && (

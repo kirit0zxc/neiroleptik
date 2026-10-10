@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
@@ -29,6 +29,10 @@ const recordCommands = (into: Sent[]) => http.post('/api/v1/deployments/:id/comm
   into.push({ ...b, csrf: request.headers.get('X-CSRF-Token') });
   return undefined;
 });
+/** Ответ, чьё тело обрывается посреди передачи (ошибка потока), как при потере связи. */
+const broken = (status: number, partial: string) => new HttpResponse(new ReadableStream({
+  start(c) { c.enqueue(new TextEncoder().encode(partial)); c.error(new Error('обрыв соединения')); },
+}), { status, headers: { 'Content-Type': 'application/json' } });
 const job = (patch: Record<string, unknown>) => ({
   job_id: 'job-1', deployment_id: 'decoy-high-01', command: 'start', state: 'requested', error: null,
   error_code: null, generation: 3, created_at: '2026-10-10T00:00:00Z', completed_at: null, ...patch,
@@ -111,7 +115,7 @@ describe('команды ловушек на API (F6)', () => {
         sent.push({ ...b, csrf: request.headers.get('X-CSRF-Token') });
         if (!created.has(b.idempotency_key)) created.set(b.idempotency_key, `job-${created.size + 1}`);
         // Сервер принял команду, но тело ответа оборвалось.
-        if (truncate) { truncate = false; return new HttpResponse('{"job_id":"job-', { status: 202, headers: { 'Content-Type': 'application/json' } }); }
+        if (truncate) { truncate = false; return broken(202, '{"job_id":"job-'); }
         return HttpResponse.json({ job_id: created.get(b.idempotency_key) }, { status: 202 });
       }),
       http.get('/api/v1/jobs/:id', ({ params }) => HttpResponse.json(job({ job_id: params.id, state: 'succeeded' }))),
@@ -120,7 +124,8 @@ describe('команды ловушек на API (F6)', () => {
     const high = await row('decoy-high-01');
     await user.click(within(high).getByRole('button', { name: 'Запустить' }));
     const alert = await within(high).findByRole('alert');
-    expect(alert).not.toHaveTextContent('Команда не отправлена');
+    expect(alert).toHaveTextContent('Ответ сервера получен не полностью — результат неизвестен');
+    expect(alert).toHaveTextContent('Повтор безопасен');
     await user.click(within(alert).getByRole('button', { name: 'Повторить' }));
     await within(high).findByText('Запустить: успешно');
     expect(sent).toHaveLength(2);
@@ -132,7 +137,7 @@ describe('команды ловушек на API (F6)', () => {
     const user = userEvent.setup();
     let truncated = 2;
     server.use(http.get('/api/v1/jobs/:id', () => {
-      if (truncated > 0) { truncated -= 1; return new HttpResponse('{"state":"runn', { status: 200, headers: { 'Content-Type': 'application/json' } }); }
+      if (truncated > 0) { truncated -= 1; return broken(200, '{"state":"runn'); }
       return undefined;
     }));
     open();
@@ -144,34 +149,104 @@ describe('команды ловушек на API (F6)', () => {
     await within(low).findByText('Остановить: успешно', {}, { timeout: 12_000 });
   }, 20_000);
 
-  it('PR #12: сбой обновления списка ловушек не теряет идущую команду', async () => {
+  it('PR #12: сбой обновления списка — таблица и ход задания на месте, «Повторить» обновляет список', async () => {
     const user = userEvent.setup();
     let failList = false;
-    server.use(http.get('/api/v1/deployments', () => (failList ? HttpResponse.error() : undefined)));
+    let jobState = 'running';
+    server.use(
+      http.get('/api/v1/deployments', () => (failList ? HttpResponse.error() : undefined)),
+      http.post('/api/v1/deployments/:id/commands', () => HttpResponse.json({ job_id: 'job-1' }, { status: 202 })),
+      http.get('/api/v1/jobs/:id', () => HttpResponse.json(job({ deployment_id: 'decoy-low-01', command: 'stop', state: jobState }))),
+    );
     const client = makeQueryClient();
     window.history.pushState({}, '', '/fleet');
     render(<App client={client} />);
     const low = await row('decoy-low-01');
     await user.click(within(low).getByRole('button', { name: 'Остановить' }));
     await user.click(await confirmDialog());
-    await within(low).findByText(/Остановить: (ожидает|выполняется)/);
+    await within(low).findByText('Остановить: выполняется');
 
-    // Обновление списка падает: таблица и ход задания остаются на месте.
+    // Обновление списка падает (после повторов клиента): таблица и ход задания остаются.
     failList = true;
     await client.refetchQueries({ queryKey: ['deployments'] });
-    expect(await screen.findByText(/Не удалось обновить список ловушек/)).toBeInTheDocument();
-    const still = await row('decoy-low-01');
-    expect(within(still).getByText(/Остановить: /)).toBeInTheDocument();
+    const warning = await screen.findByText(/Не удалось обновить список ловушек/);
+    expect(within(await row('decoy-low-01')).getByText('Остановить: выполняется')).toBeInTheDocument();
 
-    // Связь вернулась — наблюдение за тем же заданием дошло до итога, а
-    // «Повторить» в предупреждении обновляет список.
+    // Связь вернулась: «Повторить» в предупреждении обновляет список, задание доходит до итога.
     failList = false;
-    await within(still).findByText('Остановить: успешно', {}, JOB_WAIT);
-    const warning = screen.queryByText(/Не удалось обновить список ловушек/);
-    if (warning) await user.click(within(warning).getByRole('button', { name: 'Повторить' }));
-    expect(await within(await row('decoy-low-01')).findByText('остановлена')).toBeInTheDocument();
-    expect(screen.queryByText(/Не удалось обновить список ловушек/)).toBeNull();
+    await user.click(within(warning).getByRole('button', { name: 'Повторить' }));
+    await waitFor(() => expect(screen.queryByText(/Не удалось обновить список ловушек/)).toBeNull());
+    jobState = 'succeeded';
+    await within(await row('decoy-low-01')).findByText('Остановить: успешно', {}, JOB_WAIT);
   }, 20_000);
+
+  it('PR #12: ключ повтора переживает сбой списка и исчезновение строки', async () => {
+    const user = userEvent.setup();
+    const sent: Sent[] = [];
+    let fail = true;
+    let hideRow = false;
+    server.use(
+      http.post('/api/v1/deployments/:id/commands', async ({ request }) => {
+        sent.push({ ...((await request.json()) as Omit<Sent, 'csrf'>), csrf: null });
+        if (fail) { fail = false; return HttpResponse.json({ detail: 'Ошибка сервера' }, { status: 500 }); }
+        return HttpResponse.json({ job_id: 'job-1' }, { status: 202 });
+      }),
+      http.get('/api/v1/deployments', () => (hideRow ? HttpResponse.json([]) : undefined)),
+      http.get('/api/v1/jobs/:id', () => HttpResponse.json(job({ state: 'succeeded' }))),
+    );
+    const client = makeQueryClient();
+    window.history.pushState({}, '', '/fleet');
+    render(<App client={client} />);
+    await user.click(within(await row('decoy-high-01')).getByRole('button', { name: 'Запустить' }));
+    await within(await row('decoy-high-01')).findByRole('alert');
+
+    // Список временно пришёл без ловушки — строка исчезла вместе с компонентом.
+    hideRow = true;
+    await client.refetchQueries({ queryKey: ['deployments'] });
+    expect(await screen.findByText('Ловушек пока нет.')).toBeInTheDocument();
+    // Ловушка снова в списке: операция и ключ на месте.
+    hideRow = false;
+    await client.refetchQueries({ queryKey: ['deployments'] });
+    const alert = await within(await row('decoy-high-01')).findByRole('alert');
+    await user.click(within(alert).getByRole('button', { name: 'Повторить' }));
+    await within(await row('decoy-high-01')).findByText('Запустить: успешно');
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toEqual(sent[0]);
+  });
+
+  it('PR #12: уход со страницы парка и возврат не теряют задание', async () => {
+    const user = userEvent.setup();
+    let jobState = 'running';
+    server.use(
+      http.post('/api/v1/deployments/:id/commands', () => HttpResponse.json({ job_id: 'job-1' }, { status: 202 })),
+      http.get('/api/v1/jobs/:id', () => HttpResponse.json(job({ deployment_id: 'decoy-low-01', command: 'stop', state: jobState }))),
+    );
+    open();
+    const low = await row('decoy-low-01');
+    await user.click(within(low).getByRole('button', { name: 'Остановить' }));
+    await user.click(await confirmDialog());
+    await within(low).findByText('Остановить: выполняется');
+    await user.click(screen.getByRole('link', { name: 'Профили' }));
+    await screen.findByRole('heading', { name: 'Профили ловушек' });
+    jobState = 'succeeded';
+    await user.click(screen.getByRole('link', { name: 'Парк' }));
+    await within(await row('decoy-low-01')).findByText('Остановить: успешно', {}, JOB_WAIT);
+  }, 15_000);
+
+  it('ответ задания — полная страница не-JSON (прокси): отказ, а не вечное «нет связи»', async () => {
+    const user = userEvent.setup();
+    let polls = 0;
+    server.use(http.get('/api/v1/jobs/:id', () => {
+      polls += 1;
+      return new HttpResponse('<!doctype html><title>прокси</title>', { status: 200, headers: { 'Content-Type': 'text/html' } });
+    }));
+    open();
+    const high = await row('decoy-high-01');
+    await user.click(within(high).getByRole('button', { name: 'Запустить' }));
+    expect(await within(high).findByText('не удалось проверить задание: Сервер вернул непонятный ответ')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(polls).toBe(1);
+  }, 10_000);
 
   it('постоянный сбой отправки: «Отменить» снимает блокировку без перезагрузки', async () => {
     const user = userEvent.setup();

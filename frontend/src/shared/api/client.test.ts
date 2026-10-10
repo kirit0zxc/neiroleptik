@@ -31,12 +31,25 @@ describe('API-клиент (раздел 4)', () => {
     expect((err as ApiError).message).toBe('Профиль уже изменён: перечитайте текущую версию');
   });
 
+/** Ответ, чьё тело обрывается посреди передачи (ошибка потока), как при потере связи. */
+const broken = (status: number, partial: string) => new HttpResponse(new ReadableStream({
+  start(c) { c.enqueue(new TextEncoder().encode(partial)); c.error(new Error('обрыв соединения')); },
+}), { status, headers: { 'Content-Type': 'application/json' } });
   it('обрыв тела успешного ответа — неопределённый результат (статус 0), а не обычная ошибка', async () => {
-    server.use(http.post('/t', () => new HttpResponse('{"job_id":"j', { status: 202, headers: { 'Content-Type': 'application/json' } })));
+    server.use(http.post('/t', () => broken(202, '{"job_id":"j')));
     const err = await api('/t', { method: 'POST', body: '{}' }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).status).toBe(0);
     expect((err as ApiError).message).toBe('Ответ сервера получен не полностью — результат неизвестен');
+  });
+
+  it('полное тело не в JSON: изменяющий запрос — результат неизвестен, чтение — отказ BAD_RESPONSE', async () => {
+    const html = () => new HttpResponse('<!doctype html><title>прокси</title>', { status: 200, headers: { 'Content-Type': 'text/html' } });
+    server.use(http.post('/h', html), http.get('/h', html));
+    const write = await api('/h', { method: 'POST', body: '{}' }).catch((e: unknown) => e) as ApiError;
+    expect(write.status).toBe(0);
+    const read = await api('/h').catch((e: unknown) => e) as ApiError;
+    expect(read).toMatchObject({ status: 200, code: 'BAD_RESPONSE', message: 'Сервер вернул непонятный ответ' });
   });
 
   it('код ошибки из ErrorResponse.code сохраняется для логики экрана', async () => {

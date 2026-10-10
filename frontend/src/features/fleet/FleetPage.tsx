@@ -81,8 +81,9 @@ export function FleetPage() {
 /** Предупреждение поверх последних загруженных данных: обновить не удалось. */
 function Stale({ what, message, onRetry }: { what: string; message: string; onRetry: () => void }) {
   return (
-    <p role="alert" className={s.stale}>
-      Не удалось обновить список {what}: {message}. Показаны последние данные.{' '}
+    // status, а не alert: при «мигающей» связи читалка не будет перебивать работу.
+    <p role="status" className={s.stale}>
+      Не удалось обновить список {what}: {message.replace(/[.s]+$/, '')}. Показаны последние данные.{' '}
       <button className={`${ui.button} ${s.small}`} onClick={onRetry}>Повторить</button>
     </p>
   );

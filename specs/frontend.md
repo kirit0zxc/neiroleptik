@@ -694,9 +694,15 @@ E2E — отдельной задачей интеграции.
 | `stream:restored` | поток | — | welcome | «Связь вернулась, пропущенное догрузила.» |
 | `attack:connect` | поток | `ip`, `protocol` | curious | «Новое подключение с <ip> по <protocol>.» |
 | `attack:auth` | поток | `ip`, `username`, `success` | analyzing / excited | «<ip> пробует войти как <username>.» / «<ip> вошёл как <username>!» |
-| `attack:command` | поток | `ip`, `command` | analyzing | «<ip> выполняет: <команда>» |
+| `attack:command` | поток | `ip`, `command`, `truncated` | analyzing | «<ip> выполняет: <команда>» |
 | `token:triggered` | поток | `ip` | error | «Сработал медовый токен! Источник <ip>.» |
 | `trap:offline` | поток | — | gentle | «Одна из ловушек остановилась.» |
+
+Поля payload событий атак берутся из EventV1 по согласованному списку
+(`specs/events.md`, «Поля, которые читает frontend»): `ip` — `source.ip`,
+`protocol` — `service.protocol`, `username` и `success` — `data` события
+`auth.attempt`, `command` — `data.input` события `session.command`;
+`data.truncated: true` (ввод урезан сервером) — реплика заканчивается «…».
 
 Неизвестное событие Юми игнорирует. Реплики строятся из полей payload
 после нормализации модуля (`NormalizedPayload`) — мусорные поля не роняют

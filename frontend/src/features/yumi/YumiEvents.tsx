@@ -4,15 +4,22 @@ import { onMascotEvent, type MascotSignal } from '../../shared/mascot-slot/masco
 import { useStreamStatus } from '../../shared/stream/stream';
 import { useYumi } from './yumi';
 
-/** Поля события потока, нужные репликам Юми; остальное ей не передаём. */
-export function attackPayload(signal: MascotSignal, e: Pick<HfEvent, 'source' | 'service' | 'data'>) {
+/**
+ * Поля события потока, нужные репликам Юми; остальное ей не передаём.
+ * Имена полей `data` — по согласованному списку (specs/events.md): команда
+ * атакующего — `session.command` → `data.input`.
+ */
+export function attackPayload(signal: MascotSignal, e: Pick<HfEvent, 'type' | 'source' | 'service' | 'data'>) {
   const data = e.data;
+  const isCommand = signal === 'attack:command' && e.type === 'session.command';
   return {
     ip: e.source.ip,
     protocol: e.service.protocol,
     username: typeof data.username === 'string' ? data.username : '',
     success: data.success === true,
-    command: signal === 'attack:command' && typeof data.command === 'string' ? data.command : '',
+    command: isCommand && typeof data.input === 'string' ? data.input : '',
+    // Сервер уже урезал ввод — реплика это показывает, даже если текст короткий.
+    truncated: isCommand && data.truncated === true,
   };
 }
 

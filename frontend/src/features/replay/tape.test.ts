@@ -93,11 +93,75 @@ describe('Replay: безопасность (S2)', () => {
 });
 
 describe('Replay: Enter атакующего', () => {
+  it.each([
+    ['\r\r\nroot'],
+    ['\r', '\r\nroot'],
+    ['\r\r', '\nroot'],
+    ['\r', '\r', '\nroot'],
+    ['\r', '', '\r', '\n', 'root'],
+  ])('сохраняет дополнительный перевод строки после эха: %j', (...parts) => {
+    const tape = new ReplayTape();
+    tape.append([chunk('in', 'cmd\r')]);
+    // Разные страницы и границы чанков не должны менять записанный текст.
+    for (const part of parts) tape.append([chunk('out', part)]);
+    tape.finish();
+    expect(textOf(tape)).toBe('cmd\n\nroot');
+  });
+
   it('\r в конце чанка виден сразу, \n следующего чанка не удваивает строку', () => {
     const tape = new ReplayTape();
     tape.append([chunk('in', 'whoami\r')]);
     expect(textOf(tape)).toBe('whoami\n');
     tape.append([chunk('in', '\nls')]);
     expect(textOf(tape)).toBe('whoami\nls');
+  });
+
+  it('эхо Enter в out (\\r\\n) не даёт лишней пустой строки после команды', () => {
+    const tape = new ReplayTape();
+    // Ввод 'whoami' + Enter, затем эхо центра: CRLF и результат в out.
+    tape.append([chunk('in', 'whoami\r'), chunk('out', '\r\nroot\r\n')]);
+    tape.finish();
+    // Между командой и выводом ровно один перевод строки, не два.
+    expect(textOf(tape)).toBe('whoami\nroot\n');
+    expect(textOf(tape)).not.toContain('\n\n');
+  });
+
+  it('повторный Enter не теряется и не зависит от разбиения на чанки', () => {
+    // Два Enter отдельными чанками (одно направление — ввод).
+    const split = new ReplayTape();
+    split.append([chunk('in', '\r'), chunk('in', '\r')]);
+    split.finish();
+    // Одним чанком.
+    seq = 0;
+    const together = new ReplayTape();
+    together.append([chunk('in', '\r\r')]);
+    together.finish();
+    // Оба нажатия сохранены, и разбиение на чанки не влияет на результат.
+    expect(textOf(split)).toBe('\n\n');
+    expect(textOf(split)).toBe(textOf(together));
+  });
+
+  it('Enter во вводе после вывода с \\r не считается эхом — перевод строки не теряется', () => {
+    // Вывод ловушки закончился возвратом каретки, затем атакующий нажал Enter.
+    const split = new ReplayTape();
+    split.append([chunk('out', 'prompt\r'), chunk('in', '\r')]);
+    split.finish();
+    // И вывод, и нажатие дают свой перевод строки; ни один не съеден как «эхо».
+    expect(textOf(split)).toBe('prompt\n\n');
+  });
+
+  it('эхо CRLF в out, разрезанное между чанками, даёт один перевод (как слитное)', () => {
+    // Enter в in, затем эхо центра CRLF, разрезанное на два out-чанка.
+    seq = 0;
+    const split = new ReplayTape();
+    split.append([chunk('in', 'cmd\r'), chunk('out', '\r'), chunk('out', '\nroot')]);
+    split.finish();
+    // То же эхо одним чанком.
+    seq = 0;
+    const together = new ReplayTape();
+    together.append([chunk('in', 'cmd\r'), chunk('out', '\r\nroot')]);
+    together.finish();
+    expect(textOf(split)).toBe('cmd\nroot');
+    expect(textOf(split)).toBe(textOf(together));
   });
 });

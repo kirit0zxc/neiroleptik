@@ -125,6 +125,11 @@ export class ReplayLoader {
         return;
       }
       // Запись идёт: хвост с tail_cursor (null — без after; повторы seq лента пропустит).
+      // Живой хвост двигается: если позже tail_cursor снова устареет (сервер
+      // обрезал историю), разрешаем ещё одно перечитывание с начала. Защита от
+      // зацикливания сохраняется: повторный 422 без прогресса (на пагинации
+      // next_cursor) по-прежнему один раз на запуск.
+      restarted = false;
       this.after = page.tail_cursor;
       this.set({ startedAt: page.started_at });
       await this.wait(TAIL_MS);

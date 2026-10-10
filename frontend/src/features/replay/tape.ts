@@ -53,8 +53,17 @@ export class ReplayTape {
   /** Хвост, который нельзя показывать до следующего чанка: начало ESC-последовательности. */
   private readonly carry: Record<Direction, string> = { in: '', out: '' };
   private readonly last: Record<Direction, { seq: number; offsetMs: number } | null> = { in: null, out: null };
-  /** Чанк закончился на CR: ведущий LF следующего чанка — та же пара CRLF. */
-  private readonly skipLf: Record<Direction, boolean> = { in: false, out: false };
+  /**
+   * Предыдущий показанный фрагмент закончился на CR (Enter атакующего), и в
+   * каком направлении. Различие важно: эхо нажатия приходит в ДРУГОМ
+   * направлении (`out`) как `\r\n` — это один перевод строки, его ведущий
+   * `\r`/`\n` (в т. ч. разрезанный между чанками) поглощается, чтобы не было
+   * лишней пустой строки. А повторный Enter приходит в ТОМ ЖЕ направлении
+   * (`in`) одиночным `\r` — его терять нельзя, поэтому там поглощаем только
+   * ведущий `\n` (завершение CRLF одного потока), но не одиночный `\r`.
+   */
+  private skipLf = false;
+  private skipLfDir: Direction | null = null;
   private seen = new Set<number>();
 
   /** Длительность записи — время последнего чанка. */
@@ -73,22 +82,44 @@ export class ReplayTape {
         // Разрыв: недописанный символ уже отдан как U+FFFD (decode без stream),
         // начатая последовательность выбрасывается — её продолжение потеряно.
         this.decoders[c.direction] = new TextDecoder('utf-8');
-        this.skipLf[c.direction] = false;
+        this.skipLf = false;
         this.emit(c.direction, c.seq, c.offset_ms, this.carry[c.direction] + text, false);
         this.carry[c.direction] = '';
         this.segments.push({ seq: c.seq, offsetMs: c.offset_ms, direction: c.direction, gap: true });
         continue;
       }
       text = this.carry[c.direction] + text;
-      if (this.skipLf[c.direction] && text) {
-        if (text.startsWith('\n')) text = text.slice(1);
-        this.skipLf[c.direction] = false;
+      if (this.skipLf && text) {
+        if (c.direction === this.skipLfDir) {
+          // Тот же поток: завершаем CRLF — поглощаем ведущий `\n`. Одиночный
+          // ведущий `\r` — это ещё одно нажатие Enter, его не трогаем.
+          if (text[0] === '\n') text = text.slice(1);
+          this.skipLf = false;
+        } else if (this.skipLfDir === 'in' && c.direction === 'out') {
+          // Эхо нажатия Enter: `\r` пришёл из ввода (in), центр отвечает `\r\n`
+          // в выводе (out), возможно разрезанным между чанками. Поглощаем ведущий
+          // `\r`, затем `\n`; одинокий `\r` оставляет ожидание `\n` следующего чанка.
+          let consumedCr = false;
+          if (text[0] === '\r') {
+            text = text.slice(1);
+            consumedCr = true;
+            // CR эха уже удалён: дальше завершаем CRLF потока out, ожидая
+            // только LF. Следующий CR — самостоятельный перевод строки.
+            this.skipLfDir = 'out';
+          }
+          if (text[0] === '\n') { text = text.slice(1); this.skipLf = false; }
+          else if (!consumedCr || text.length > 0) this.skipLf = false;
+        } else {
+          // Вывод (out) закончился `\r`, а дальше ввод (in) — это НЕ эхо, а новое
+          // нажатие: ничего не поглощаем, иначе потеряли бы перевод строки.
+          this.skipLf = false;
+        }
       }
       const cut = this.holdBack(text);
       this.carry[c.direction] = text.slice(cut);
       const shown = text.slice(0, cut);
       // \r показываем сразу (Enter атакующего виден без ожидания следующего чанка).
-      if (shown.endsWith('\r')) this.skipLf[c.direction] = true;
+      if (shown.endsWith('\r')) { this.skipLf = true; this.skipLfDir = c.direction; }
       this.emit(c.direction, c.seq, c.offset_ms, shown, true);
     }
   }

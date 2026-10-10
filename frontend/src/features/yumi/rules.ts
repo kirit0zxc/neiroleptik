@@ -51,7 +51,12 @@ export const YUMI_RULES: BridgeRules = {
       ? { state: 'excited', say: `${ip(p)} вошёл как ${user}!` }
       : { state: 'analyzing', say: `${ip(p)} пробует войти как ${user}.` };
   },
-  'attack:command': (p) => ({ state: 'analyzing', say: `${ip(p)} выполняет: ${safe(p.str('command'), COMMAND_MAX) || '—'}` }),
+  'attack:command': (p) => {
+    const cmd = safe(p.str('command'), COMMAND_MAX) || '—';
+    // Усечение на сервере (data.truncated) — тоже «…», если safe() его ещё не поставил.
+    const cut = p.bool('truncated') && cmd !== '—' && !cmd.endsWith('…') ? '…' : '';
+    return { state: 'analyzing', say: `${ip(p)} выполняет: ${cmd}${cut}` };
+  },
   'token:triggered': (p) => ({ state: 'error', say: `Сработал медовый токен! Источник ${ip(p)}.` }),
   'trap:offline': { state: 'gentle', say: 'Одна из ловушек остановилась.' },
 };

@@ -103,6 +103,22 @@ describe('Replay: защита от зацикливания и сбоев', () 
     expect(b.snapshot.error).toBeInstanceOf(ApiError);
   });
 
+  it('живой хвост устарел дважды — перечитывается оба раза (прогресс между ними)', async () => {
+    const s = server(
+      page([chunk(0, 'a')], { complete: false, tail_cursor: 't0' }), // живой хвост
+      new ApiError(422, 'x'),                                          // t0 устарел → рестарт
+      page([chunk(0, 'a')], { complete: false, tail_cursor: 't1' }),  // снова живой хвост
+      new ApiError(422, 'x'),                                          // t1 устарел → снова рестарт
+      page([chunk(0, 'a'), chunk(1, 'b')], { complete: true }),       // дочитано
+    );
+    const l = new ReplayLoader('s1', s.fetch, async () => {});
+    l.start(); await flush();
+    expect(s.calls).toEqual([null, 't0', null, 't1', null]);
+    expect(text(l)).toBe('ab');
+    expect(l.snapshot.complete).toBe(true);
+    expect(l.snapshot.error).toBeNull();
+  });
+
   it('сбой сети или 5xx — автоповторы с растущей паузой, затем ошибка', async () => {
     const waits: number[] = [];
     const s = server(new ApiError(503, 'down'), new ApiError(0, 'net'), page([chunk(0, 'a')]));

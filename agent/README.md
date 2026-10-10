@@ -78,7 +78,7 @@ Event, batch_id, code, index и UTC-временем в карантин одн�
 проверка принадлежности deployment, PostgreSQL commit/dedup → ACK,
 публикация после commit и WS по существующему frontend-контракту.
 Согласовать instance/session и миграции с владельцами backend/runtime.
-HTTP sender, backoff, backpressure и квоты spool относятся к следующему шагу.
+HTTP sender и backoff реализованы; backpressure и квоты spool остаются следующим шагом.
 Серверный план: UNIQUE (agent_id,event_id), атомарные event+outbox и
 publication+processed, WS/REST/watermark по committed журналу. Эти требования
 и PostgreSQL-тесты сбоев пока только описаны в specs/events.md. Идентичность
@@ -86,3 +86,37 @@ instance_id/restart/reset и реальные Low/Cowrie/TTY остаются н
 Не объединять root manifest с VM_trap заменой одного другим: нужно сохранить
 runtime, honeypots, agent и все тесты. SQLite очередь не реализует seal файлов.
 Не включать этот каркас в публичный стенд как готовую доставку телеметрии.
+
+## HTTP-отправитель существующей очереди
+
+После появления совместимого endpoint задайте `HF_AGENT_TOKEN` в окружении
+процесса и запустите из корня проекта:
+
+```sh
+uv run --frozen python -m agent.telemetry.deliver \
+  --spool /path/to/spool.sqlite3 \
+  --agent-id 00000000-0000-4000-8000-000000000001 \
+  --endpoint https://center.example/agent/v1/events
+```
+
+UUID должен совпасть с владельцем существующего spool. Для dev доступен HTTP на
+loopback. `--timeout` задаёт таймаут сетевых операций (по умолчанию 10 секунд).
+Один процесс отправки на очередь; сборщик может дописывать её через отдельное
+соединение SQLite. Sender не читает Low самостоятельно и не запускает ловушки.
+
+`--once` выполняет один шаг: exit 0 — очередь пуста или полный ACK применён,
+1 — нужен повтор, 2 — ошибка доступа/конфигурации/БД, 130 — Ctrl+C.
+В обычном режиме sender ждёт новые записи и повторяет временные отказы с
+backoff. При 401/403, redirect и других неожиданных статусах завершается с 2:
+исправьте доступ/endpoint перед перезапуском. TLS-проверка не отключается;
+proxy из окружения и redirect не используются.
+
+JSON-диагностика содержит состояние, счётчики, паузу и категорию ошибки;
+token, события и тело ответа в неё не входят. При потере ответа повторяется
+тот же batch. После рестарта batch_id может измениться, event_id и payload
+сохраняются. Неполный/неверный ACK не меняет pending и карантин.
+Паузы хранятся в памяти, snapshots пока не очищаются автоматически.
+
+Проверки: `uv run --frozen pytest tests/telemetry/test_sender.py`.
+Используется настоящий локальный HTTP-сервер с тестовым ACK; PostgreSQL ingest
+и цепь Low → центр → UI этими проверками не объявляются готовыми.

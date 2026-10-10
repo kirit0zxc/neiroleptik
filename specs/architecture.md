@@ -129,7 +129,17 @@ SQLite WAL карантин. QuarantineEntry — отдельный снимок
 Low JSONL предложен для согласования, реальный журнал ещё не проверен.
 Следующий шаг: ingest в backend/src/honeyforge/telemetry с общей DB/auth,
 ACK после PostgreSQL commit, outbox/publisher, минимальный WS; затем реальный
-Low → БД → UI. HTTP sender, backoff и квоты пока не реализованы.
+Low → БД → UI. HTTP sender и backoff описаны ниже; квоты пока не реализованы.
+
+`agent/telemetry/sender.py`: HttpBatchTransport отправляет Batch напрямую в центр
+по HTTPS (HTTP только loopback), без proxy/redirect, с таймаутом и лимитом ответа.
+TelemetrySender читает снимок spool, проверяет полный ACK, применяет его атомарно
+и назначает экспоненциальный backoff с jitter/Retry-After. 401/403 и неожиданные
+HTTP-статусы приостанавливают доставку; события остаются на диске.
+`agent/telemetry/deliver.py`: CLI существующего spool, token из HF_AGENT_TOKEN,
+один sender на очередь. Сбор файлового Low и серверный ingest подключаются отдельно.
+Тесты используют настоящий loopback HTTP и сценарии обрыва/повтора, но не
+доказывают PostgreSQL commit, наличие работающего ingress или живую ленту.
 
 Следующие серверные модули пока только спроектированы, endpoints и миграций нет:
 
@@ -198,3 +208,50 @@ CommandJournal хранит целевые поколения команд це�
 Сетевой исполнитель Low реализован по текущему командному API. Преобразователь
 нового журнала в Event v1 и реальные Docker/KVM/High требуют следующих проверок;
 loopback smoke не подтверждает Docker-изоляцию или Linux/systemd.
+
+## Изолированные сервисы чтения телеметрии
+
+telemetry/read_contract.py задаёт read-only границу committed журнала.
+telemetry/cursors.py подписывает ограниченные snapshot/keyset курсоры;
+history.py и stream.py оркестрируют страницы без памяти вместо хранилища.
+presentation.py создаёт отдельную публичную копию по явно внедрённой политике.
+transport.py собирает router только по явному вызову для тестового приложения:
+рабочий main.create_app его не подключает. WS читает ограниченные страницы,
+проверяет настоящую AuthService в короткой Session вне event loop и освобождает
+задачу disconnect при завершении. Сетевая перегрузка завершает WS стандартным
+1013 (Try Again Later), восстановление через новый hello и REST. Это временная
+политика изолированного приложения; production rollout ещё согласуется.
+Ключ HMAC передаётся конструктору, production настройка не добавлена.
+## Неподключённое ядро PostgreSQL-телеметрии, 10.10.2026
+
+backend/src/honeyforge/telemetry/: types — внутренний неизменяемый PreparedEvent;
+tables — отдельная MetaData с явно заданной тестовой схемой; storage — атомарная
+запись event/outbox и побайтная дедупликация; publisher — блокировка стабильного
+счётчика и атомарная publication/processed; reader — committed snapshot/keyset.
+Engine и Session предоставляются вызывающим кодом. Импорт не меняет общую Base,
+FastAPI, models/__init__.py, Alembic и запуск worker. Связи с Host, Deployment,
+ProfileRevision и RuntimeInstance требуют согласования; UUID прототипа синтетические.
+Тестовый setup создаёт только telemetry_test_<uuid> в honeyforge_test.
+
+### Переданный ответ runtime 10.10.2026, 20:12 Москва
+
+low-journal-v1 подходит для первой интеграции; реальные фрагменты ротации пока
+в PR runtime. Явное отклонение переполнения сохраняет файл/offset. Профиль первой
+интеграции может ограничить max_payload_bytes <=4096; предел Event.data остаётся
+8192 сериализованных UTF-8 байта. Приблизительная оценка объёма сырых байтов не
+заменяет этот предел. Отсутствие флага усечения не доказывает полноту журнала.
+Deployment определяется управляемой привязкой каталога, revision — конфигурацией
+центра; instance подтверждается ACK. Это не реализует авторизацию ingest.
+TCP type требует решения владельца и Дианы; эвристика health-проб и удаление
+файлов не утверждены. Третья runtime-ветка в этом задании не создаётся.
+
+CommittedReadAdapter связывает сервисы stream с PublicationReader из storage SHA
+50b4f3383b1aa27d896f466cb55ce29c75fc6028. Преобразует UUID/keyset/фильтры и
+StoredEvent.original() в отдельный read DTO, не сериализует PK/bytes. Retention
+возвращает None: очистки хранилища ещё нет, SQL gaps не считаются утратой.
+Тестовый FastAPI может явно внедрять этот adapter; production main не меняется.
+
+WS telemetry использует внутренний DBOperations: учтённый worker, контекстный
+серверный SQL deadline и обязательная асинхронная очистка при отмене. Hook
+SQLAlchemy не изменяет операции вне контекста WS. Общие модели, миграции и
+production FastAPI не подключаются к этому прототипу.

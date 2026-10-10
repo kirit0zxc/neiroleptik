@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../shared/api/client';
 import type { Deployment } from '../../shared/api/types';
 import { StatusBadge, ui, WindowTitle, type Tone } from '../../shared/ui';
-import { availableCommands, COMMAND_LABEL, commandRejectText, CONFIRM, jobLabel, type Command } from './commands';
+import { availableCommands, COMMAND_LABEL, commandRejectText, CONFIRM, failureText, jobLabel, type Command } from './commands';
 import { useOperation } from './operations';
+import { useYumi } from '../yumi/yumi';
 import { transient, useJob } from './useJob';
 import s from './fleet.module.css';
 
@@ -31,6 +32,15 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
   const { job, finished, polling } = useJob(jobId);
   // Задание завершилось — следующее нажатие будет новым действием с новым ключом.
   useEffect(() => { if (finished) ops.finish(deployment.id); }, [finished, ops, deployment.id]);
+  // Итог задания — Юми (раздел 9); один раз на задание. Отметка хранится в
+  // Operations, а не в строке: возврат на страницу итог не повторит.
+  const yumi = useYumi();
+  useEffect(() => {
+    if (!yumi || !job || !finished || !ops.reportOnce(job.job_id)) return;
+    if (job.state === 'succeeded') yumi.handle('command:done', { command: job.command });
+    else if (job.state === 'expired') yumi.handle('command:expired', { command: job.command });
+    else if (job.state === 'failed') yumi.handle('command:failed', { command: job.command, reason: failureText(job) ?? '' });
+  }, [yumi, job, finished, ops]);
 
   // Неотправленная команда (нет связи или результат неизвестен) ждёт
   // «Повторить»: другие команды до этого неактивны, иначе за возможно

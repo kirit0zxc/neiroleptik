@@ -1,0 +1,22 @@
+{
+  "anim/vrma/67_hXBrhdpmbtpo6dwf3zVGyw(includeTPose).vrma": {
+    "pitch": -20
+  },
+  "peace": {
+    "pitch": -4
+  },
+  "thankful": {
+    "pitch": -7
+  },
+  "dismiss": {
+    "pitch": -9
+  },
+  "talking": {
+    "yaw": 24
+  },
+  "greeting": {
+    "zoom": 0.88,
+    "offsetY": 0.12,
+    "pitch": 7
+  }
+}

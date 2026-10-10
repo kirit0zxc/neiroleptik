@@ -12,6 +12,8 @@ import { ApiError } from '../shared/api/client';
 import { createEventStream, StreamProvider, type EventStream } from '../shared/stream/stream';
 import { Operations, OperationsContext } from '../features/fleet/operations';
 import { AuditPage } from '../features/audit/AuditPage';
+import { MascotCore } from '../mascot/core/MascotCore';
+import { Yumi, YumiContext } from '../features/yumi/yumi';
 import { AppShell, NotFound, Planned } from './AppShell';
 
 export function makeQueryClient() {
@@ -74,15 +76,23 @@ export function App({ client = makeQueryClient(), createStream = createEventStre
   const router = createBrowserRouter(routes);
   // Операции с ловушками живут на уровне приложения: переход между экранами
   // и обновление списка их не теряют.
-  const [operations] = useState(() => new Operations(() => void client.invalidateQueries({ queryKey: ['deployments'] })));
+  // Юми — своё ядро на экземпляр приложения (без общего синглтона): тесты и
+  // повторные монтирования не делят состояние.
+  const [yumi] = useState(() => new Yumi(new MascotCore()));
+  const [operations] = useState(() => new Operations(
+    () => void client.invalidateQueries({ queryKey: ['deployments'] }),
+    (event, payload) => yumi.handle(event, payload),
+  ));
   return (
     <QueryClientProvider client={client}>
       <StreamFactory.Provider value={createStream}>
+        <YumiContext.Provider value={yumi}>
         <OperationsContext.Provider value={operations}>
           <AuthProvider>
             <RouterProvider router={router} />
           </AuthProvider>
         </OperationsContext.Provider>
+        </YumiContext.Provider>
       </StreamFactory.Provider>
     </QueryClientProvider>
   );

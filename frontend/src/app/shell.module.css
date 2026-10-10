@@ -19,7 +19,7 @@
 .logout:disabled { opacity: .5; cursor: default; }
 .logoutError { color: var(--bad); font-size: .85em; }
 
-.side { border-right: 1px solid var(--line); display: grid; align-content: start; overflow-y: auto; min-height: 0; }
+.side { border-right: 1px solid var(--line); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow-y: auto; min-height: 0; }
 .nav { display: grid; border-bottom: 1px solid var(--line); }
 .nav a {
   color: var(--accent); text-decoration: none;
@@ -32,7 +32,7 @@
 .nav .active { background: var(--accent); color: var(--bg); text-shadow: none; box-shadow: 0 0 12px rgba(185, 179, 255, .35); }
 .nav .active::before { content: "♥ " / ""; }
 .nav .active:hover { background: var(--accent-2); color: var(--bg); }
-.mascot { padding: 14px; }
+.mascot { padding: 14px; display: grid; min-height: 0; }
 
 .main {
   padding: 20px; display: grid; gap: 16px; align-content: start; min-width: 0; min-height: 0; overflow: auto;

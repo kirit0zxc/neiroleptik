@@ -65,7 +65,7 @@ export function driverErrorText(error: string): string {
 }
 
 /** Причина неудачи задания: известный код, иначе текст центра, иначе сам код. */
-function failureText(job: Pick<Job, 'error' | 'error_code'>): string | null {
+export function failureText(job: Pick<Job, 'error' | 'error_code'>): string | null {
   if (job.error_code && Object.hasOwn(DRIVER_ERRORS, job.error_code)) return DRIVER_ERRORS[job.error_code]!;
   return job.error || job.error_code || null;
 }

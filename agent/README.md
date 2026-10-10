@@ -1,5 +1,11 @@
 # Телеметрия: первый шаг D1
 
+Исполнитель команд Low запускается отдельно: `python -m agent.runtime.executor`.
+Инструкция запуска и совместного smoke —
+[`infra/runtime/executor.md`](../infra/runtime/executor.md). Командный API определяется
+`specs/commands.md` и `contracts/openapi.json`; локальные гарантии и восстановление —
+`specs/runtime-agent-executor.md`. Medium/High подключаются следующим этапом.
+
 Правила команды находятся в корневом `AGENTS.md`.
 Контекст: `HoneyForge-plan.html`, персональная зона `HoneyForge-4-Telemetry.html`.
 Подробности и следующие шаги: `specs/events.md`, `specs/architecture.md`.

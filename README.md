@@ -54,10 +54,13 @@ uv run --env-file ../.env --frozen uvicorn honeyforge.main:create_app --factory 
 
 ## Runtime ловушек (участник 3)
 
-Реализуется локальный блок D1: ограниченная Low-ловушка, журнал команд и
-неразрушающий preflight Linux/KVM. Клиент центра, Medium и High в runtime пока не
-реализованы; локальные тесты не подтверждают сквозной сценарий или изоляцию
-реальной VM. Код runtime и образ Low не имеют зависимостей времени выполнения
+Реализованы ограниченная Low-ловушка, журнал команд, неразрушающий preflight
+Linux/KVM и исполнитель команд центра для Low: claim, renew, ACK, устойчивое
+состояние и восстановление. Запуск описан в [инструкции исполнителя](infra/runtime/executor.md).
+Medium и High в runtime пока не реализованы; совместные тесты API используют
+подмену Docker backend, поэтому запуск настоящего контейнера на согласованном
+сервере и изоляция реальной VM требуют отдельной проверки.
+Код runtime и образ Low не имеют зависимостей времени выполнения
 (pydantic нужен только телеметрии).
 
 Runtime использует тот же корневой проект `honeyforge-agent`, что и телеметрия
@@ -119,8 +122,11 @@ uv run --frozen python -m infra.vm.preflight
 - [Передача интерфейсов участникам](specs/integration-handoff.md).
 - [Серверный стенд](specs/server-checklist.md), [CI](.github/CI.md).
 - Runtime: [требования D1](specs/runtime-d1.md),
-  [предложения общих контрактов](specs/runtime-contract-proposal.md) (ожидают
-  согласования участников 2 и 4), [подготовка runtime и Cowrie spike](infra/runtime/README.md).
+  [командный API](specs/commands.md), [исполнитель Low](specs/runtime-agent-executor.md),
+  [handoff журнала Диме](specs/low-telemetry-handoff.md),
+  [подготовка runtime и Cowrie spike](infra/runtime/README.md).
+  Старые [предложения общих контрактов](specs/runtime-contract-proposal.md)
+  не определяют командный API.
 - Правила изменений, ревью и человеческого одобрения: [AGENTS.md](AGENTS.md).
 
 OpenAPI описывает реализованный control API. События, stream и replay — проект

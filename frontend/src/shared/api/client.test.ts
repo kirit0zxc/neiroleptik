@@ -31,6 +31,14 @@ describe('API-клиент (раздел 4)', () => {
     expect((err as ApiError).message).toBe('Профиль уже изменён: перечитайте текущую версию');
   });
 
+  it('обрыв тела успешного ответа — неопределённый результат (статус 0), а не обычная ошибка', async () => {
+    server.use(http.post('/t', () => new HttpResponse('{"job_id":"j', { status: 202, headers: { 'Content-Type': 'application/json' } })));
+    const err = await api('/t', { method: 'POST', body: '{}' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(0);
+    expect((err as ApiError).message).toBe('Ответ сервера получен не полностью — результат неизвестен');
+  });
+
   it('код ошибки из ErrorResponse.code сохраняется для логики экрана', async () => {
     server.use(
       http.post('/c', () => HttpResponse.json({ detail: 'Перечитайте поколение', code: 'STALE_GENERATION' }, { status: 409 })),

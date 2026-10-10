@@ -100,6 +100,79 @@ describe('команды ловушек на API (F6)', () => {
     expect(created.size).toBe(1);
   });
 
+  it('PR #12: неполный ответ 202 — результат неизвестен, «Повторить» с тем же UUID', async () => {
+    const user = userEvent.setup();
+    const sent: Sent[] = [];
+    const created = new Map<string, string>();
+    let truncate = true;
+    server.use(
+      http.post('/api/v1/deployments/:id/commands', async ({ request }) => {
+        const b = (await request.json()) as Omit<Sent, 'csrf'>;
+        sent.push({ ...b, csrf: request.headers.get('X-CSRF-Token') });
+        if (!created.has(b.idempotency_key)) created.set(b.idempotency_key, `job-${created.size + 1}`);
+        // Сервер принял команду, но тело ответа оборвалось.
+        if (truncate) { truncate = false; return new HttpResponse('{"job_id":"job-', { status: 202, headers: { 'Content-Type': 'application/json' } }); }
+        return HttpResponse.json({ job_id: created.get(b.idempotency_key) }, { status: 202 });
+      }),
+      http.get('/api/v1/jobs/:id', ({ params }) => HttpResponse.json(job({ job_id: params.id, state: 'succeeded' }))),
+    );
+    open();
+    const high = await row('decoy-high-01');
+    await user.click(within(high).getByRole('button', { name: 'Запустить' }));
+    const alert = await within(high).findByRole('alert');
+    expect(alert).not.toHaveTextContent('Команда не отправлена');
+    await user.click(within(alert).getByRole('button', { name: 'Повторить' }));
+    await within(high).findByText('Запустить: успешно');
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toEqual(sent[0]);
+    expect(created.size).toBe(1);
+  });
+
+  it('PR #12: неполный ответ задания — не отказ, опрос продолжается до итога', async () => {
+    const user = userEvent.setup();
+    let truncated = 2;
+    server.use(http.get('/api/v1/jobs/:id', () => {
+      if (truncated > 0) { truncated -= 1; return new HttpResponse('{"state":"runn', { status: 200, headers: { 'Content-Type': 'application/json' } }); }
+      return undefined;
+    }));
+    open();
+    const low = await row('decoy-low-01');
+    await user.click(within(low).getByRole('button', { name: 'Остановить' }));
+    await user.click(await confirmDialog());
+    expect(await within(low).findByText('нет связи — проверяем снова')).toBeInTheDocument();
+    expect(within(low).queryByText(/не удалось проверить задание/)).toBeNull();
+    await within(low).findByText('Остановить: успешно', {}, { timeout: 12_000 });
+  }, 20_000);
+
+  it('PR #12: сбой обновления списка ловушек не теряет идущую команду', async () => {
+    const user = userEvent.setup();
+    let failList = false;
+    server.use(http.get('/api/v1/deployments', () => (failList ? HttpResponse.error() : undefined)));
+    const client = makeQueryClient();
+    window.history.pushState({}, '', '/fleet');
+    render(<App client={client} />);
+    const low = await row('decoy-low-01');
+    await user.click(within(low).getByRole('button', { name: 'Остановить' }));
+    await user.click(await confirmDialog());
+    await within(low).findByText(/Остановить: (ожидает|выполняется)/);
+
+    // Обновление списка падает: таблица и ход задания остаются на месте.
+    failList = true;
+    await client.refetchQueries({ queryKey: ['deployments'] });
+    expect(await screen.findByText(/Не удалось обновить список ловушек/)).toBeInTheDocument();
+    const still = await row('decoy-low-01');
+    expect(within(still).getByText(/Остановить: /)).toBeInTheDocument();
+
+    // Связь вернулась — наблюдение за тем же заданием дошло до итога, а
+    // «Повторить» в предупреждении обновляет список.
+    failList = false;
+    await within(still).findByText('Остановить: успешно', {}, JOB_WAIT);
+    const warning = screen.queryByText(/Не удалось обновить список ловушек/);
+    if (warning) await user.click(within(warning).getByRole('button', { name: 'Повторить' }));
+    expect(await within(await row('decoy-low-01')).findByText('остановлена')).toBeInTheDocument();
+    expect(screen.queryByText(/Не удалось обновить список ловушек/)).toBeNull();
+  }, 20_000);
+
   it('постоянный сбой отправки: «Отменить» снимает блокировку без перезагрузки', async () => {
     const user = userEvent.setup();
     server.use(http.post('/api/v1/deployments/:id/commands', () => HttpResponse.json({ detail: 'Ошибка сервера' }, { status: 500 })));

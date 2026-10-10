@@ -7,6 +7,7 @@ import { Empty, ErrorState, Loading, Panel, StatusBadge, ui } from '../../shared
 import { canEdit, useMe } from '../auth/auth';
 import { DeploymentActions } from './DeploymentActions';
 import { deploymentStatus, hostStatus } from './status';
+import s from './fleet.module.css';
 
 const LEVEL = { low: 'Low', medium: 'Medium', high: 'High' } as const;
 
@@ -21,8 +22,9 @@ export function FleetPage() {
       <h1>Парк ловушек</h1>
       {editable && <p><Link className={ui.button} to="/fleet/new">+ Запустить ловушку</Link></p>}
       <Panel title="Хосты">
+        {hosts.isError && hosts.data && <Stale what="хостов" message={hosts.error.message} onRetry={() => void hosts.refetch()} />}
         {hosts.isPending ? <Loading what="хосты" />
-          : hosts.isError ? <ErrorState message={hosts.error.message} onRetry={() => void hosts.refetch()} />
+          : !hosts.data ? <ErrorState message={hosts.error?.message ?? 'Не удалось загрузить'} onRetry={() => void hosts.refetch()} />
           : !hosts.data.length ? <Empty>Хостов пока нет — зарегистрируйте агента.</Empty>
           : (
             <table className={ui.table}>
@@ -45,8 +47,10 @@ export function FleetPage() {
           )}
       </Panel>
       <Panel title="Ловушки">
+        {/* Сбой обновления не убирает таблицу: в её строках идут задания, их опрос и ключи повтора. */}
+        {deps.isError && deps.data && <Stale what="ловушек" message={deps.error.message} onRetry={() => void deps.refetch()} />}
         {deps.isPending ? <Loading what="ловушки" />
-          : deps.isError ? <ErrorState message={deps.error.message} onRetry={() => void deps.refetch()} />
+          : !deps.data ? <ErrorState message={deps.error?.message ?? 'Не удалось загрузить'} onRetry={() => void deps.refetch()} />
           : !deps.data.length ? <Empty>Ловушек пока нет.</Empty>
           : (
             <table className={ui.table}>
@@ -71,5 +75,15 @@ export function FleetPage() {
           )}
       </Panel>
     </>
+  );
+}
+
+/** Предупреждение поверх последних загруженных данных: обновить не удалось. */
+function Stale({ what, message, onRetry }: { what: string; message: string; onRetry: () => void }) {
+  return (
+    <p role="alert" className={s.stale}>
+      Не удалось обновить список {what}: {message}. Показаны последние данные.{' '}
+      <button className={`${ui.button} ${s.small}`} onClick={onRetry}>Повторить</button>
+    </p>
   );
 }

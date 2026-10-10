@@ -50,7 +50,13 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (res.status === 401 && !path.startsWith('/api/v1/auth/login')) onUnauthorized();
   if (!res.ok) throw await errorFrom(res);
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  // Обрыв или порча тела успешного ответа: сервер мог выполнить запрос (например,
+  // принять команду), но ответ потерян — результат неизвестен, как при сбое сети.
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new ApiError(0, 'Ответ сервера получен не полностью — результат неизвестен');
+  }
 }
 
 /**

@@ -47,8 +47,9 @@ export function minutesLabel(n: number) {
 }
 
 /**
- * Команда регистрации агента (infra/runtime/executor.md). Токен в неё не
- * подставляется — он передаётся переменной окружения HF_ENROLLMENT_TOKEN.
+ * Команда регистрации агента (infra/runtime/executor.md). Регистрационный
+ * токен в неё не подставляется — он передаётся переменной окружения
+ * HF_ENROLLMENT_TOKEN; `--token-file` — куда агент сохранит свой постоянный токен.
  */
 export const ENROLL_COMMAND =
-  'python -m agent.runtime.executor.enroll --center <адрес центра> --name <имя хоста> --token-file <путь к файлу токена>';
+  'python -m agent.runtime.executor.enroll --center <адрес центра> --name <имя хоста> --token-file <куда сохранить токен агента>';

@@ -131,7 +131,7 @@ export function ConfirmDialog({ title, text, onCancel, onConfirm, error, busy = 
     else d.setAttribute('open', '');
   }, []);
   return (
-    <dialog ref={ref} className={`win ${s.dialog}`} aria-labelledby="confirm-title" onCancel={(e) => { e.preventDefault(); onCancel(); }}>
+    <dialog ref={ref} className={`win ${s.dialog}`} aria-labelledby="confirm-title" onCancel={(e) => { e.preventDefault(); if (!busy) onCancel(); }}>
       <WindowTitle title={title} id="confirm-title" />
       <p>{text}</p>
       {error && <p role="alert" className={s.dialogError}>{error}</p>}

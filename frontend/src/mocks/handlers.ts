@@ -61,9 +61,10 @@ function csrfFailure(request: Request) {
 let hosts: Host[] = structuredClone(hostsFixture) as Host[];
 let enrollmentId = 0;
 
-/** Только admin (как `Administrator` центра); иначе 401/403. */
-function adminFailure() {
+/** Как `Administrator` центра: сначала вход (401), затем CSRF, затем роль (403). */
+function adminFailure(request: Request) {
   if (!session.get()) return HttpResponse.json({ detail: 'Требуется вход' }, { status: 401 });
+  const csrf = csrfFailure(request); if (csrf) return csrf;
   if (session.role() !== 'admin') return HttpResponse.json({ detail: 'Недостаточно прав' }, { status: 403 });
   return null;
 }
@@ -89,7 +90,7 @@ export const handlers = [
   http.get('/api/v1/hosts', () => HttpResponse.json(hosts)),
   // Регистрационный токен: одноразовый, 15 минут (как RegistryService.issue).
   http.post('/api/v1/enrollments', ({ request }) => {
-    const bad = adminFailure() ?? csrfFailure(request); if (bad) return bad;
+    const bad = adminFailure(request); if (bad) return bad;
     enrollmentId++;
     return HttpResponse.json({
       id: `00000000-0000-4000-8000-${String(enrollmentId).padStart(12, '0')}`,
@@ -98,7 +99,7 @@ export const handlers = [
     }, { status: 201 });
   }),
   http.post('/api/v1/hosts/:id/revoke', ({ request, params }) => {
-    const bad = adminFailure() ?? csrfFailure(request); if (bad) return bad;
+    const bad = adminFailure(request); if (bad) return bad;
     const i = hosts.findIndex((h) => h.id === params.id);
     if (i < 0) return HttpResponse.json({ detail: 'Хост не найден' }, { status: 404 });
     hosts[i] = { ...hosts[i]!, status: 'revoked' };

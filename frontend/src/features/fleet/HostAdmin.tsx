@@ -9,9 +9,8 @@ import s from './fleet.module.css';
 
 const HOUR_MINUTE = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
 
-const message = (err: unknown) => (err instanceof ApiError && err.status === 403
-  ? 'Нет прав: действие доступно только администратору.'
-  : err instanceof Error ? err.message : 'Не удалось выполнить запрос');
+// Текст — от центра: 403 бывает и из-за CSRF/Origin, не только из-за роли.
+const message = (err: unknown) => (err instanceof Error && err.message ? err.message : 'Не удалось выполнить запрос');
 
 /**
  * «Добавить хост»: выдаёт одноразовый регистрационный токен агента и
@@ -74,11 +73,12 @@ function EnrollmentDialog({ onClose }: { onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Обратный отсчёт: раз в 15 с достаточно для минут.
+  // Обратный отсчёт: раз в 15 с для минут и точно в момент истечения.
   useEffect(() => {
     if (!ticket) return;
     const t = setInterval(() => setNow(Date.now()), 15_000);
-    return () => clearInterval(t);
+    const end = setTimeout(() => setNow(Date.now()), Math.max(0, ticket.expiresAt - Date.now()) + 50);
+    return () => { clearInterval(t); clearTimeout(end); };
   }, [ticket]);
 
   const copy = async () => {
@@ -106,21 +106,24 @@ function EnrollmentDialog({ onClose }: { onClose: () => void }) {
           <div className={s.token}>
             <input ref={tokenInput} readOnly value={ticket.token} aria-label="Токен регистрации"
               onFocus={(e) => e.currentTarget.select()} />
-            <button className={ui.button} onClick={() => void copy()} disabled={expired}>Скопировать</button>
+            {/* Не блокируем: срок считается по часам этого компьютера, они могут спешить. */}
+            <button className={ui.button} onClick={() => void copy()}>Скопировать</button>
           </div>
           <p className={s.note} role="status">
             {copied === 'ok' && 'Скопировано. '}
             {copied === 'fail' && 'Буфер обмена недоступен — токен выделен, скопируйте вручную. '}
             {expired
-              ? 'Токен истёк, выдайте новый.'
+              ? 'По часам этого компьютера токен истёк — выдайте новый.'
               : `Действует до ${HOUR_MINUTE.format(ticket.expiresAt)}, осталось ${minutesLabel(ticket.minutesLeft(now))}.`}
           </p>
           <p className={s.note}>
-            На хосте передайте токен через переменную окружения <code>HF_ENROLLMENT_TOKEN</code> и выполните:
+            На хосте передайте токен через переменную окружения <code>HF_ENROLLMENT_TOKEN</code> и выполните
+            команду; <code>--token-file</code> — куда агент сохранит свой постоянный токен, не этот.
           </p>
           <pre className={s.cmd}>{ENROLL_COMMAND}</pre>
           <p className={s.note}>
             Токен одноразовый: если ответ регистрации потерян, повтор с ним не сработает — выдайте новый.
+            Новый токен не отменяет прежние: они действуют до своего срока.
             Подробно — infra/runtime/executor.md.
           </p>
         </>
@@ -147,6 +150,9 @@ export function RevokeHostButton({ host }: { host: Host }) {
     setBusy(true); setError(null);
     try {
       const updated = await revokeHost(host.id);
+      // Кнопка сейчас исчезнет — фокус остаётся на строке хоста, а не уходит в body.
+      const row = opener.current?.closest('tr');
+      if (row) { row.tabIndex = -1; row.focus(); }
       qc.setQueryData<Host[]>(['hosts'], (old) => old?.map((h) => (h.id === updated.id ? updated : h)));
       setConfirming(false);
       void qc.invalidateQueries({ queryKey: ['hosts'] });

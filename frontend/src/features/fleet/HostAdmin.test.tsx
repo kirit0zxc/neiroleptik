@@ -74,6 +74,8 @@ describe('регистрация агента и отзыв хоста (F4)', ()
     const updated = await hostRow('runtime-01');
     await waitFor(() => expect(within(updated).queryByRole('button', { name: /Отозвать/ })).toBeNull());
     expect(within(updated).getByText(/отозван/i)).toBeInTheDocument();
+    // Кнопка исчезла — фокус на строке хоста, а не в body.
+    expect(document.activeElement).toBe(updated);
   });
 
   it('сбой отзыва — ошибка в диалоге и повтор; «Отмена» ничего не меняет', async () => {
@@ -95,5 +97,18 @@ describe('регистрация агента и отзыв хоста (F4)', ()
     dialog = await screen.findByRole('dialog');
     await user.click(within(dialog).getByRole('button', { name: 'Подтвердить' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(within(await hostRow('runtime-02')).getByText(/отозван/i)).toBeInTheDocument();
+  });
+
+  it('буфер обмена недоступен — токен выделен для ручного копирования', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: async () => { throw new Error('denied'); } } });
+    open('admin');
+    await user.click(await screen.findByRole('button', { name: '+ Добавить хост' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Регистрация агента' });
+    const input = await within(dialog).findByRole('textbox', { name: 'Токен регистрации' }) as HTMLInputElement;
+    await user.click(within(dialog).getByRole('button', { name: 'Скопировать' }));
+    expect(await within(dialog).findByText(/скопируйте вручную/)).toBeInTheDocument();
+    expect(input.selectionEnd! - input.selectionStart!).toBe(input.value.length);
   });
 });

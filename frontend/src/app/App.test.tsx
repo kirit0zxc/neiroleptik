@@ -14,6 +14,19 @@ afterAll(() => server.close());
 
 function go(path: string) { window.history.pushState({}, '', path); }
 
+/** Поддельный WebSocket-конструктор: считает подключения, ничего не шлёт. */
+let wsCount = 0;
+class FakeWS {
+  onopen: (() => void) | null = null;
+  onmessage: ((ev: { data: string }) => void) | null = null;
+  onclose: ((ev: { code: number }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  constructor() { wsCount += 1; }
+  close() {}
+  send() {}
+}
+function stubWebSocket() { wsCount = 0; vi.stubGlobal('WebSocket', FakeWS as unknown as typeof WebSocket); }
+
 describe('приложение на моках (F1, F3, F5, S1, S4)', () => {
   beforeEach(() => { vi.stubEnv('VITE_API_MOCK', '1'); resetMockSession(false); go('/'); });
 
@@ -35,6 +48,44 @@ describe('приложение на моках (F1, F3, F5, S1, S4)', () => {
     else expect(screen.getByText(/подключение серверной телеметрии/)).toBeInTheDocument();
     expect(connect).not.toHaveBeenCalled();
     expect(futureRequests).toBe(0);
+  });
+
+  it('флаг событий включает ленту и поток, но не обзор', async () => {
+    vi.stubEnv('VITE_API_MOCK', '0');
+    vi.stubEnv('VITE_TELEMETRY_ENABLED', '0');
+    vi.stubEnv('VITE_EVENTS_ENABLED', '1');
+    vi.stubEnv('VITE_ANALYTICS_ENABLED', '0');
+    vi.stubEnv('VITE_REPLAY_ENABLED', '0');
+    resetMockSession(true);
+    stubWebSocket();
+    // Лента доступна и обслуживается, поток поднят.
+    go('/events');
+    render(<App client={makeQueryClient()} />);
+    expect(await screen.findByRole('heading', { name: 'События' })).toBeInTheDocument();
+    expect(await screen.findAllByTestId('event-row')).not.toHaveLength(0);
+    expect(wsCount).toBeGreaterThan(0);
+    // Обзор при этом не включён — домашняя уводит в парк.
+    go('/');
+    render(<App client={makeQueryClient()} />);
+    expect(await screen.findByRole('heading', { name: 'Парк ловушек' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/fleet');
+  });
+
+  it('флаг аналитики включает обзор, но лента остаётся недоступной', async () => {
+    vi.stubEnv('VITE_API_MOCK', '0');
+    vi.stubEnv('VITE_TELEMETRY_ENABLED', '0');
+    vi.stubEnv('VITE_EVENTS_ENABLED', '0');
+    vi.stubEnv('VITE_ANALYTICS_ENABLED', '1');
+    resetMockSession(true);
+    stubWebSocket();
+    go('/');
+    render(<App client={makeQueryClient()} />);
+    expect(await screen.findByRole('heading', { name: 'Обзор' })).toBeInTheDocument();
+    // Поток не поднимаем: событий ещё нет на сервере.
+    expect(wsCount).toBe(0);
+    go('/events');
+    render(<App client={makeQueryClient()} />);
+    expect(await screen.findByText(/подключение серверной телеметрии/)).toBeInTheDocument();
   });
 
   it('без сессии — вход; неверный пароль — ошибка; после входа — на исходную страницу', async () => {

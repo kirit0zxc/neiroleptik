@@ -32,27 +32,50 @@ export function makeQueryClient() {
 /** Откуда брать поток событий: настоящий WebSocket или подделка в тестах. */
 const StreamFactory = createContext<() => EventStream>(createEventStream);
 
-/** Телеметрию включаем только для готового сервера или явно выбранных моков. */
-function telemetryEnabled() {
-  return import.meta.env.VITE_API_MOCK === '1' || import.meta.env.VITE_TELEMETRY_ENABLED === '1';
+/**
+ * Телеметрия разделена на три независимых возможности сервера, чтобы включать
+ * их по мере готовности backend (как просил владелец телеметрии):
+ *   - VITE_EVENTS_ENABLED    — лента событий и живой WebSocket-поток;
+ *   - VITE_ANALYTICS_ENABLED — экран «Обзор» (сводка `/analytics/summary`);
+ *   - VITE_REPLAY_ENABLED    — запись сессии (replay).
+ * VITE_TELEMETRY_ENABLED остаётся общим выключателем — включает все три сразу
+ * (обратная совместимость). На моках (VITE_API_MOCK=1) доступно всё.
+ */
+const flagOn = (v: string | undefined) => v === '1';
+const onMocks = () => flagOn(import.meta.env.VITE_API_MOCK);
+const telemetryAll = () => flagOn(import.meta.env.VITE_TELEMETRY_ENABLED);
+
+/** Лента событий и поток готовы на сервере (или моки/umbrella). */
+function eventsEnabled() {
+  return onMocks() || telemetryAll() || flagOn(import.meta.env.VITE_EVENTS_ENABLED);
+}
+/** Сводка обзора готова на сервере (или моки/umbrella). */
+function analyticsEnabled() {
+  return onMocks() || telemetryAll() || flagOn(import.meta.env.VITE_ANALYTICS_ENABLED);
+}
+/** Запись сессии (replay) готова на сервере (или моки/umbrella). */
+function replayEnabled() {
+  return onMocks() || telemetryAll() || flagOn(import.meta.env.VITE_REPLAY_ENABLED);
 }
 
 /** Каркас вошедшего оператора: поток событий живёт, пока открыта сессия. */
 function LiveShell() {
   const create = useContext(StreamFactory);
-  return telemetryEnabled() ? <StreamProvider create={create}><AppShell /></StreamProvider> : <AppShell />;
+  // Провайдер потока нужен ленте и живым событиям Юми — поднимаем его, когда
+  // включена лента событий.
+  return eventsEnabled() ? <StreamProvider create={create}><AppShell /></StreamProvider> : <AppShell />;
 }
 
 function HomePage() {
-  return telemetryEnabled() ? <OverviewPage /> : <Navigate to="/fleet" replace />;
+  return analyticsEnabled() ? <OverviewPage /> : <Navigate to="/fleet" replace />;
 }
 
 function SessionScreen() {
-  return telemetryEnabled() ? <SessionPage /> : <Planned title="Запись сессии" day="D3 — подключение серверной телеметрии" />;
+  return replayEnabled() ? <SessionPage /> : <Planned title="Запись сессии" day="D3 — подключение серверной телеметрии" />;
 }
 
 function EventsScreen() {
-  return telemetryEnabled() ? <EventsPage /> : <Planned title="События" day="D3 — подключение серверной телеметрии" />;
+  return eventsEnabled() ? <EventsPage /> : <Planned title="События" day="D3 — подключение серверной телеметрии" />;
 }
 
 export const routes = [

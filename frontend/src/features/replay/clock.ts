@@ -11,24 +11,40 @@ export class ReplayClock {
   private base = 0;
   /** Момент пуска по `now`; null — пауза. */
   private startedAt: number | null = null;
+  /**
+   * Заморожены у живого края: воспроизведение «идёт» (кнопка — «Пауза»), но
+   * позиция стоит на `base`, пока не придут новые данные. Так простой ожидания
+   * не копит реальное время и при приходе данных запись не прыгает вперёд.
+   */
+  private held = false;
   speed: Speed = 1;
 
   get playing() { return this.startedAt !== null; }
 
   position(now: number, duration: number): number {
-    const raw = this.startedAt === null ? this.base : this.base + (now - this.startedAt) * this.speed;
+    const raw = this.startedAt === null || this.held
+      ? this.base
+      : this.base + (now - this.startedAt) * this.speed;
     return Math.min(Math.max(raw, 0), duration);
   }
 
   /**
-   * Дошли до конца завершённой записи — пауза на конце. Пока запись идёт,
-   * часы не встают: позиция держится у края и идёт дальше с новыми данными.
+   * Завершённая запись дошла до конца — пауза на конце. Живая запись у края
+   * замораживается (held): часы не копят время во время ожидания. Как только
+   * появляются новые данные (позиция снова меньше длительности), заморозка
+   * снимается и воспроизведение продолжается от прежней позиции — плавно, без скачка.
    */
   tick(now: number, duration: number, complete = true) {
-    if (!this.playing || this.position(now, duration) < duration) return;
+    if (!this.playing) return;
+    const pos = this.position(now, duration);
+    if (pos < duration) {
+      // Появились новые данные во время заморозки — продолжаем от края, не прыгая.
+      if (this.held) { this.base = pos; this.startedAt = now; this.held = false; }
+      return;
+    }
     this.base = duration;
-    // Живая запись: «стоим» у края, чтобы новые данные проигрывались, а не появлялись скачком.
-    this.startedAt = complete ? null : now;
+    if (complete) { this.startedAt = null; this.held = false; }
+    else { this.held = true; }
   }
 
   /** `complete=false` — запись идёт: с конца не прыгаем в начало, ждём новых данных. */
@@ -37,21 +53,25 @@ export class ReplayClock {
     // Из конца завершённой записи — с начала, как у обычного проигрывателя.
     if (complete && this.base >= duration) this.base = 0;
     this.startedAt = now;
+    this.held = false;
   }
 
   pause(now: number, duration: number) {
     this.base = this.position(now, duration);
     this.startedAt = null;
+    this.held = false;
   }
 
   seek(ms: number, now: number, duration: number) {
     this.base = Math.min(Math.max(ms, 0), duration);
     if (this.playing) this.startedAt = now;
+    this.held = false;
   }
 
   setSpeed(speed: Speed, now: number, duration: number) {
     this.base = this.position(now, duration);
     if (this.playing) this.startedAt = now;
+    this.held = false;
     this.speed = speed;
   }
 }

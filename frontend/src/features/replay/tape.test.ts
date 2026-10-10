@@ -110,4 +110,19 @@ describe('Replay: Enter атакующего', () => {
     expect(textOf(tape)).toBe('whoami\nroot\n');
     expect(textOf(tape)).not.toContain('\n\n');
   });
+
+  it('повторный Enter не теряется и не зависит от разбиения на чанки', () => {
+    // Два Enter отдельными чанками.
+    const split = new ReplayTape();
+    split.append([chunk('in', '\r'), chunk('in', '\r')]);
+    split.finish();
+    // Одним чанком.
+    seq = 0;
+    const together = new ReplayTape();
+    together.append([chunk('in', '\r\r')]);
+    together.finish();
+    // Оба нажатия сохранены, и разбиение на чанки не влияет на результат.
+    expect(textOf(split)).toBe('\n\n');
+    expect(textOf(split)).toBe(textOf(together));
+  });
 });

@@ -86,9 +86,11 @@ export class ReplayTape {
       }
       text = this.carry[c.direction] + text;
       if (this.skipLf && text) {
-        // Поглощаем эхо перевода строки: ведущий CR и/или LF (один раз).
-        if (text[0] === '\r') text = text.slice(1);
-        if (text[0] === '\n') text = text.slice(1);
+        // Поглощаем ровно эхо нажатия Enter: `\r\n` (CRLF) или одиночный `\n`
+        // (CR пришёл прошлым чанком). Одиночный ведущий `\r` НЕ трогаем — это
+        // ещё одно нажатие Enter, его нельзя терять из-за разбиения на чанки.
+        if (text.startsWith('\r\n')) text = text.slice(2);
+        else if (text[0] === '\n') text = text.slice(1);
         this.skipLf = false;
       }
       const cut = this.holdBack(text);

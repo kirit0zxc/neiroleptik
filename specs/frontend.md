@@ -698,6 +698,11 @@ E2E — отдельной задачей интеграции.
 | `token:triggered` | поток | `ip` | error | «Сработал медовый токен! Источник <ip>.» |
 | `trap:offline` | поток | — | gentle | «Одна из ловушек остановилась.» |
 
+Поля payload событий атак берутся из EventV1 по согласованному списку
+(`specs/events.md`, «Поля, которые читает frontend»): `ip` — `source.ip`,
+`protocol` — `service.protocol`, `username` и `success` — `data` события
+`auth.attempt`, `command` — `data.input` события `session.command`.
+
 Неизвестное событие Юми игнорирует. Реплики строятся из полей payload
 после нормализации модуля (`NormalizedPayload`) — мусорные поля не роняют
 экран. Разбор сессий (стадия атаки, пересказ, что проверить) — следующий

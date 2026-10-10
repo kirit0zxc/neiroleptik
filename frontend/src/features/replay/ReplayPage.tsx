@@ -45,6 +45,8 @@ function ReplayPlayer({ id, fetch }: { id: string; fetch: FetchReplay }) {
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const autoplayed = useRef(false);
   const log = useRef<HTMLDivElement>(null);
+  /** Оператор у низа ленты — следуем за записью. Считается по прокрутке, до роста текста. */
+  const stick = useRef(true);
 
   useEffect(() => { loader.start(); return () => loader.stop(); }, [loader]);
 
@@ -80,10 +82,12 @@ function ReplayPlayer({ id, fetch }: { id: string; fetch: FetchReplay }) {
     [state.version, count],
   );
 
-  // Новые строки — прокрутка вниз, если оператор не листает выше.
+  // Новые строки — прокрутка вниз, если оператор не листает выше. Положение
+  // проверяем до добавления текста (в onScroll): большой блок вывода иначе сам
+  // «отодвигает» низ, и следование обрывалось бы.
   useLayoutEffect(() => {
     const el = log.current;
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) el.scrollTop = el.scrollHeight;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [count, state.version]);
 
   if (state.notFound) return <Empty>Запись сессии не найдена.</Empty>;
@@ -121,7 +125,10 @@ function ReplayPlayer({ id, fetch }: { id: string; fetch: FetchReplay }) {
       <div className={s.legend}>
         <span className={s.in}>■ {LABEL.in}</span> <span className={s.out}>■ {LABEL.out}</span>
       </div>
-      <div ref={log} className={s.screen} tabIndex={0} role="region" aria-label="Текст записи">
+      <div ref={log} onScroll={(e) => {
+        const el = e.currentTarget;
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      }} className={s.screen} tabIndex={0} role="region" aria-label="Текст записи">
         {visible.length === 0 && <span className={s.hint}>Запись ещё не началась на этой позиции.</span>}
         {visible.map((run, i) => (run.gap
           ? <span key={i} className={s.gap}>[пропуск данных]</span>

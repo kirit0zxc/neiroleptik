@@ -60,4 +60,16 @@ describe('экран записи сессии (F15)', () => {
     open('missing');
     expect(await screen.findByText('Запись сессии не найдена.')).toBeInTheDocument();
   });
+
+  it('у низа ленты экран следует за записью и после большого блока вывода', async () => {
+    open(DEMO_SESSION);
+    const el = await screen.findByLabelText('Текст записи');
+    // happy-dom не считает раскладку: высоту содержимого задаём по длине текста.
+    Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => 100 });
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => 100 + (el.textContent?.length ?? 0) * 10 });
+    let top = 0;
+    Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = v; } });
+    await userEvent.click(screen.getByRole('button', { name: 'В конец' }));
+    expect(top).toBe(el.scrollHeight);
+  });
 });

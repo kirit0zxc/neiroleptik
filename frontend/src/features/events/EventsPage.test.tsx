@@ -152,6 +152,27 @@ describe('живая лента (F10–F12)', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it('422 на «Показать ещё» на паузе: показанный live остаётся, очередь паузы не появляется сама', async () => {
+    const user = userEvent.setup();
+    for (let i = 0; i < 55; i++) publish(ev(`keep-${i}`));
+    const s = controlledStream();
+    open('/events', s.create);
+    await screen.findByText('онлайн');
+    await screen.findAllByTestId('event-row');
+    publish(ev('shown')); s.send(ev('shown'));
+    await screen.findByText('cmd-shown');
+    await user.click(screen.getByRole('button', { name: '⏸ Пауза' }));
+    publish(ev('waiting')); s.send(ev('waiting'));
+    server.use(http.get('/api/v1/events', ({ request }) => (new URL(request.url).searchParams.get('cursor')
+      ? HttpResponse.json({ detail: 'Курсор не принимается' }, { status: 422 }) : undefined)));
+    await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    await screen.findByText('Список событий обновлён — загружен заново.');
+    await waitFor(() => expect(screen.getByText('cmd-shown')).toBeInTheDocument());
+    expect(screen.queryByText('cmd-waiting')).toBeNull();
+    expect(screen.getByRole('button', { name: '1 новых — показать' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '▶ Продолжить' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('повторный 422 после автоматического перечитывания — ошибка, а не новый сброс', async () => {
     const user = userEvent.setup();
     for (let i = 0; i < 55; i++) publish(ev(`again-${i}`));

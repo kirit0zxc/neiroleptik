@@ -55,7 +55,9 @@ export function EventsPage() {
 
   // Старый запрос/курсор снимка не переиспользуем после hello или overflow.
   // StreamClient ждёт завершения этого Promise и буферизует новый live.
-  const reloadHistory = useCallback(async () => {
+  // keepWindow: перечитать только REST-историю, сохранив показанные live и
+  // очередь паузы (422 курсора — данные потока не устарели, в отличие от resync).
+  const reloadHistoryWith = useCallback(async (keepWindow: boolean) => {
     setResyncing(true);
     setResyncError(null);
     try {
@@ -64,7 +66,7 @@ export function EventsPage() {
       qc.setQueryData<InfiniteData<EventsResponse>>(queryKey, (old) => old
         ? { pages: old.pages.slice(0, 1), pageParams: [null] }
         : old);
-      buffer.current.loadPage([], false);
+      if (!keepWindow) buffer.current.loadPage([], false);
       await pages.refetch({ throwOnError: true });
     } catch (err) {
       setResyncError(err instanceof Error ? err.message : 'Не удалось обновить историю');
@@ -74,6 +76,7 @@ export function EventsPage() {
       rerender((n) => n + 1);
     }
   }, [qc, key, pages.refetch]);
+  const reloadHistory = useCallback(() => reloadHistoryWith(false), [reloadHistoryWith]);
   useStreamResync(reloadHistory);
 
   const recoverOverflow = () => { void reloadHistory().catch(() => {}); };
@@ -95,7 +98,7 @@ export function EventsPage() {
     if (autoReset.current) return;
     autoReset.current = true;
     setRestarted(true);
-    await reloadHistory().catch(() => {});
+    await reloadHistoryWith(true).catch(() => {});
   };
 
   const onLive = useCallback((events: HfEvent[]) => {

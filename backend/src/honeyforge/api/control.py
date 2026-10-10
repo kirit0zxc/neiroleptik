@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 from sqlalchemy import select
 
+from honeyforge.api.command_schemas import CommandAccepted, CommandCreate, JobRead
 from honeyforge.api.dependencies import Administrator, Configuration, Database, Operator, Reader
 from honeyforge.api.schemas import (
     AuditRead,
@@ -17,6 +18,7 @@ from honeyforge.api.schemas import (
     ProfileUpdate,
     RevisionRead,
 )
+from honeyforge.control.commands import CommandService
 from honeyforge.control.deployments import DeploymentService
 from honeyforge.control.profiles import ProfileService
 from honeyforge.control.registry import RegistryService
@@ -130,6 +132,24 @@ def get_deployment(
     deployment_id: UUID, user: Reader, db: Database, settings: Configuration
 ) -> DeploymentRead:
     return DeploymentService(db, settings).get(deployment_id)
+
+
+@router.post(
+    "/deployments/{deployment_id}/commands", response_model=CommandAccepted, status_code=202
+)
+def create_command(
+    deployment_id: UUID,
+    payload: CommandCreate,
+    user: Operator,
+    db: Database,
+    settings: Configuration,
+) -> CommandAccepted:
+    return CommandService(db, settings).create(deployment_id, payload, user)
+
+
+@router.get("/jobs/{job_id}", response_model=JobRead)
+def get_job(job_id: UUID, user: Reader, db: Database, settings: Configuration) -> JobRead:
+    return CommandService(db, settings).get(job_id)
 
 
 @router.get("/audit", response_model=list[AuditRead])

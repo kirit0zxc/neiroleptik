@@ -12,9 +12,8 @@ export function hostStatus(h: Pick<Host, 'status'>): { tone: Tone; label: string
 }
 
 /**
- * Состояние ловушки (F5) на экране-превью парка. Работающая ловушка, у
+ * Состояние ловушки (F5) в центре и демо. Работающая ловушка, у
  * которой применённая ревизия отстаёт от желаемой, — «drift», а не успех.
- * В контракте стадии 1 есть только `planned`; остальные состояния — превью.
  */
 export function deploymentStatus(d: Pick<PreviewDeployment, 'state' | 'desired_revision' | 'applied_revision'>): { tone: Tone; label: string } {
   const drift = d.applied_revision !== d.desired_revision;
@@ -28,6 +27,7 @@ export function deploymentStatus(d: Pick<PreviewDeployment, 'state' | 'desired_r
     case 'planned': return { tone: 'idle', label: 'запланирована' };
     case 'stopped': return { tone: 'idle', label: 'остановлена' };
     case 'failed': return { tone: 'bad', label: 'ошибка' };
+    case 'unknown': return { tone: 'warn', label: 'состояние не подтверждено' };
     default: return { tone: 'idle', label: 'неизвестно' };
   }
 }

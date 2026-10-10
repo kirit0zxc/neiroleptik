@@ -42,6 +42,7 @@ class ErrorResponse(StrictModel):
     """Общий контракт бизнес-ошибок и ошибок валидации."""
 
     detail: str | list[ValidationIssue]
+    code: str | None = None
 
 
 class LoginInput(StrictModel):
@@ -236,7 +237,12 @@ class DeploymentRead(StrictModel):
     host_id: UUID
     profile_id: UUID
     revision: int
-    state: Literal["planned"]
+    state: Literal["planned", "deploying", "running", "stopping", "stopped", "failed", "unknown"]
+    interaction_level: Level
+    desired_revision: int
+    applied_revision: int | None
+    generation: int
+    instance_id: UUID | None
     created_at: datetime
 
 
@@ -244,7 +250,10 @@ class AgentDeployment(StrictModel):
     deployment_id: UUID
     profile_id: UUID
     revision: int
-    state: Literal["planned"]
+    state: Literal["planned", "deploying", "running", "stopping", "stopped", "failed", "unknown"]
+    generation: int
+    applied_revision: int | None
+    instance_id: UUID | None
     config: AgentProfileConfig
 
 

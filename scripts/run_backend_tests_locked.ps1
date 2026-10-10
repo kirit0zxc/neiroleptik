@@ -4,6 +4,8 @@ param(
     [Parameter(Mandatory=$true)][string]$BackendPath,
     [Parameter(ValueFromRemainingArguments=$true)][string[]]$TestArguments
 )
+$ErrorActionPreference = 'Stop'
+# Ошибка пути или запуска прерывает wrapper: отсутствие pytest не считается успехом.
 # Общий эксклюзивный дескриптор защищает pytest вместе с миграциями и cleanup.
 $deadline = [DateTime]::UtcNow.AddSeconds(30)
 $handle = $null

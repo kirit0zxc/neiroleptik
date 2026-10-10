@@ -11,6 +11,7 @@ import { ProfilesPage } from '../features/profiles/ProfilesPage';
 import { ApiError } from '../shared/api/client';
 import { createEventStream, StreamProvider, type EventStream } from '../shared/stream/stream';
 import { Operations, OperationsContext } from '../features/fleet/operations';
+import { AuditPage } from '../features/audit/AuditPage';
 import { AppShell, NotFound, Planned } from './AppShell';
 
 export function makeQueryClient() {
@@ -61,7 +62,7 @@ export const routes = [
       { path: 'events', element: <EventsScreen /> },
       { path: 'sessions/:id', element: <Planned title="Паспорт атаки" day="D3" /> },
       { path: 'alerts', element: <Planned title="Алерты и экспорт" day="D3" /> },
-      { path: 'audit', element: <Planned title="Аудит" day="D3" /> },
+      { path: 'audit', element: <AuditPage /> },
       { path: '*', element: <NotFound /> },
     ],
   },

@@ -53,6 +53,9 @@ function ReplayPlayer({ id, fetch }: { id: string; fetch: FetchReplay }) {
   const duration = state.tape.durationMs;
   const now = performance.now();
   const pos = clock.position(now, duration);
+  // Воспроизведение идёт — для зависимостей эффекта анимации (пуск/пауза его
+  // перезапускают, а перерисовки по кадрам — нет).
+  const playing = clock.playing;
 
   // Автопуск при первых данных — кроме prefers-reduced-motion.
   useEffect(() => {
@@ -61,16 +64,26 @@ function ReplayPlayer({ id, fetch }: { id: string; fetch: FetchReplay }) {
     if (!reducedMotion()) { clock.play(performance.now(), duration, state.complete); redraw(); }
   }, [state, clock, duration]);
 
-  // Пока идёт воспроизведение — перерисовка по кадрам.
+  // Пока идёт воспроизведение — перерисовка по кадрам. У живого края, когда
+  // позиция упёрлась в конец и новых данных ещё нет, кадры не крутим впустую
+  // (иначе постоянная CPU-нагрузка): цикл перезапустится по приходе данных,
+  // так как эффект зависит от state.version.
   useEffect(() => {
     if (!clock.playing) return;
     let frame = requestAnimationFrame(function step() {
-      clock.tick(performance.now(), loader.snapshot.tape.durationMs, loader.snapshot.complete);
+      const snap = loader.snapshot;
+      clock.tick(performance.now(), snap.tape.durationMs, snap.complete);
       redraw();
-      if (clock.playing) frame = requestAnimationFrame(step);
+      const caughtUpLive = !snap.complete && clock.position(performance.now(), snap.tape.durationMs) >= snap.tape.durationMs;
+      if (clock.playing && !caughtUpLive) frame = requestAnimationFrame(step);
     });
     return () => cancelAnimationFrame(frame);
-  });
+    // playing — перезапуск по пуску/паузе; pos — по перемотке (seek меняет только
+    // часы, иначе у живого края кадры не возобновились бы); state.version — по
+    // приходе новых данных живого хвоста. В простое у края перерисовок нет, поэтому
+    // холостой нагрузки не возникает.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clock, playing, pos, state.version]);
 
   // Число видимых частей меняется редко; склейку блоков пересчитываем только тогда,
   // а не на каждом кадре воспроизведения.

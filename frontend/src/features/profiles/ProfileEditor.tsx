@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useEffect, useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import type { Profile } from '../../shared/api/types';
 import { ApiError } from '../../shared/api/client';
 import { formatTime } from '../../shared/format/time';
@@ -45,7 +45,21 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
   const [reloading, setReloading] = useState(false);
   const [reloadError, setReloadError] = useState<string | null>(null);
   const revisions = useRevisions(id);
-  const [saved, setSaved] = useState<number | null>(null);
+  // После создания — переход с /profiles/new на /profiles/:id, это другой
+  // маршрут, и форма монтируется заново: номер сохранённой ревизии приходит в
+  // состоянии перехода, чтобы сообщение не пропало.
+  const location = useLocation();
+  const [saved, setSaved] = useState<number | null>(() => {
+    const fromNav = (location.state as { saved?: unknown } | null)?.saved;
+    return typeof fromNav === 'number' ? fromNav : null;
+  });
+  // Сообщение показано — убираем его из записи истории, чтобы F5 и «вперёд»
+  // не повторяли устаревшее «Сохранено».
+  useEffect(() => {
+    if ((location.state as { saved?: unknown } | null)?.saved !== undefined) {
+      navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, location.search, location.hash, navigate]);
   const form = useForm<ProfileInput, unknown, ProfileForm>({ resolver: zodResolver(ProfileSchema), defaultValues: initial, mode: 'onTouched' });
   const services = useFieldArray({ control: form.control, name: 'services' });
   const creds = useFieldArray({ control: form.control, name: 'credentials' });
@@ -87,7 +101,7 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
       setSaved(p.revision);
       setSnapshot({ name: p.name, revision: p.revision });
       form.reset(formFromConfig(p.name, p.description, p.config));
-      if (!id) navigate(`/profiles/${encodeURIComponent(p.id)}`, { replace: true });
+      if (!id) navigate(`/profiles/${encodeURIComponent(p.id)}`, { replace: true, state: { saved: p.revision } });
     },
     // 422: ошибки сервера — к своим полям (путь после «config»).
     onError: (err) => {

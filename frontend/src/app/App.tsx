@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router';
 import { AuthProvider, LoginPage, RequireAuth } from '../features/auth/auth';
 import { EventsPage } from '../features/events/EventsPage';
@@ -10,6 +10,7 @@ import { ProfileEditor } from '../features/profiles/ProfileEditor';
 import { ProfilesPage } from '../features/profiles/ProfilesPage';
 import { ApiError } from '../shared/api/client';
 import { createEventStream, StreamProvider, type EventStream } from '../shared/stream/stream';
+import { Operations, OperationsContext } from '../features/fleet/operations';
 import { AppShell, NotFound, Planned } from './AppShell';
 
 export function makeQueryClient() {
@@ -70,12 +71,17 @@ export function App({ client = makeQueryClient(), createStream = createEventStre
   client?: QueryClient; createStream?: () => EventStream;
 }) {
   const router = createBrowserRouter(routes);
+  // Операции с ловушками живут на уровне приложения: переход между экранами
+  // и обновление списка их не теряют.
+  const [operations] = useState(() => new Operations(() => void client.invalidateQueries({ queryKey: ['deployments'] })));
   return (
     <QueryClientProvider client={client}>
       <StreamFactory.Provider value={createStream}>
-        <AuthProvider>
-          <RouterProvider router={router} />
-        </AuthProvider>
+        <OperationsContext.Provider value={operations}>
+          <AuthProvider>
+            <RouterProvider router={router} />
+          </AuthProvider>
+        </OperationsContext.Provider>
       </StreamFactory.Provider>
     </QueryClientProvider>
   );

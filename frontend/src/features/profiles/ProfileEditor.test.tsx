@@ -138,8 +138,16 @@ describe('форма профиля (F8, F9)', () => {
     await user.type(port, '8081');
     await user.click(screen.getByRole('button', { name: 'Создать профиль' }));
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Сохранено: ревизия r1');
-    expect(window.location.pathname).toBe('/profiles/p-new-1');
+    // Сначала переход на адрес нового профиля (форма пересоздаётся), потом
+    // сообщение — оно не должно пропасть при пересоздании.
+    await waitFor(() => expect(window.location.pathname).toBe('/profiles/p-new-1'));
+    // Заголовок существующего профиля — признак, что форма уже пересоздана.
+    await screen.findByRole('heading', { name: 'Профиль Камера на складе' });
+    expect(screen.getByRole('status')).toHaveTextContent('Сохранено: ревизия r1');
+    // Сообщение показано и убрано из записи истории: F5 его не повторит, а
+    // на экране оно остаётся.
+    await waitFor(() => expect((window.history.state as { usr?: unknown } | null)?.usr ?? null).toBeNull());
+    expect(screen.getByRole('status')).toHaveTextContent('Сохранено: ревизия r1');
     expect(await screen.findByText(/r1/, { selector: 'b' })).toBeInTheDocument();
   });
 
@@ -287,7 +295,7 @@ describe('форма профиля (F8, F9)', () => {
     expect(screen.queryByLabelText('Пароль')).toBeNull();
     expect(screen.getByLabelText('Лимит payload, байт')).toHaveValue('1536');
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
-    await screen.findByRole('status');
+    expect(await screen.findByRole('status')).toHaveTextContent(/Сохранено: ревизия r\d+/);
     expect(body?.config.credentials).toBeNull();
     expect(body?.config.logging.max_payload_bytes).toBe(1536);
   });

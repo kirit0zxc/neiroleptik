@@ -1,35 +1,30 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { api } from '../../shared/api/client';
-import type { Deployment, Host, PreviewDeployment } from '../../shared/api/types';
+import type { Deployment, Host } from '../../shared/api/types';
 import { ago } from '../../shared/format/time';
 import { Empty, ErrorState, Loading, Panel, StatusBadge, ui } from '../../shared/ui';
 import { canEdit, useMe } from '../auth/auth';
 import { DeploymentActions } from './DeploymentActions';
 import { deploymentStatus, hostStatus } from './status';
+import s from './fleet.module.css';
 
 const LEVEL = { low: 'Low', medium: 'Medium', high: 'High' } as const;
 
-/** Превью распознаём только в явно включённом демо; реальный API — DeploymentRead. */
-function previewOf(deployment: Deployment | PreviewDeployment): PreviewDeployment | null {
-  return import.meta.env.VITE_API_MOCK === '1' && !('revision' in deployment)
-    ? deployment : null;
-}
-
-/** Парк: хосты и ловушки (F4, F5), команды ловушек (F6). Мастер запуска — D3. */
+/** Парк: хосты и ловушки (F4, F5), команды ловушек (F6) — только operator/admin. */
 export function FleetPage() {
   const editable = canEdit(useMe()?.user.role);
-  const commandsVisible = editable && import.meta.env.VITE_API_MOCK === '1';
   const hosts = useQuery({ queryKey: ['hosts'], queryFn: () => api<Host[]>('/api/v1/hosts'), refetchInterval: 10_000 });
-  const deps = useQuery({ queryKey: ['deployments'], queryFn: () => api<Array<Deployment | PreviewDeployment>>('/api/v1/deployments'), refetchInterval: 10_000 });
+  const deps = useQuery({ queryKey: ['deployments'], queryFn: () => api<Deployment[]>('/api/v1/deployments'), refetchInterval: 10_000 });
 
   return (
     <>
       <h1>Парк ловушек</h1>
       {editable && <p><Link className={ui.button} to="/fleet/new">+ Запустить ловушку</Link></p>}
       <Panel title="Хосты">
+        {hosts.isError && hosts.data && <Stale what="хостов" message={hosts.error.message} onRetry={() => void hosts.refetch()} />}
         {hosts.isPending ? <Loading what="хосты" />
-          : hosts.isError ? <ErrorState message={hosts.error.message} onRetry={() => void hosts.refetch()} />
+          : !hosts.data ? <ErrorState message={hosts.error?.message ?? 'Не удалось загрузить'} onRetry={() => void hosts.refetch()} />
           : !hosts.data.length ? <Empty>Хостов пока нет — зарегистрируйте агента.</Empty>
           : (
             <table className={ui.table}>
@@ -52,28 +47,26 @@ export function FleetPage() {
           )}
       </Panel>
       <Panel title="Ловушки">
+        {/* Сбой обновления не убирает таблицу: в её строках идут задания, их опрос и ключи повтора. */}
+        {deps.isError && deps.data && <Stale what="ловушек" message={deps.error.message} onRetry={() => void deps.refetch()} />}
         {deps.isPending ? <Loading what="ловушки" />
-          : deps.isError ? <ErrorState message={deps.error.message} onRetry={() => void deps.refetch()} />
+          : !deps.data ? <ErrorState message={deps.error?.message ?? 'Не удалось загрузить'} onRetry={() => void deps.refetch()} />
           : !deps.data.length ? <Empty>Ловушек пока нет.</Empty>
           : (
             <table className={ui.table}>
-              <thead><tr><th>Ловушка</th><th>Уровень</th><th>Хост</th><th>Состояние</th><th>Профиль</th>{commandsVisible && <th>Действия</th>}</tr></thead>
+              <thead><tr><th>Ловушка</th><th>Уровень</th><th>Хост</th><th>Состояние</th><th>Профиль</th>{editable && <th>Действия</th>}</tr></thead>
               <tbody>
                 {deps.data.map((d) => {
-                  const preview = previewOf(d);
-                  const st = preview ? deploymentStatus(preview) : 'revision' in d
-                    ? deploymentStatus({ state: d.state, desired_revision: d.desired_revision ?? d.revision, applied_revision: d.applied_revision ?? null })
-                    : { tone: 'idle', label: 'неизвестно' } as const;
-                  // Берём уровень назначенной ревизии из ответа, не из последней версии профиля.
-                  const revision = preview?.desired_revision ?? ('revision' in d ? d.revision : '—');
+                  const st = deploymentStatus(d);
                   return (
                     <tr key={d.id}>
                       <td className="mono">{d.id}</td>
-                      <td>{preview ? LEVEL[preview.interaction_level] : 'interaction_level' in d && d.interaction_level ? LEVEL[d.interaction_level] : '—'}</td>
+                      {/* Уровень назначенной ревизии — из ответа, не из текущей версии профиля. */}
+                      <td>{LEVEL[d.interaction_level] ?? '—'}</td>
                       <td className="mono">{d.host_id}</td>
                       <td><StatusBadge tone={st.tone}>{st.label}</StatusBadge></td>
-                      <td className="mono">{d.profile_id} · r{revision}</td>
-                      {commandsVisible && <td>{preview && <DeploymentActions deployment={preview} />}</td>}
+                      <td className="mono">{d.profile_id} · r{d.revision}</td>
+                      {editable && <td><DeploymentActions deployment={d} /></td>}
                     </tr>
                   );
                 })}
@@ -82,5 +75,16 @@ export function FleetPage() {
           )}
       </Panel>
     </>
+  );
+}
+
+/** Предупреждение поверх последних загруженных данных: обновить не удалось. */
+function Stale({ what, message, onRetry }: { what: string; message: string; onRetry: () => void }) {
+  return (
+    // status, а не alert: при «мигающей» связи читалка не будет перебивать работу.
+    <p role="status" className={s.stale}>
+      Не удалось обновить список {what}: {message.replace(/[.s]+$/, '')}. Показаны последние данные.{' '}
+      <button className={`${ui.button} ${s.small}`} onClick={onRetry}>Повторить</button>
+    </p>
   );
 }

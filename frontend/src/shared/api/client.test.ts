@@ -31,6 +31,44 @@ describe('API-клиент (раздел 4)', () => {
     expect((err as ApiError).message).toBe('Профиль уже изменён: перечитайте текущую версию');
   });
 
+/** Ответ, чьё тело обрывается посреди передачи (ошибка потока), как при потере связи. */
+const broken = (status: number, partial: string) => new HttpResponse(new ReadableStream({
+  start(c) { c.enqueue(new TextEncoder().encode(partial)); c.error(new Error('обрыв соединения')); },
+}), { status, headers: { 'Content-Type': 'application/json' } });
+  it('обрыв тела успешного ответа — неопределённый результат (статус 0), а не обычная ошибка', async () => {
+    server.use(http.post('/t', () => broken(202, '{"job_id":"j')));
+    const err = await api('/t', { method: 'POST', body: '{}' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(0);
+    expect((err as ApiError).message).toBe('Ответ сервера получен не полностью — результат неизвестен');
+  });
+
+  it('полное тело не в JSON: изменяющий запрос — результат неизвестен, чтение — отказ BAD_RESPONSE', async () => {
+    const html = () => new HttpResponse('<!doctype html><title>прокси</title>', { status: 200, headers: { 'Content-Type': 'text/html' } });
+    server.use(http.post('/h', html), http.get('/h', html));
+    const write = await api('/h', { method: 'POST', body: '{}' }).catch((e: unknown) => e) as ApiError;
+    expect(write.status).toBe(0);
+    const read = await api('/h').catch((e: unknown) => e) as ApiError;
+    expect(read).toMatchObject({ status: 200, code: 'BAD_RESPONSE', message: 'Сервер вернул непонятный ответ' });
+  });
+
+  it('пустое тело успешного ответа — без данных, а не ошибка', async () => {
+    server.use(http.post('/e', () => new HttpResponse('', { status: 200 })));
+    await expect(api('/e', { method: 'POST', body: '{}' })).resolves.toBeUndefined();
+  });
+
+  it('код ошибки из ErrorResponse.code сохраняется для логики экрана', async () => {
+    server.use(
+      http.post('/c', () => HttpResponse.json({ detail: 'Перечитайте поколение', code: 'STALE_GENERATION' }, { status: 409 })),
+      http.post('/n', () => HttpResponse.json({ detail: 'Без кода' }, { status: 409 })),
+    );
+    const withCode = await api('/c', { method: 'POST', body: '{}' }).catch((e: unknown) => e) as ApiError;
+    expect(withCode.code).toBe('STALE_GENERATION');
+    expect(withCode.message).toBe('Перечитайте поколение');
+    const noCode = await api('/n', { method: 'POST', body: '{}' }).catch((e: unknown) => e) as ApiError;
+    expect(noCode.code).toBeNull();
+  });
+
   it('422: список ошибок раскладывается по путям полей без «body»', async () => {
     server.use(http.post('/p', () => HttpResponse.json({ detail: [
       { loc: ['body', 'config', 'services', 0, 'port'], type: 'value_error', msg: 'порт занят' },

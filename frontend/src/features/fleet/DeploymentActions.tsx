@@ -1,63 +1,102 @@
-import { useMutation } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { api, ApiError } from '../../shared/api/client';
-import type { PreviewDeployment } from '../../shared/api/types';
-import { StatusBadge, ui, WindowTitle } from '../../shared/ui';
-import { availableCommands, COMMAND_LABEL, CONFIRM, jobLabel, type Command } from './commands';
-import { useJob } from './useJob';
+import { ApiError } from '../../shared/api/client';
+import type { Deployment } from '../../shared/api/types';
+import { StatusBadge, ui, WindowTitle, type Tone } from '../../shared/ui';
+import { availableCommands, COMMAND_LABEL, commandRejectText, CONFIRM, jobLabel, type Command } from './commands';
+import { useOperation } from './operations';
+import { transient, useJob } from './useJob';
 import s from './fleet.module.css';
 
 /**
  * Команды одной ловушки (F6): кнопки по состоянию, подтверждение опасных,
- * ход задания до итога. Новый idempotency_key на каждое нажатие.
+ * ход задания до итога, понятные отказы. Сама операция (действие, ключ,
+ * задание) живёт в хранилище Operations — строка только показывает её.
+ * Кнопки видит только operator/admin — это решает парк.
  */
-export function DeploymentActions({ deployment }: { deployment: PreviewDeployment }) {
-  // Команд и jobs пока нет в control OpenAPI: прямой рендер тоже безопасен.
-  if (import.meta.env.VITE_API_MOCK !== '1') return null;
-  return <PreviewActions deployment={deployment} />;
-}
-
-function PreviewActions({ deployment }: { deployment: PreviewDeployment }) {
-  const [jobId, setJobId] = useState<string | null>(null);
+export function DeploymentActions({ deployment }: { deployment: Deployment }) {
+  const [op, ops] = useOperation(deployment.id);
+  const { action, jobId, sending, error } = op;
   const [confirm, setConfirm] = useState<Command | null>(null);
+  const status = useRef<HTMLSpanElement>(null);
+  const opener = useRef<HTMLButtonElement | null>(null);
+  // Перевести фокус к ходу задания, когда модальный диалог уже закрыт: пока он
+  // открыт, всё вокруг недоступно для фокуса.
+  const [focusStatus, setFocusStatus] = useState(false);
+  useEffect(() => {
+    if (!focusStatus || confirm) return;
+    status.current?.focus();
+    setFocusStatus(false);
+  }, [focusStatus, confirm]);
 
-  const send = useMutation({
-    mutationFn: (command: Command) => api<{ job_id: string }>(
-      `/api/v1/deployments/${encodeURIComponent(deployment.id)}/commands`,
-      { method: 'POST', body: JSON.stringify({ command, idempotency_key: crypto.randomUUID() }) },
-    ),
-    onSuccess: (r) => setJobId(r.job_id),
-  });
+  const { job, finished, polling } = useJob(jobId);
+  // Задание завершилось — следующее нажатие будет новым действием с новым ключом.
+  useEffect(() => { if (finished) ops.finish(deployment.id); }, [finished, ops, deployment.id]);
 
-  const { job: current, finished } = useJob(jobId);
+  // Неотправленная команда (нет связи или результат неизвестен) ждёт
+  // «Повторить»: другие команды до этого неактивны, иначе за возможно
+  // созданным заданием никто не следил бы.
+  const unsent = transient(error) && !!action;
+  const busy = sending || (!!jobId && !finished) || unsent;
+  const start = (command: Command) => {
+    ops.begin(deployment.id, command, deployment.generation);
+    // Нажатая кнопка сейчас станет неактивной — фокус переходит к ходу задания.
+    setFocusStatus(true);
+  };
+  const ask = (c: Command, from: HTMLButtonElement) => {
+    opener.current = from;
+    if (CONFIRM[c]) setConfirm(c);
+    else start(c);
+  };
 
-  const busy = send.isPending || (!!jobId && !finished);
   const commands = availableCommands(deployment);
-  const run = (c: Command) => (CONFIRM[c] ? setConfirm(c) : send.mutate(c));
+  const stale = error instanceof ApiError && error.code === 'STALE_GENERATION';
+  // После STALE_GENERATION повторяем новым действием, когда парк перечитан
+  // (поколение сменилось) и команда всё ещё доступна.
+  const reread = stale && !!action && deployment.generation !== action.generation;
+  const staleRetry = reread && commands.includes(action!.command) && !busy ? action!.command : null;
+
+  // Одна постоянная живая область: меняется только текст — читалки объявляют надёжно.
+  let progress: { tone: Tone; text: string } | null = null;
+  if (polling.failure) progress = { tone: 'bad', text: polling.failure };
+  else if (polling.lost) progress = { tone: 'warn', text: 'нет связи — проверяем снова' };
+  if (job && !polling.failure) {
+    const l = jobLabel(job);
+    progress = { tone: polling.lost ? 'warn' : l.tone, text: `${COMMAND_LABEL[job.command]}: ${polling.lost ? 'нет связи — проверяем снова' : l.label}` };
+  }
 
   return (
     <div className={s.actions}>
       {commands.map((c) => (
-        <button key={c} className={`${ui.button} ${s.small}`} disabled={busy} onClick={() => run(c)}>
+        <button key={c} className={`${ui.button} ${s.small}`} disabled={busy} onClick={(e) => ask(c, e.currentTarget)}>
           {COMMAND_LABEL[c]}
         </button>
       ))}
-      {current && (
-        <span role="status" aria-label={`Задание ${deployment.id}`}>
-          <StatusBadge tone={jobLabel(current).tone}>{COMMAND_LABEL[current.command]}: {jobLabel(current).label}</StatusBadge>
-        </span>
-      )}
-      {send.error && (
+      <span role="status" ref={status} tabIndex={-1}>
+        {progress && <StatusBadge tone={progress.tone}>{progress.text}</StatusBadge>}
+      </span>
+      {!!error && !sending && (
         <span role="alert" className={s.err}>
-          {send.error instanceof ApiError ? send.error.message : 'Команда не отправлена'}
+          {commandRejectText(error)}
+          {unsent && (
+            <>
+              {' Повтор безопасен: вторая команда не создастся.'}
+              {' '}<button className={`${ui.button} ${s.small}`} onClick={() => { ops.retry(deployment.id); setFocusStatus(true); }}>Повторить</button>
+              {/* Выход без перезагрузки, если сбой не проходит; парк покажет, дошла ли команда. */}
+              {' '}<button className={`${ui.button} ${s.small}`} onClick={() => ops.cancel(deployment.id)}>Отменить</button>
+            </>
+          )}
+          {staleRetry && (
+            <> Повторить? <button className={`${ui.button} ${s.small}`} onClick={(e) => ask(staleRetry, e.currentTarget)}>Повторить</button></>
+          )}
+          {reread && !staleRetry && <> Команда больше недоступна в текущем состоянии.</>}
         </span>
       )}
       {confirm && (
         <ConfirmDialog
           title={`${COMMAND_LABEL[confirm]} — ${deployment.id}?`}
           text={CONFIRM[confirm]!}
-          onCancel={() => setConfirm(null)}
-          onConfirm={() => { send.mutate(confirm); setConfirm(null); }}
+          onCancel={() => { setConfirm(null); opener.current?.focus(); }}
+          onConfirm={() => { const c = confirm; setConfirm(null); start(c); }}
         />
       )}
     </div>

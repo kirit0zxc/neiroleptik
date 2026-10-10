@@ -7,3 +7,4 @@
 .dialogActions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 16px 16px; }
 .danger { border-color: var(--bad); }
 .danger:hover { background: rgba(255, 107, 127, .15); }
+.stale { margin: 0 0 10px; color: var(--warn); }

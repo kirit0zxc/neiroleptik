@@ -1,14 +1,12 @@
 /**
  * Типы API HoneyForge по общему контракту `contracts/openapi.json`.
  *
- * Для поверхностей стадии 1 (auth, профили, хосты, развёртывания) имена и
- * форма полей точно повторяют контракт. Поле `created_at` и прочие строки
- * дат — ISO 8601 в UTC.
+ * Для auth, профилей, хостов, развёртываний и команд (задания — в
+ * features/fleet/commands.ts) имена и форма полей точно повторяют контракт.
+ * Поле `created_at` и прочие строки дат — ISO 8601 в UTC.
  *
- * Поток событий, команды ловушек и задания в контракте стадии 1 отсутствуют
- * (см. `specs/architecture.md`, «Границы первого этапа»): соответствующие
- * типы помечены как превью и обслуживаются только моками до реализации
- * участниками 3–4.
+ * Поток событий в контракте ещё не закреплён (участник 4): его типы — превью
+ * и обслуживаются моками.
  */
 
 // ─── Пользователь и сессия (AuthRead/UserRead) ───────────────
@@ -133,12 +131,13 @@ export interface Deployment {
   profile_id: string;
   revision: number;
   state: DeploymentState;
-  /** Добавления этапа команд: optional только для совместимости со старым локальным API. */
-  interaction_level?: InteractionLevel;
-  desired_revision?: number;
-  applied_revision?: number | null;
-  generation?: number;
-  instance_id?: string | null;
+  /** Уровень назначенной ревизии — из ответа, не из текущей версии профиля. */
+  interaction_level: InteractionLevel;
+  desired_revision: number;
+  applied_revision: number | null;
+  /** Счётчик принятых команд; отправляется как expected_generation. */
+  generation: number;
+  instance_id: string | null;
   created_at: string;
 }
 
@@ -149,28 +148,7 @@ export interface DeploymentCreate {
   revision: number;
 }
 
-// ─── Превью этапов 3–4 (в контракте стадии 1 отсутствует) ────
-
-/**
- * Жизненный цикл ловушки в превью парка. В контракте стадии 1 его нет:
- * заполняется только моками, пока команды и задания не реализованы.
- */
-export type PreviewState = DeploymentState;
-
-/**
- * Развёртывание с данными превью: к контрактным полям добавлены уровень,
- * желаемая и применённая ревизии и расширенные состояния. Служит только
- * экранам-превью парка и команд (моки), не является частью контракта.
- */
-export interface PreviewDeployment {
-  id: string;
-  host_id: string;
-  profile_id: string;
-  interaction_level: InteractionLevel;
-  state: PreviewState;
-  desired_revision: number;
-  applied_revision: number | null;
-}
+// ─── События потока (превью: в OpenAPI ещё нет) ──────────────
 
 /** Словарь типов событий v1; неизвестный тип UI показывает как «неизвестное». */
 export const EVENT_TYPES = [

@@ -10,6 +10,14 @@ import { StreamClient, type GapPage, type StreamRecord, type StreamSocket, type 
  */
 export type EventStream = StreamClient<HfEvent>;
 
+/**
+ * Догрузку не продолжить: 410 — курсор старше хранения, 422 — неверный
+ * курсор или until. Нужна полная пересинхронизация.
+ */
+export function isStreamGone(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 410 || err.status === 422);
+}
+
 /** Настоящий поток: WebSocket того же origin + догрузка по REST. */
 export function createEventStream(): EventStream {
   return new StreamClient<HfEvent>({
@@ -23,8 +31,7 @@ export function createEventStream(): EventStream {
     },
     // Уникальность события — пара (agent_id, event_id).
     keyOf: eventKey,
-    // 410 — курсор устарел: догрузить инкрементально нельзя, нужна пересинхронизация.
-    isGone: (err) => err instanceof ApiError && err.status === 410,
+    isGone: isStreamGone,
     // 4401 — сессия истекла; 1006 и прочее — проверить сессию: при 401 api() сам уведёт на вход.
     onUnauthorized: notifyUnauthorized,
     onAbnormalClose: () => { void api('/api/v1/auth/me').catch(() => {}); },

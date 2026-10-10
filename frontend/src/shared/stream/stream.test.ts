@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from 'vitest';
-import { createEventStream } from './stream';
+import { ApiError } from '../api/client';
+import { createEventStream, isStreamGone } from './stream';
 
 /** Браузерный транспорт; настоящий адаптер строит URL и обрабатывает сообщения. */
 class TestSocket {
@@ -51,4 +52,11 @@ it('настоящий адаптер догружает больше стран
   expect(stream.currentCursor).toBe('350');
   expect(stream.currentStatus).toBe('live');
   stream.stop();
+});
+
+it('410 и 422 на догрузке — полная пересинхронизация; прочие сбои — обычный повтор', () => {
+  expect(isStreamGone(new ApiError(410, 'gone'))).toBe(true);
+  expect(isStreamGone(new ApiError(422, 'bad cursor'))).toBe(true);
+  expect(isStreamGone(new ApiError(503, 'down'))).toBe(false);
+  expect(isStreamGone(new Error('net'))).toBe(false);
 });

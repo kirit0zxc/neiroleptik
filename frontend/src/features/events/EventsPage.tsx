@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
-import { api } from '../../shared/api/client';
+import { api, ApiError } from '../../shared/api/client';
 import { EVENT_TYPES, eventKey, type Deployment, type HfEvent } from '../../shared/api/types';
 import { formatTime } from '../../shared/format/time';
 import { useStreamEvents, useStreamResync } from '../../shared/stream/stream';
@@ -78,6 +78,18 @@ export function EventsPage() {
 
   const recoverOverflow = () => { void reloadHistory().catch(() => {}); };
 
+  // 422 на следующей странице: курсор снимка больше не принимается — перечитать с начала.
+  const [restarted, setRestarted] = useState(false);
+  useEffect(() => { setRestarted(false); }, [key]);
+  const loadMore = async () => {
+    setRestarted(false);
+    const r = await pages.fetchNextPage();
+    if (r.error instanceof ApiError && r.error.status === 422) {
+      setRestarted(true);
+      await reloadHistory().catch(() => {});
+    }
+  };
+
   const onLive = useCallback((events: HfEvent[]) => {
     const fit = events.filter((e) => matches(e, filters));
     if (!fit.length) return;
@@ -117,6 +129,7 @@ export function EventsPage() {
         {b.overflow > 0 && <p role="alert">Буфер паузы переполнен: {b.overflow} событий требуют повторной загрузки.{' '}
           <button className={ui.button} disabled={resyncing} onClick={recoverOverflow}>Обновить историю</button>
         </p>}
+        {restarted && <p role="status">Список событий обновлён — загружен заново.</p>}
         {resyncError && <ErrorState message={resyncError} onRetry={recoverOverflow} />}
         {pages.isPending || resyncing ? <Loading what="события" />
           : pages.isError ? <ErrorState message={pages.error.message} onRetry={() => void pages.refetch()} />
@@ -140,7 +153,7 @@ export function EventsPage() {
           )}
         {pages.hasNextPage && (
           <p className={s.more}>
-            <button className={ui.button} disabled={pages.isFetchingNextPage || resyncing} onClick={() => void pages.fetchNextPage()}>
+            <button className={ui.button} disabled={pages.isFetchingNextPage || resyncing} onClick={() => void loadMore()}>
               {pages.isFetchingNextPage ? 'Загружаем…' : 'Показать ещё'}
             </button>
           </p>

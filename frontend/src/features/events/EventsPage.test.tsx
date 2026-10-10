@@ -134,6 +134,36 @@ describe('живая лента (F10–F12)', () => {
     expect(screen.queryByRole('button', { name: 'Показать ещё' })).toBeNull();
   });
 
+  it('422 на «Показать ещё»: история перечитывается с первой страницы, с пометкой', async () => {
+    const user = userEvent.setup();
+    for (let i = 0; i < 55; i++) publish(ev(`stale-${i}`));
+    open('/events', controlledStream().create);
+    await screen.findAllByTestId('event-row');
+    let firstPages = 0;
+    server.use(http.get('/api/v1/events', ({ request }) => {
+      if (new URL(request.url).searchParams.get('cursor')) return HttpResponse.json({ detail: 'Курсор не принимается' }, { status: 422 });
+      firstPages++;
+      return undefined;
+    }));
+    await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    expect(await screen.findByText('Список событий обновлён — загружен заново.')).toBeInTheDocument();
+    await waitFor(() => expect(rows()).toHaveLength(50));
+    expect(firstPages).toBe(1);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('история в порядке центра: received_at, затем event_id по убыванию', async () => {
+    const t = '2026-10-10T09:00:00.000Z';
+    publish(ev('ord-a', { received_at: t }));
+    publish(ev('ord-c', { received_at: t }));
+    publish(ev('ord-b', { received_at: '2026-10-10T08:00:00.000Z' }));
+    open('/events?type=session.command', controlledStream().create);
+    await screen.findByText('cmd-ord-a');
+    const order = rows().map((r) => r.textContent ?? '').filter((t) => t.includes('cmd-ord-')).map((t) => /cmd-(ord-\w)/.exec(t)![1]);
+    expect(order.indexOf('ord-c')).toBeLessThan(order.indexOf('ord-a'));
+    expect(order.indexOf('ord-a')).toBeLessThan(order.indexOf('ord-b'));
+  });
+
   it('догрузка стабильного снимка на паузе сохраняет ранее показанный live', async () => {
     const user = userEvent.setup();
     for (let i = 0; i < 55; i++) publish(ev(`history-${i}`));

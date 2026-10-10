@@ -82,7 +82,10 @@ export const handlers = [
     const q = new URL(request.url).searchParams;
     const from = q.get('from'); const to = q.get('to');
     const filter = JSON.stringify(['deployment_id', 'type', 'source_ip', 'from', 'to'].map((key) => q.get(key)));
-    const all = [...publishedEvents()].reverse().filter((e) =>
+    // Порядок центра: received_at DESC, event_id DESC, agent_id DESC.
+    const desc = (a: string, b: string) => (a < b ? 1 : a > b ? -1 : 0);
+    const all = [...publishedEvents()].sort((a, b) => Date.parse(b.received_at) - Date.parse(a.received_at)
+      || desc(a.event_id, b.event_id) || desc(a.agent_id, b.agent_id)).filter((e) =>
       (!q.get('deployment_id') || e.deployment_id === q.get('deployment_id'))
       && (!q.get('type') || e.type === q.get('type'))
       && (!q.get('source_ip') || e.source.ip === q.get('source_ip'))

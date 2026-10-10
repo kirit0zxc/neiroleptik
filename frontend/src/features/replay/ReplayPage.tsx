@@ -78,10 +78,12 @@ function ReplayPlayer({ id, fetch }: { id: string; fetch: FetchReplay }) {
       if (clock.playing && !caughtUpLive) frame = requestAnimationFrame(step);
     });
     return () => cancelAnimationFrame(frame);
-    // playing — перезапуск по пуску/паузе; state.version — по приходе новых
-    // данных живого хвоста (чтобы догнать край); redraw по кадрам эффект не трогает.
+    // playing — перезапуск по пуску/паузе; pos — по перемотке (seek меняет только
+    // часы, иначе у живого края кадры не возобновились бы); state.version — по
+    // приходе новых данных живого хвоста. В простое у края перерисовок нет, поэтому
+    // холостой нагрузки не возникает.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clock, playing, state.version]);
+  }, [clock, playing, pos, state.version]);
 
   // Число видимых частей меняется редко; склейку блоков пересчитываем только тогда,
   // а не на каждом кадре воспроизведения.

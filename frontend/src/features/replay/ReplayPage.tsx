@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import { useParams } from 'react-router';
 import { formatTime } from '../../shared/format/time';
 import { Empty, ErrorState, Loading, Panel, StatusBadge, ui } from '../../shared/ui';
@@ -56,27 +56,35 @@ function ReplayPlayer({ id, fetch }: { id: string; fetch: FetchReplay }) {
   useEffect(() => {
     if (autoplayed.current || state.tape.segments.length === 0) return;
     autoplayed.current = true;
-    if (!reducedMotion()) { clock.play(performance.now(), duration); redraw(); }
+    if (!reducedMotion()) { clock.play(performance.now(), duration, state.complete); redraw(); }
   }, [state, clock, duration]);
 
   // Пока идёт воспроизведение — перерисовка по кадрам.
   useEffect(() => {
     if (!clock.playing) return;
     let frame = requestAnimationFrame(function step() {
-      clock.tick(performance.now(), loader.snapshot.tape.durationMs);
+      clock.tick(performance.now(), loader.snapshot.tape.durationMs, loader.snapshot.complete);
       redraw();
       if (clock.playing) frame = requestAnimationFrame(step);
     });
     return () => cancelAnimationFrame(frame);
   });
 
-  const visible = runs(state.tape.segments.filter((seg) => seg.offsetMs <= pos));
+  // Число видимых частей меняется редко; склейку блоков пересчитываем только тогда,
+  // а не на каждом кадре воспроизведения.
+  const count = state.tape.segments.reduce((n, seg) => (seg.offsetMs <= pos ? n + 1 : n), 0);
+  const visible = useMemo(
+    () => runs(state.tape.segments.filter((seg) => seg.offsetMs <= pos)),
+    // pos намеренно не в зависимостях: набор частей определяется count и версией ленты.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.version, count],
+  );
 
   // Новые строки — прокрутка вниз, если оператор не листает выше.
   useLayoutEffect(() => {
     const el = log.current;
     if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) el.scrollTop = el.scrollHeight;
-  }, [visible.length]);
+  }, [count, state.version]);
 
   if (state.notFound) return <Empty>Запись сессии не найдена.</Empty>;
   if (state.startedAt === null && state.error) return <ErrorState message="Не удалось загрузить запись сессии." onRetry={() => loader.retry()} />;
@@ -92,7 +100,7 @@ function ReplayPlayer({ id, fetch }: { id: string; fetch: FetchReplay }) {
       </div>
       {state.error !== null && <ErrorState message="Часть записи не загрузилась." onRetry={() => loader.retry()} />}
       <div className={s.controls}>
-        <button className={ui.button} onClick={act((t) => (clock.playing ? clock.pause(t, duration) : clock.play(t, duration)))}>
+        <button className={ui.button} onClick={act((t) => (clock.playing ? clock.pause(t, duration) : clock.play(t, duration, state.complete)))}>
           {clock.playing ? 'Пауза' : 'Пуск'}
         </button>
         <button className={ui.button} onClick={act((t) => clock.seek(0, t, duration))}>В начало</button>
@@ -113,7 +121,7 @@ function ReplayPlayer({ id, fetch }: { id: string; fetch: FetchReplay }) {
       <div className={s.legend}>
         <span className={s.in}>■ {LABEL.in}</span> <span className={s.out}>■ {LABEL.out}</span>
       </div>
-      <div ref={log} className={s.screen} tabIndex={0} aria-label="Текст записи">
+      <div ref={log} className={s.screen} tabIndex={0} role="region" aria-label="Текст записи">
         {visible.length === 0 && <span className={s.hint}>Запись ещё не началась на этой позиции.</span>}
         {visible.map((run, i) => (run.gap
           ? <span key={i} className={s.gap}>[пропуск данных]</span>

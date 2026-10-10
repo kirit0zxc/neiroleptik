@@ -20,18 +20,22 @@ export class ReplayClock {
     return Math.min(Math.max(raw, 0), duration);
   }
 
-  /** Дошли до конца — пауза на конце (при живой записи пуск продолжит с этого места). */
-  tick(now: number, duration: number) {
-    if (this.playing && this.position(now, duration) >= duration) {
+  /**
+   * Дошли до конца завершённой записи — пауза на конце. Пока запись идёт,
+   * часы не встают: позиция держится у края и идёт дальше с новыми данными.
+   */
+  tick(now: number, duration: number, complete = true) {
+    if (complete && this.playing && this.position(now, duration) >= duration) {
       this.base = duration;
       this.startedAt = null;
     }
   }
 
-  play(now: number, duration: number) {
+  /** `complete=false` — запись идёт: с конца не прыгаем в начало, ждём новых данных. */
+  play(now: number, duration: number, complete = true) {
     if (this.playing) return;
-    // Из конца — с начала, как у обычного проигрывателя.
-    if (this.base >= duration) this.base = 0;
+    // Из конца завершённой записи — с начала, как у обычного проигрывателя.
+    if (complete && this.base >= duration) this.base = 0;
     this.startedAt = now;
   }
 

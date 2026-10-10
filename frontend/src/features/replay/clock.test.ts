@@ -38,3 +38,15 @@ describe('Replay: часы проигрывателя (F15)', () => {
     expect(formatOffset(6_000_000)).toBe('100:00');
   });
 });
+
+describe('Replay: часы живой записи', () => {
+  it('у края живой записи часы не встают и пуск не прыгает в начало', () => {
+    const c = new ReplayClock();
+    c.play(0, 1000, false);
+    c.tick(5000, 1000, false);
+    expect(c.playing).toBe(true);
+    c.pause(5000, 1000);
+    c.play(6000, 1000, false);
+    expect(c.position(6000, 1000)).toBe(1000);
+  });
+});

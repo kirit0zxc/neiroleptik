@@ -53,6 +53,12 @@ export class ReplayTape {
   /** Хвост, который нельзя показывать до следующего чанка: начало ESC-последовательности или \r. */
   private readonly carry: Record<Direction, string> = { in: '', out: '' };
   private readonly last: Record<Direction, { seq: number; offsetMs: number } | null> = { in: null, out: null };
+  /** Чанк закончился на 
+: ведущий 
+ следующего чанка — та же пара 
+
+. */
+  private readonly skipLf: Record<Direction, boolean> = { in: false, out: false };
   private seen = new Set<number>();
 
   /** Длительность записи — время последнего чанка. */
@@ -71,15 +77,23 @@ export class ReplayTape {
         // Разрыв: недописанный символ уже отдан как U+FFFD (decode без stream),
         // начатая последовательность выбрасывается — её продолжение потеряно.
         this.decoders[c.direction] = new TextDecoder('utf-8');
+        this.skipLf[c.direction] = false;
         this.emit(c.direction, c.seq, c.offset_ms, this.carry[c.direction] + text, false);
         this.carry[c.direction] = '';
         this.segments.push({ seq: c.seq, offsetMs: c.offset_ms, direction: c.direction, gap: true });
         continue;
       }
       text = this.carry[c.direction] + text;
+      if (this.skipLf[c.direction] && text) {
+        if (text.startsWith('\n')) text = text.slice(1);
+        this.skipLf[c.direction] = false;
+      }
       const cut = this.holdBack(text);
       this.carry[c.direction] = text.slice(cut);
-      this.emit(c.direction, c.seq, c.offset_ms, text.slice(0, cut), true);
+      const shown = text.slice(0, cut);
+      // \r показываем сразу (Enter атакующего виден без ожидания следующего чанка).
+      if (shown.endsWith('\r')) this.skipLf[c.direction] = true;
+      this.emit(c.direction, c.seq, c.offset_ms, shown, true);
     }
   }
 
@@ -94,13 +108,12 @@ export class ReplayTape {
   }
 
   /**
-   * Где отрезать показываемое: незавершённая ESC-последовательность или
-   * одиночный \r в конце ждут продолжения (но не дольше CARRY_MAX).
+   * Где отрезать показываемое: незавершённая ESC-последовательность в конце
+   * ждёт продолжения (но не дольше CARRY_MAX).
    */
   private holdBack(text: string): number {
     const esc = text.lastIndexOf('\u001b');
     if (esc >= 0 && text.length - esc <= CARRY_MAX && !COMPLETE.some((re) => re.test(text.slice(esc)))) return esc;
-    if (text.endsWith('\r')) return text.length - 1;
     return text.length;
   }
 

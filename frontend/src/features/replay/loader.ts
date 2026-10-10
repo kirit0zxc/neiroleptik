@@ -21,6 +21,10 @@ export const fetchReplay: FetchReplay = (id, after) => {
 
 /** Пауза между запросами хвоста, пока запись идёт. */
 export const TAIL_MS = 2000;
+/** Автоповторы при сбое сети или 5xx до показа «Повторить». */
+const RETRIES = 3;
+
+const transient = (e: unknown) => e instanceof ApiError && (e.status === 0 || e.status >= 500);
 
 export interface ReplayState {
   tape: ReplayTape;
@@ -79,24 +83,36 @@ export class ReplayLoader {
   }
 
   private async loop(run: number) {
+    // Перезапуск с начала после 422 — один на запуск (start/retry): иначе сервер,
+    // отвечающий 422 на любой курсор, получил бы бесконечный поток запросов.
+    let restarted = false;
+    let failures = 0;
     while (run === this.run) {
       let page: ReplayPage;
       try {
         page = await this.fetch(this.id, this.after);
       } catch (error) {
         if (run !== this.run) return;
-        if (error instanceof ApiError && error.status === 422) {
+        if (error instanceof ApiError && error.status === 422 && this.after !== null && !restarted) {
           // Курсор недействителен — читаем с начала в чистую ленту.
+          restarted = true;
           this.after = null;
           this.state = ReplayLoader.empty(this.state.version);
           this.set({});
           continue;
         }
-        if (error instanceof ApiError && error.status === 404) this.set({ notFound: true });
-        else this.set({ error });
+        if (error instanceof ApiError && error.status === 404) { this.set({ notFound: true }); return; }
+        // Сбой сети или сервера — несколько автоповторов с растущей паузой, затем «Повторить».
+        if (transient(error) && failures < RETRIES) {
+          failures++;
+          await this.wait(TAIL_MS * 2 ** (failures - 1));
+          continue;
+        }
+        this.set({ error });
         return;
       }
       if (run !== this.run) return;
+      failures = 0;
       this.state.tape.append(page.chunks);
       if (page.next_cursor !== null) {
         this.after = page.next_cursor;

@@ -91,3 +91,13 @@ describe('Replay: безопасность (S2)', () => {
     expect(textOf(tape).includes('\u001b')).toBe(false);
   });
 });
+
+describe('Replay: Enter атакующего', () => {
+  it('\r в конце чанка виден сразу, \n следующего чанка не удваивает строку', () => {
+    const tape = new ReplayTape();
+    tape.append([chunk('in', 'whoami\r')]);
+    expect(textOf(tape)).toBe('whoami\n');
+    tape.append([chunk('in', '\nls')]);
+    expect(textOf(tape)).toBe('whoami\nls');
+  });
+});

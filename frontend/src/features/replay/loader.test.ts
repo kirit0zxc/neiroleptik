@@ -66,7 +66,7 @@ describe('Replay: загрузка (F15)', () => {
   });
 
   it('сбой: показанное остаётся, повтор с того же курсора', async () => {
-    const s = server(page([chunk(0, 'a')], { next_cursor: 'c1' }), new ApiError(0, 'сеть'), page([chunk(1, 'b')]));
+    const s = server(page([chunk(0, 'a')], { next_cursor: 'c1' }), new ApiError(403, 'нет прав'), page([chunk(1, 'b')]));
     const l = new ReplayLoader('s1', s.fetch, async () => {});
     l.start(); await flush();
     expect(l.snapshot.error).toBeInstanceOf(ApiError);
@@ -85,5 +85,37 @@ describe('Replay: загрузка (F15)', () => {
     await flush();
     expect(text(l)).toBe('');
     expect(l.snapshot.complete).toBe(false);
+  });
+});
+
+describe('Replay: защита от зацикливания и сбоев', () => {
+  it('422 без курсора и повторный 422 подряд — ошибка, а не бесконечный цикл', async () => {
+    const noCursor = server(new ApiError(422, 'bad'));
+    const a = new ReplayLoader('s1', noCursor.fetch, async () => {});
+    a.start(); await flush();
+    expect(a.snapshot.error).toBeInstanceOf(ApiError);
+    expect(noCursor.calls).toEqual([null]);
+
+    const twice = server(page([chunk(0, 'a')], { next_cursor: 'c1' }), new ApiError(422, 'x'), page([chunk(0, 'a')], { next_cursor: 'c1' }), new ApiError(422, 'x'));
+    const b = new ReplayLoader('s1', twice.fetch, async () => {});
+    b.start(); await flush();
+    expect(twice.calls).toEqual([null, 'c1', null, 'c1']);
+    expect(b.snapshot.error).toBeInstanceOf(ApiError);
+  });
+
+  it('сбой сети или 5xx — автоповторы с растущей паузой, затем ошибка', async () => {
+    const waits: number[] = [];
+    const s = server(new ApiError(503, 'down'), new ApiError(0, 'net'), page([chunk(0, 'a')]));
+    const l = new ReplayLoader('s1', s.fetch, async (ms) => { waits.push(ms); });
+    l.start(); await flush();
+    expect(waits).toEqual([2000, 4000]);
+    expect(text(l)).toBe('a');
+    expect(l.snapshot.error).toBeNull();
+
+    const down = server(...Array.from({ length: 4 }, () => new ApiError(503, 'down')));
+    const d = new ReplayLoader('s1', down.fetch, async () => {});
+    d.start(); await flush();
+    expect(down.calls).toHaveLength(4);
+    expect(d.snapshot.error).toBeInstanceOf(ApiError);
   });
 });

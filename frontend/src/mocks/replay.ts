@@ -39,7 +39,7 @@ export const replayHandlers = [
     if (params.id !== DEMO_SESSION) return HttpResponse.json({ detail: 'Запись не найдена' }, { status: 404 });
     const q = new URL(request.url).searchParams;
     const after = q.get('after');
-    if (after !== null && !/^r\d+$/.test(after)) return HttpResponse.json({ detail: 'Некорректный курсор' }, { status: 422 });
+    if (after !== null && !/^r\d+$/.test(after)) return HttpResponse.json({ detail: [{ loc: ['query', 'after'], type: 'value_error', msg: 'Некорректный курсор' }] }, { status: 422 });
     const limit = Math.min(Math.max(Number(q.get('limit') ?? 200) || 200, 1), 500);
     const all = demoChunks();
     const start = after === null ? 0 : Number(after.slice(1)) + 1;

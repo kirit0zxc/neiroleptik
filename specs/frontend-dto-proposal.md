@@ -23,7 +23,7 @@
 {
   "id": "uuid",
   "deployment_id": "uuid",
-  "instance_id": "cowrie-0003 | null",
+  "instance_id": "uuid",
   "protocol": "ssh | http | tcp",
   "source": {"ip": "203.0.113.9", "port": 40112},
   "service": {"protocol": "ssh", "port": 2222},
@@ -41,8 +41,10 @@
 - 404 — сессии нет.
 
 Timeline: `GET /api/v1/events?session_id={id}&order=asc&cursor=&limit=200`
-— тот же EventV1, что лента. Просим добавить фильтр `session_id` и
-`order=asc` (по `occurred_at, event_id, agent_id`), чтобы клик по событию
+— тот же EventV1, что лента. Просим добавить **новые** параметры: фильтр
+`session_id` и `order=asc` (по `occurred_at, event_id, agent_id`; по
+умолчанию — нынешний `desc`). Курсор связан и с `order`: курсор от `asc` в
+запросе `desc` — 422. Нужно, чтобы клик по событию
 переводил replay к моменту `occurred_at − started_at` сессии. Альтернатива —
 отдельная ручка `/sessions/{id}/events` с тем же форматом.
 

@@ -24,6 +24,43 @@ function open(path: string) {
 describe('форма профиля (F8, F9)', () => {
   beforeEach(() => resetMockSession(true));
 
+  it('PR #9: Low-профиль с двумя HTTP открывается как есть — сервисы не заменяются', async () => {
+    const user = userEvent.setup();
+    const original = structuredClone(profilesFixture.find((p) => p.id === 'p-web-panel')) as Profile;
+    original.config.services = [{ protocol: 'http', port: 80, banner: 'a' }, { protocol: 'http', port: 81, banner: 'b' }];
+    let sent: unknown = null;
+    server.use(
+      http.get('/api/v1/profiles/p-web-panel', () => HttpResponse.json(original)),
+      http.patch('/api/v1/profiles/p-web-panel', async ({ request }) => { sent = await request.json(); return HttpResponse.json(original); }),
+    );
+    open('/profiles/p-web-panel');
+    const second = await screen.findByRole('group', { name: 'Сервис 2' });
+    expect(within(screen.getByRole('group', { name: 'Сервис 1' })).getByLabelText('Порт')).toHaveValue('80');
+    expect(within(second).getByLabelText('Порт')).toHaveValue('81');
+    expect(within(second).getByLabelText('Протокол')).toHaveValue('http');
+
+    // Переименование не отправляет подменённую конфигурацию: сохранение
+    // останавливает ошибка у поля, исходные сервисы на месте.
+    await user.type(screen.getByLabelText('Название'), ' 2');
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    expect(await within(second).findByText('На Low не больше одного HTTP-сервиса')).toBeInTheDocument();
+    expect(sent).toBeNull();
+    expect(within(second).getByLabelText('Порт')).toHaveValue('81');
+  });
+
+  it('PR #9: выбор повторного протокола показывает ошибку, а не сбрасывает список', async () => {
+    const user = userEvent.setup();
+    open('/profiles/p-web-panel');
+    const second = await screen.findByRole('group', { name: 'Сервис 2' });
+    expect(within(second).getByLabelText('Протокол')).toHaveValue('tcp');
+    await user.selectOptions(within(second).getByLabelText('Протокол'), 'http');
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    expect(await within(second).findByText('На Low не больше одного HTTP-сервиса')).toBeInTheDocument();
+    expect(within(second).getByLabelText('Протокол')).toHaveValue('http');
+    expect(within(second).getByLabelText('Порт')).toHaveValue('23');
+    expect(within(screen.getByRole('group', { name: 'Сервис 1' })).getByLabelText('Порт')).toHaveValue('8080');
+  });
+
   it('Low: у HTTP поле «Текст страницы-заглушки», «+ Сервис» добавляет TCP и пропадает', async () => {
     const user = userEvent.setup();
     open('/profiles/new');

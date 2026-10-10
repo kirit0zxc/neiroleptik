@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { Link, useNavigate, useParams } from 'react-router';
 import type { Profile } from '../../shared/api/types';
@@ -10,7 +10,7 @@ import { canEdit, useMe } from '../auth/auth';
 import { useProfile, useRevisions, useSaveProfile } from './api';
 import {
   ALLOWED, bannerLabel, emptyProfile, formFromConfig, formToCreate, hasCredentials, hasHigh, LEVELS,
-  nextServiceProtocol, ProfileSchema, servicesForLevel, type ProfileForm, type ProfileInput,
+  type Level, nextServiceProtocol, ProfileSchema, servicesForLevel, type ProfileForm, type ProfileInput,
 } from './schema';
 import s from './profiles.module.css';
 
@@ -56,27 +56,25 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
   const addProtocol = nextServiceProtocol(level, serviceValues);
   const { errors } = form.formState;
 
-  // Смена уровня: у Low нет входа — учётки убираем; сервисы, которые уровню
-  // не подходят, заменяем набором по умолчанию.
-  useEffect(() => {
-    if (!hasCredentials(level)) {
+  // Явная смена уровня пользователем: у Low нет входа — учётки убираем;
+  // сервисы, которые новому уровню не подходят, заменяем набором по умолчанию.
+  // Только здесь, а не при открытии или правке: иначе форма молча подменяла
+  // бы сохранённую конфигурацию (замечание к PR #9), а не показывала ошибку.
+  const applyLevel = (next: Level) => {
+    if (!hasCredentials(next)) {
       if (creds.fields.length) creds.replace([]);
       if (form.getValues('credentials_mode') !== 'replace') form.setValue('credentials_mode', 'replace');
       if (form.getValues('preserved_usernames').length) form.setValue('preserved_usernames', []);
     }
     // Скрытый блок VM не должен блокировать Low/Medium невидимой ошибкой.
-    if (!hasHigh(level)) {
-      const high = form.getValues('high');
-      const defaults = emptyProfile(level).high;
-      if (high.cpu !== defaults.cpu || high.memory_mb !== defaults.memory_mb || high.ttl_seconds !== defaults.ttl_seconds) {
-        form.setValue('high', defaults);
-        form.clearErrors('high');
-      }
+    if (!hasHigh(next)) {
+      form.setValue('high', emptyProfile(next).high);
+      form.clearErrors('high');
     }
     const current = form.getValues('services');
-    const next = servicesForLevel(level, current);
-    if (next !== current) services.replace(next);
-  }, [level, creds, services, form]);
+    const replaced = servicesForLevel(next, current);
+    if (replaced !== current) services.replace(replaced);
+  };
 
   const onSubmit = form.handleSubmit((values) => save.mutate(formToCreate(values), {
     onSuccess: (p) => {
@@ -131,7 +129,7 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
             </Field>
             <Field label="Уровень взаимодействия" error={errors.level}>
               {(a) => (
-                <select {...a} {...form.register('level')}>
+                <select {...a} {...form.register('level', { onChange: (e: { target: { value: Level } }) => applyLevel(e.target.value) })}>
                   {LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
                 </select>
               )}

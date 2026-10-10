@@ -6,6 +6,7 @@ import { ago } from '../../shared/format/time';
 import { Empty, ErrorState, Loading, Panel, StatusBadge, ui } from '../../shared/ui';
 import { canEdit, useMe } from '../auth/auth';
 import { DeploymentActions } from './DeploymentActions';
+import { AddHostButton, RevokeHostButton } from './HostAdmin';
 import { deploymentStatus, hostStatus } from './status';
 import s from './fleet.module.css';
 
@@ -13,7 +14,10 @@ const LEVEL = { low: 'Low', medium: 'Medium', high: 'High' } as const;
 
 /** Парк: хосты и ловушки (F4, F5), команды ловушек (F6) — только operator/admin. */
 export function FleetPage() {
-  const editable = canEdit(useMe()?.user.role);
+  const role = useMe()?.user.role;
+  const editable = canEdit(role);
+  // Регистрация агентов и отзыв хостов — только admin (specs, «Регистрация агента»).
+  const admin = role === 'admin';
   const hosts = useQuery({ queryKey: ['hosts'], queryFn: () => api<Host[]>('/api/v1/hosts'), refetchInterval: 10_000 });
   const deps = useQuery({ queryKey: ['deployments'], queryFn: () => api<Deployment[]>('/api/v1/deployments'), refetchInterval: 10_000 });
 
@@ -22,13 +26,14 @@ export function FleetPage() {
       <h1>Парк ловушек</h1>
       {editable && <p><Link className={ui.button} to="/fleet/new">+ Запустить ловушку</Link></p>}
       <Panel title="Хосты">
+        {admin && <p><AddHostButton /></p>}
         {hosts.isError && hosts.data && <Stale what="хостов" message={hosts.error.message} onRetry={() => void hosts.refetch()} />}
         {hosts.isPending ? <Loading what="хосты" />
           : !hosts.data ? <ErrorState message={hosts.error?.message ?? 'Не удалось загрузить'} onRetry={() => void hosts.refetch()} />
-          : !hosts.data.length ? <Empty>Хостов пока нет — зарегистрируйте агента.</Empty>
+          : !hosts.data.length ? <Empty>{admin ? 'Хостов пока нет — добавьте хост и зарегистрируйте агента.' : 'Хостов пока нет — администратор регистрирует агентов.'}</Empty>
           : (
             <table className={ui.table}>
-              <thead><tr><th>Хост</th><th>Имя</th><th>Связь</th><th>Последний контакт</th><th>Возможности</th></tr></thead>
+              <thead><tr><th>Хост</th><th>Имя</th><th>Связь</th><th>Последний контакт</th><th>Возможности</th>{admin && <th>Действия</th>}</tr></thead>
               <tbody>
                 {hosts.data.map((h) => {
                   const st = hostStatus(h);
@@ -39,6 +44,7 @@ export function FleetPage() {
                       <td><StatusBadge tone={st.tone}>{st.label}</StatusBadge></td>
                       <td>{h.last_seen ? ago(h.last_seen) : 'ещё не выходил'}</td>
                       <td className="mono">{h.capabilities.join(', ') || '—'}</td>
+                      {admin && <td><RevokeHostButton host={h} /></td>}
                     </tr>
                   );
                 })}

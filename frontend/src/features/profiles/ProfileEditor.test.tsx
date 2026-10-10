@@ -138,8 +138,12 @@ describe('форма профиля (F8, F9)', () => {
     await user.type(port, '8081');
     await user.click(screen.getByRole('button', { name: 'Создать профиль' }));
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Сохранено: ревизия r1');
-    expect(window.location.pathname).toBe('/profiles/p-new-1');
+    // Сначала переход на адрес нового профиля (форма пересоздаётся), потом
+    // сообщение — оно не должно пропасть при пересоздании.
+    await waitFor(() => expect(window.location.pathname).toBe('/profiles/p-new-1'));
+    // Заголовок существующего профиля — признак, что форма уже пересоздана.
+    await screen.findByRole('heading', { name: 'Профиль Камера на складе' });
+    expect(screen.getByRole('status')).toHaveTextContent('Сохранено: ревизия r1');
     expect(await screen.findByText(/r1/, { selector: 'b' })).toBeInTheDocument();
   });
 

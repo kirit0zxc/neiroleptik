@@ -15,6 +15,7 @@ import { AuditPage } from '../features/audit/AuditPage';
 import { SessionPage } from '../features/replay/ReplayPage';
 import { MascotCore } from '../mascot/core/MascotCore';
 import { Yumi, YumiContext } from '../features/yumi/yumi';
+import { analyticsEnabled, eventsEnabled, replayEnabled } from './telemetry';
 import { AppShell, NotFound, Planned } from './AppShell';
 
 export function makeQueryClient() {
@@ -32,27 +33,24 @@ export function makeQueryClient() {
 /** Откуда брать поток событий: настоящий WebSocket или подделка в тестах. */
 const StreamFactory = createContext<() => EventStream>(createEventStream);
 
-/** Телеметрию включаем только для готового сервера или явно выбранных моков. */
-function telemetryEnabled() {
-  return import.meta.env.VITE_API_MOCK === '1' || import.meta.env.VITE_TELEMETRY_ENABLED === '1';
-}
-
 /** Каркас вошедшего оператора: поток событий живёт, пока открыта сессия. */
 function LiveShell() {
   const create = useContext(StreamFactory);
-  return telemetryEnabled() ? <StreamProvider create={create}><AppShell /></StreamProvider> : <AppShell />;
+  // Провайдер потока нужен ленте и живым событиям Юми — поднимаем его, когда
+  // включена лента событий.
+  return eventsEnabled() ? <StreamProvider create={create}><AppShell /></StreamProvider> : <AppShell />;
 }
 
 function HomePage() {
-  return telemetryEnabled() ? <OverviewPage /> : <Navigate to="/fleet" replace />;
+  return analyticsEnabled() ? <OverviewPage /> : <Navigate to="/fleet" replace />;
 }
 
 function SessionScreen() {
-  return telemetryEnabled() ? <SessionPage /> : <Planned title="Запись сессии" day="D3 — подключение серверной телеметрии" />;
+  return replayEnabled() ? <SessionPage /> : <Planned title="Запись сессии" day="D3 — подключение серверной телеметрии" />;
 }
 
 function EventsScreen() {
-  return telemetryEnabled() ? <EventsPage /> : <Planned title="События" day="D3 — подключение серверной телеметрии" />;
+  return eventsEnabled() ? <EventsPage /> : <Planned title="События" day="D3 — подключение серверной телеметрии" />;
 }
 
 export const routes = [

@@ -55,7 +55,9 @@ DEFAULT_JOURNAL_QUOTA_BYTES = 256 * 1024 * 1024
 _MAX_BANNER_WITH_CRLF = 255
 _FOREIGN = "имя слота занято контейнером, не принадлежащим HoneyForge"
 _OTHER_INSTANCE = "имя слота занято другим экземпляром HoneyForge"
+_OTHER_SLOT = "имя слота занято контейнером другого назначения или уровня"
 _CONTAINER_ID = re.compile(r"[0-9a-f]{64}")
+_REVISION = re.compile(r"[1-9][0-9]{0,18}")
 
 
 @dataclass(frozen=True)
@@ -138,12 +140,19 @@ class LowBlueprint:
 
 @dataclass(frozen=True)
 class HealthTargets:
-    """Что проверять после запуска: опубликованные порты и ожидаемый баннер."""
+    """Опубликованные порты для запуска/остановки и ожидаемый баннер запуска.
+
+    `release_ports` — все порты профиля, освобождение которых подтверждает stop; при
+    проверке они объединяются с `tcp_port` и `http_port`. Профиль, который драйвер
+    отверг при start, может содержать больше одного сервиса каждого вида, и проверить
+    нужно все его порты.
+    """
 
     host: str
     tcp_port: int | None
     banner: bytes | None
     http_port: int | None
+    release_ports: frozenset[int] = frozenset()
 
 
 class LowProfileTranslator:
@@ -250,20 +259,46 @@ class LowProfileTranslator:
             network=self._settings.network,
         )
 
+    def _probe_host(self) -> str:
+        """Пробы идут с хоста на bind-адрес; wildcard-адрес заменяется loopback."""
+        address = ipaddress.ip_address(self._settings.bind_address)
+        if address.is_unspecified:
+            return "127.0.0.1" if address.version == 4 else "::1"
+        return self._settings.bind_address
+
     def health_targets(self, blueprint: LowBlueprint) -> HealthTargets:
         """Проба идёт с хоста на опубликованные порты; wildcard-адрес заменяется loopback."""
-        address = ipaddress.ip_address(self._settings.bind_address)
-        host = self._settings.bind_address
-        if address.is_unspecified:
-            host = "127.0.0.1" if address.version == 4 else "::1"
         banner = None
         if blueprint.tcp is not None:
             banner = (blueprint.tcp.banner + "\r\n").encode("ascii")
         return HealthTargets(
-            host=host,
+            host=self._probe_host(),
             tcp_port=None if blueprint.tcp is None else blueprint.tcp.port,
             banner=banner,
             http_port=None if blueprint.http is None else blueprint.http.port,
+        )
+
+    def release_targets(self, deployment: DeploymentSpec) -> HealthTargets:
+        """Порты для подтверждения остановки: все tcp/http-порты профиля, без баннеров.
+
+        Остановка не должна зависеть от того, принимает ли драйвер текст и состав
+        профиля. Профиль, отвергнутый при start (управляющий символ в тексте HTTP,
+        недопустимый баннер или несколько сервисов одного вида, которые центр
+        допускает), всё равно задаёт порты, освобождение которых нужно подтвердить;
+        иначе такую ловушку нельзя было бы перевести в stopped. Проверяется только
+        уровень: профиль не уровня low этот драйвер не обслуживает.
+        """
+        if deployment.config.interaction_level != "low":
+            raise self._unsupported("профиль не уровня low")
+        ports = [s.port for s in deployment.config.services if s.protocol in ("tcp", "http")]
+        tcp = [s.port for s in deployment.config.services if s.protocol == "tcp"]
+        http = [s.port for s in deployment.config.services if s.protocol == "http"]
+        return HealthTargets(
+            host=self._probe_host(),
+            tcp_port=tcp[0] if tcp else None,
+            banner=None,
+            http_port=http[0] if http else None,
+            release_ports=frozenset(ports),
         )
 
     @staticmethod
@@ -301,6 +336,47 @@ class LowHealthCheck:
             if loop.time() >= deadline:
                 raise HealthCheckFailed(last)
             await asyncio.sleep(min(self._interval, max(deadline - loop.time(), 0.0)))
+
+    async def wait_until_released(self, targets: HealthTargets) -> bool:
+        """Ждёт явного отказа TCP-подключения ко всем портам за один общий срок.
+
+        Таймаут и другие ошибки сети не доказывают освобождение. Порты проверяются
+        параллельно; probe_timeout не прерывает медленный отказ Windows loopback.
+        Никакие данные или команды остановки чужому процессу не отправляются.
+        """
+        ports = {port for port in (targets.tcp_port, targets.http_port) if port is not None}
+        ports |= targets.release_ports
+        if not ports:
+            return True
+        address = ipaddress.ip_address(targets.host)
+        host = targets.host
+        if address.is_unspecified:
+            host = "127.0.0.1" if address.version == 4 else "::1"
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._timeout
+        while loop.time() < deadline:
+            try:
+                async with asyncio.timeout_at(deadline):
+                    released = await asyncio.gather(
+                        *(self._connection_refused(host, port) for port in ports)
+                    )
+            except TimeoutError:
+                return False
+            if all(released):
+                return loop.time() <= deadline
+            await asyncio.sleep(min(self._interval, max(deadline - loop.time(), 0.0)))
+        return False
+
+    async def _connection_refused(self, host: str, port: int) -> bool:
+        """Отказ connect подтверждает отсутствие слушателя; успешный connect — нет."""
+        try:
+            _, writer = await asyncio.open_connection(host, port)
+        except ConnectionRefusedError:
+            return True
+        except OSError:
+            return False
+        await self._close(writer)
+        return False
 
     def _budget(self, deadline: float) -> float:
         """Время на одну пробу: не больше probe_timeout и не дальше общего срока."""
@@ -400,6 +476,105 @@ class LowDriver(Driver):
             self._state, self._healthy, self._instance_id, self._revision, self._detail
         )
 
+    async def observe(self) -> ContainerObservation | None:
+        """Читает реальный контейнер независимо от липкого FAILED, без мутаций.
+
+        Исполнитель использует наблюдение для ACK после неудачной остановки. Прежде
+        чем доверять меткам, проверяем принадлежность слоту и полноту идентичности.
+        """
+        return await self._serialized_observation()
+
+    async def _serialized_observation(self) -> ContainerObservation | None:
+        # Базовая сериализация типизирована результатом DriverStatus; сохраняем тот же
+        # замок для raw-наблюдения и не создаём второй независимый замок слота.
+        async with self._operation_lock:
+            return await self._observe()
+
+    async def _observe(self) -> ContainerObservation | None:
+        try:
+            observed = await self._backend.inspect(self._name)
+        except BackendError as error:
+            raise self._driver_error(DriverErrorCode.BACKEND_UNAVAILABLE, error) from error
+        if observed is not None:
+            self._require_owned(observed, DriverErrorCode.INVALID_STATE)
+            self._identity(observed, DriverErrorCode.INVALID_STATE)
+        return observed
+
+    async def wait_until_released(self, deployment: DeploymentSpec) -> bool:
+        """Проверяет порты профиля под замком слота, не меняя состояние или Docker.
+
+        Исполнитель сначала отдельно подтверждает отсутствие контейнера через
+        observe(); сетевой таймаут этого метода не разрешает успешный stopped ACK.
+        """
+        async with self._operation_lock:
+            if deployment.deployment_id != self.deployment_id:
+                raise DriverError(
+                    DriverErrorCode.INVALID_STATE, "назначение относится к другому слоту"
+                )
+            return await self._health.wait_until_released(
+                self._translator.release_targets(deployment)
+            )
+
+    async def recover(
+        self, deployment: DeploymentSpec, expected_instance_id: str | None
+    ) -> DriverStatus:
+        """Восстанавливает заранее сохранённый экземпляр, не запуская его повторно.
+
+        Метки и неизменяемый ID проверяются до и после сетевой пробы. Неудачная проба
+        не запускает очистку: право на следующую мутацию отдельно определяет lease.
+        """
+        return await self._serialized(self._recover(deployment, expected_instance_id))
+
+    async def _recover(
+        self, deployment: DeploymentSpec, expected_instance_id: str | None
+    ) -> DriverStatus:
+        blueprint = self._translate(deployment)
+        try:
+            expected = None if expected_instance_id is None else str(UUID(expected_instance_id))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise DriverError(
+                DriverErrorCode.INVALID_STATE, "некорректный UUID восстановления"
+            ) from error
+        observed = await self._observe()
+        self._healthy = False
+        if observed is None:
+            self._state = DriverState.STOPPED
+            self._instance_id = expected
+            self._revision = None
+            self._blueprint = blueprint
+            self._detail = ""
+            return self._status()
+        instance_id, revision = self._identity(observed, DriverErrorCode.INVALID_STATE)
+        if instance_id != expected or revision != deployment.revision:
+            self._mark_failed("контейнер не совпадает с сохраняемой попыткой запуска")
+            raise DriverError(DriverErrorCode.INVALID_STATE, self._detail)
+        self._instance_id = instance_id
+        self._blueprint = blueprint
+        if not observed.running:
+            self._state = DriverState.STOPPED
+            self._revision = None
+            self._detail = "сохранённый экземпляр остановлен"
+            return self._status()
+        try:
+            await self._health.wait_until_healthy(self._translator.health_targets(blueprint))
+        except HealthCheckFailed as error:
+            self._mark_failed(str(error))
+            raise DriverError(DriverErrorCode.HEALTHCHECK_FAILED, str(error)) from error
+        confirmed = await self._observe()
+        if (
+            confirmed is None
+            or not confirmed.running
+            or confirmed.container_id != observed.container_id
+            or self._identity(confirmed, DriverErrorCode.INVALID_STATE) != (instance_id, revision)
+        ):
+            self._mark_failed("контейнер изменился во время проверки восстановления")
+            raise DriverError(DriverErrorCode.INVALID_STATE, self._detail)
+        self._state = DriverState.RUNNING
+        self._healthy = True
+        self._revision = revision
+        self._detail = ""
+        return self._status()
+
     async def _start(self, deployment: DeploymentSpec) -> DriverStatus:
         if self._state is not DriverState.STOPPED:
             raise DriverError(DriverErrorCode.INVALID_STATE, "start допустим только из STOPPED")
@@ -440,14 +615,19 @@ class LowDriver(Driver):
             if self._state is DriverState.RUNNING:
                 self._mark_failed("контейнер исчез")
             return self._status()
-        if observed.labels.get(LABEL_MANAGED) != "true":
+        ownership_problem = self._ownership_problem(observed)
+        if ownership_problem is not None:
             # Повторная проверка не должна стирать исходную причину неудачного запуска,
             # если аварийная очистка уже отказалась трогать чужой контейнер.
             if self._state is DriverState.FAILED and self._detail:
-                if _FOREIGN not in self._detail:
-                    self._detail = f"{_FOREIGN}; {self._detail}"
+                if ownership_problem not in self._detail:
+                    self._detail = f"{ownership_problem}; {self._detail}"
             else:
-                self._mark_failed(_FOREIGN)
+                self._mark_failed(ownership_problem)
+            return self._status()
+        try:
+            self._identity(observed, DriverErrorCode.INVALID_STATE)
+        except DriverError:
             return self._status()
         if not observed.running:
             if self._state is DriverState.RUNNING:
@@ -577,9 +757,8 @@ class LowDriver(Driver):
             raise self._driver_error(DriverErrorCode.BACKEND_UNAVAILABLE, error) from error
         if existing is None:
             return
-        if existing.labels.get(LABEL_MANAGED) != "true":
-            self._mark_failed(_FOREIGN)
-            raise DriverError(foreign_code, _FOREIGN)
+        self._require_owned(existing, foreign_code)
+        self._identity(existing, foreign_code)
         if (
             expected_instance_id is not None
             and existing.labels.get(LABEL_INSTANCE) != expected_instance_id
@@ -587,6 +766,43 @@ class LowDriver(Driver):
             self._mark_failed(_OTHER_INSTANCE)
             raise DriverError(foreign_code, _OTHER_INSTANCE)
         await self._remove(existing)
+
+    def _ownership_problem(self, observed: ContainerObservation) -> str | None:
+        """Имя и managed не заменяют метки конкретного назначения и уровня."""
+        if observed.labels.get(LABEL_MANAGED) != "true":
+            return _FOREIGN
+        if (
+            observed.name != self._name
+            or observed.labels.get(LABEL_DEPLOYMENT) != self.deployment_id
+            or observed.labels.get(LABEL_LEVEL) != "low"
+        ):
+            return _OTHER_SLOT
+        return None
+
+    def _require_owned(self, observed: ContainerObservation, code: DriverErrorCode) -> None:
+        problem = self._ownership_problem(observed)
+        if problem is not None:
+            self._mark_failed(problem)
+            raise DriverError(code, problem)
+
+    def _identity(self, observed: ContainerObservation, code: DriverErrorCode) -> tuple[str, int]:
+        """Отказывает до доверия меткам и удаления ресурса с неполной идентичностью."""
+        try:
+            instance_id = str(UUID(observed.labels[LABEL_INSTANCE]))
+            revision_text = observed.labels[LABEL_REVISION]
+            if _REVISION.fullmatch(revision_text) is None or int(revision_text) > 2**63 - 1:
+                raise ValueError("revision")
+            revision = int(revision_text)
+        except (KeyError, ValueError, TypeError, AttributeError) as error:
+            self._mark_failed("метки контейнера не содержат допустимые instance_id и revision")
+            raise DriverError(code, self._detail) from error
+        if (
+            not isinstance(observed.container_id, str)
+            or _CONTAINER_ID.fullmatch(observed.container_id) is None
+        ):
+            self._mark_failed("не получен допустимый неизменяемый идентификатор контейнера")
+            raise DriverError(code, self._detail)
+        return instance_id, revision
 
     async def _remove(self, observed: ContainerObservation) -> None:
         """Мягкая остановка, затем удаление. Неудача удаления — CLEANUP_FAILED и FAILED.

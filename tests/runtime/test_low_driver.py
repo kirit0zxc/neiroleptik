@@ -807,6 +807,57 @@ def test_foreign_container_makes_inspect_report_failure() -> None:
     run_scenario(scenario)
 
 
+@pytest.mark.parametrize("missing", ["instance_id", "revision", "container_id"])
+def test_incomplete_managed_identity_is_failed_without_adoption(missing: str) -> None:
+    """Managed и имя слота не позволяют подхватить контейнер с неполной identity."""
+
+    async def scenario(fake: InProcessBackend, driver: LowDriver) -> None:
+        spec = translator().container_spec(
+            translator().blueprint(deployment(tcp_port=2200)), str(uuid4())
+        )
+        if missing != "container_id":
+            spec = dataclasses.replace(
+                spec,
+                labels=tuple(
+                    (key, value) for key, value in spec.labels if key != f"honeyforge.{missing}"
+                ),
+            )
+        container = FakeContainer(spec, None)
+        if missing == "container_id":
+            container.container_id = ""
+        fake.containers[NAME] = container
+
+        status = await driver.inspect()
+
+        assert status.state is DriverState.FAILED
+        assert status.instance_id is None and status.revision is None and not status.healthy
+        assert status.detail
+        assert fake.calls == [("inspect", NAME)]
+        assert fake.mutation_targets == []
+        assert fake.containers[NAME] is container
+
+    run_scenario(scenario)
+
+
+def test_stop_ports_are_confirmed_released_without_backend_mutations() -> None:
+    """Отсутствие контейнера дополняется реальным отказом connect к его двум портам."""
+    tcp, http = free_port(), free_port()
+
+    async def scenario(fake: InProcessBackend, driver: LowDriver) -> None:
+        plan = deployment(tcp_port=tcp, http_port=http)
+        await driver.start(plan)
+        stopped = await driver.stop()
+        calls_before = list(fake.calls)
+        mutations_before = list(fake.mutation_targets)
+
+        assert await driver.wait_until_released(plan)
+        assert fake.calls == calls_before
+        assert fake.mutation_targets == mutations_before
+        assert await driver.inspect() == stopped
+
+    run_scenario(scenario, driver_settings=settings(start_timeout=8.0))
+
+
 # --- Параллелизм -------------------------------------------------------------------------
 
 

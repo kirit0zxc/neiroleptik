@@ -1,0 +1,86 @@
+[
+  {
+    "source_name": "low-3df48877-5e4c-496d-b825-63c2105a999e-000001.jsonl",
+    "source_size": 261449,
+    "source_sha256": "68dab4d2a400566bc6a8b3b281a1e554904c73bd098d0d500872c230fcff746a",
+    "fragment": "fragment-1.jsonl",
+    "positions": [
+      {
+        "source_line": 1,
+        "byte_offset": 0
+      },
+      {
+        "source_line": 2,
+        "byte_offset": 336
+      },
+      {
+        "source_line": 3,
+        "byte_offset": 597
+      },
+      {
+        "source_line": 4,
+        "byte_offset": 883
+      },
+      {
+        "source_line": 5,
+        "byte_offset": 1144
+      },
+      {
+        "source_line": 6,
+        "byte_offset": 1410
+      },
+      {
+        "source_line": 7,
+        "byte_offset": 1673
+      },
+      {
+        "source_line": 15,
+        "byte_offset": 3925
+      },
+      {
+        "source_line": 173,
+        "byte_offset": 261300
+      }
+    ]
+  },
+  {
+    "source_name": "low-3df48877-5e4c-496d-b825-63c2105a999e-000002.jsonl",
+    "source_size": 261241,
+    "source_sha256": "e79ce182491b52a1b876a87bdd18525a044b24adaf7e085f02b81fccd401c3f6",
+    "fragment": "fragment-2.jsonl",
+    "positions": [
+      {
+        "source_line": 1,
+        "byte_offset": 0
+      },
+      {
+        "source_line": 2,
+        "byte_offset": 372
+      },
+      {
+        "source_line": 162,
+        "byte_offset": 261092
+      }
+    ]
+  },
+  {
+    "source_name": "low-3df48877-5e4c-496d-b825-63c2105a999e-000003.jsonl",
+    "source_size": 6774,
+    "source_sha256": "27cd3b19f4ce7dcee4ccbe42b76fa73b6cad19847c6dff12403085f6f7f2f1cc",
+    "fragment": "fragment-3.jsonl",
+    "positions": [
+      {
+        "source_line": 1,
+        "byte_offset": 0
+      },
+      {
+        "source_line": 2,
+        "byte_offset": 372
+      },
+      {
+        "source_line": 5,
+        "byte_offset": 6625
+      }
+    ]
+  }
+]

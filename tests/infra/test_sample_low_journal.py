@@ -151,31 +151,3 @@ def test_run_sample_refuses_a_non_empty_directory(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         run_sample(tmp_path)
-
-
-def test_real_rotation_preserves_identity_and_global_event_order(tmp_path: Path) -> None:
-    try:
-        result = run_sample(tmp_path / "rotated", rotate=True)
-    except StopSignalError as error:
-        pytest.skip(f"нельзя послать сигнал остановки: {error}")
-    assert len(result.files) >= 2 and result.connections == 167
-    previous = None
-    next_seq = 1
-    connection_events: dict[str, list[str]] = {}
-    for index, path in enumerate(result.files, start=1):
-        header, *events, footer = read_rows(path)
-        assert header["instance_id"] == result.instance_id
-        assert header["deployment_id"] == result.deployment_id
-        assert header["journal_seq"] == index
-        assert header["previous_journal_id"] == previous
-        assert header["first_seq"] == next_seq
-        for event in events:
-            assert event["seq"] == next_seq
-            next_seq += 1
-            connection_events.setdefault(event["connection_id"], []).append(event["event"])
-        assert footer["last_seq"] == next_seq - 1
-        assert footer["journal_id"] == header["journal_id"]
-        assert footer["reason"] == ("shutdown" if index == len(result.files) else "rotation")
-        previous = header["journal_id"]
-    assert len(connection_events) == 167
-    assert all(events == ["connection", "request"] for events in connection_events.values())

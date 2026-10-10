@@ -82,7 +82,7 @@ export const ProfileSchema = z.object({
       }
     }
     if (p.level === 'low' && LOW_SINGLE.includes(s.protocol) && p.services.findIndex((x) => x.protocol === s.protocol) < i) {
-      ctx.addIssue({ code: 'custom', path: ['services', i, 'protocol'], message: `На Low не больше одного ${s.protocol.toUpperCase()}-сервиса` });
+      ctx.addIssue({ code: 'custom', path: ['services', i, 'protocol'], message: `На Low не больше одного ${s.protocol.toUpperCase()}-сервиса — удалите лишний или выберите другой протокол` });
     }
     const prev = seen.get(s.port);
     if (prev !== undefined) {

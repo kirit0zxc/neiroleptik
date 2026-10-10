@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { Link, useNavigate, useParams } from 'react-router';
 import type { Profile } from '../../shared/api/types';
@@ -55,6 +55,12 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
   const serviceValues = form.watch('services');
   const addProtocol = nextServiceProtocol(level, serviceValues);
   const { errors } = form.formState;
+
+  // Открытый профиль мог быть создан в обход формы (например, два HTTP на Low):
+  // показываем нарушения сразу, ничего не меняя в значениях.
+  useEffect(() => {
+    if (id) void form.trigger('services');
+  }, [id, snapshot.revision, form]);
 
   // Явная смена уровня пользователем: у Low нет входа — учётки убираем;
   // сервисы, которые новому уровню не подходят, заменяем набором по умолчанию.

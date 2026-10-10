@@ -43,9 +43,9 @@ describe('схема профиля (F8)', () => {
     const low = (services: ProfileForm['services']) => issues({ ...emptyProfile('low'), name: 'x', services });
     expect(low([{ protocol: 'tcp', port: 23, banner: 'BusyBox telnetd' }, { protocol: 'http', port: 80, banner: '' }])).toEqual([]);
     expect(low([{ protocol: 'http', port: 80, banner: '' }, { protocol: 'http', port: 81, banner: '' }]))
-      .toEqual(['services.1.protocol: На Low не больше одного HTTP-сервиса']);
+      .toEqual(['services.1.protocol: На Low не больше одного HTTP-сервиса — удалите лишний или выберите другой протокол']);
     expect(low([{ protocol: 'tcp', port: 23, banner: 'a' }, { protocol: 'tcp', port: 24, banner: 'b' }]))
-      .toEqual(['services.1.protocol: На Low не больше одного TCP-сервиса']);
+      .toEqual(['services.1.protocol: На Low не больше одного TCP-сервиса — удалите лишний или выберите другой протокол']);
   });
 
   it('баннер TCP обязателен и только из печатных ASCII', () => {

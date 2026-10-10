@@ -24,38 +24,67 @@ function open(path: string) {
 describe('форма профиля (F8, F9)', () => {
   beforeEach(() => resetMockSession(true));
 
-  it('PR #9: Low-профиль с двумя HTTP открывается как есть — сервисы не заменяются', async () => {
-    const user = userEvent.setup();
+  // Профиль, созданный в обход формы и нарушающий правила Low: открывается как
+  // есть, ошибка видна сразу у поля, сохранение не уходит, пока её не исправят.
+  const openBadLow = (services: Profile['config']['services']) => {
     const original = structuredClone(profilesFixture.find((p) => p.id === 'p-web-panel')) as Profile;
-    original.config.services = [{ protocol: 'http', port: 80, banner: 'a' }, { protocol: 'http', port: 81, banner: 'b' }];
-    let sent: unknown = null;
+    original.config.services = services;
+    const sent: unknown[] = [];
     server.use(
       http.get('/api/v1/profiles/p-web-panel', () => HttpResponse.json(original)),
-      http.patch('/api/v1/profiles/p-web-panel', async ({ request }) => { sent = await request.json(); return HttpResponse.json(original); }),
+      http.patch('/api/v1/profiles/p-web-panel', async ({ request }) => { sent.push(await request.json()); return HttpResponse.json(original); }),
     );
     open('/profiles/p-web-panel');
+    return sent;
+  };
+  const DUPLICATE_HTTP = 'На Low не больше одного HTTP-сервиса — удалите лишний или выберите другой протокол';
+
+  it('PR #9: Low-профиль с двумя HTTP открывается как есть, ошибка видна сразу', async () => {
+    const user = userEvent.setup();
+    const sent = openBadLow([{ protocol: 'http', port: 80, banner: 'a' }, { protocol: 'http', port: 81, banner: 'b' }]);
     const second = await screen.findByRole('group', { name: 'Сервис 2' });
     expect(within(screen.getByRole('group', { name: 'Сервис 1' })).getByLabelText('Порт')).toHaveValue('80');
     expect(within(second).getByLabelText('Порт')).toHaveValue('81');
     expect(within(second).getByLabelText('Протокол')).toHaveValue('http');
+    expect(await within(second).findByText(DUPLICATE_HTTP)).toBeInTheDocument();
 
-    // Переименование не отправляет подменённую конфигурацию: сохранение
-    // останавливает ошибка у поля, исходные сервисы на месте.
+    // Переименование и «Сохранить» не отправляют ни исходную, ни подменённую
+    // конфигурацию: сохранение останавливает проверка формы.
     await user.type(screen.getByLabelText('Название'), ' 2');
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
-    expect(await within(second).findByText('На Low не больше одного HTTP-сервиса')).toBeInTheDocument();
-    expect(sent).toBeNull();
+    expect(await within(second).findByText(DUPLICATE_HTTP)).toBeInTheDocument();
+    expect(sent).toEqual([]);
     expect(within(second).getByLabelText('Порт')).toHaveValue('81');
+
+    // Удалили лишний сервис — ошибка ушла, сохраняется ровно то, что осталось.
+    await user.click(screen.getByRole('button', { name: 'Удалить сервис 2' }));
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect((sent[0] as { config: { services: unknown } }).config.services).toEqual([{ protocol: 'http', port: 80, banner: 'a' }]);
+  });
+
+  it.each([
+    ['без баннера', '', 'У TCP баннер обязателен'],
+    ['с кириллицей в баннере', 'Привет', 'Баннер TCP: только латиница, цифры, пробел и знаки ASCII'],
+  ])('PR #9: TCP %s — значение сохраняется, ошибка у поля сразу, PATCH не уходит', async (_, banner, message) => {
+    const user = userEvent.setup();
+    const sent = openBadLow([{ protocol: 'http', port: 8080, banner: 'x' }, { protocol: 'tcp', port: 23, banner }]);
+    const second = await screen.findByRole('group', { name: 'Сервис 2' });
+    expect(within(second).getByLabelText('Баннер')).toHaveValue(banner);
+    expect(await within(second).findByText(message)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    expect(sent).toEqual([]);
+    expect(within(second).getByLabelText('Протокол')).toHaveValue('tcp');
   });
 
   it('PR #9: выбор повторного протокола показывает ошибку, а не сбрасывает список', async () => {
     const user = userEvent.setup();
-    open('/profiles/p-web-panel');
+    const sent = openBadLow([{ protocol: 'http', port: 8080, banner: 'x' }, { protocol: 'tcp', port: 23, banner: 'BusyBox' }]);
     const second = await screen.findByRole('group', { name: 'Сервис 2' });
-    expect(within(second).getByLabelText('Протокол')).toHaveValue('tcp');
     await user.selectOptions(within(second).getByLabelText('Протокол'), 'http');
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
-    expect(await within(second).findByText('На Low не больше одного HTTP-сервиса')).toBeInTheDocument();
+    expect(await within(second).findByText(DUPLICATE_HTTP)).toBeInTheDocument();
+    expect(sent).toEqual([]);
     expect(within(second).getByLabelText('Протокол')).toHaveValue('http');
     expect(within(second).getByLabelText('Порт')).toHaveValue('23');
     expect(within(screen.getByRole('group', { name: 'Сервис 1' })).getByLabelText('Порт')).toHaveValue('8080');

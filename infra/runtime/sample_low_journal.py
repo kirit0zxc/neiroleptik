@@ -1,4 +1,4 @@
-"""Настоящий процесс Low и семь loopback-соединений; без Docker и внешней сети."""
+"""Настоящий процесс Low и синтетические loopback-соединения с фактическим подсчётом."""
 
 from __future__ import annotations
 
@@ -28,15 +28,19 @@ class SampleResult:
     files: tuple[Path, ...]
     instance_id: str
     deployment_id: str
-    connections: int = 7
+    connections: int
 
 
 class LowSample:
     """Владеет только собственным дочерним процессом, никогда не меняет чужие сервисы."""
 
-    @staticmethod
-    def _exchange(port: int, payload: bytes, *, tcp: bool = False) -> None:
+    def __init__(self) -> None:
+        # Считаем фактически открытые соединения, а не ожидаемую константу сценария.
+        self._connections = 0
+
+    def _exchange(self, port: int, payload: bytes, *, tcp: bool = False) -> None:
         with socket.create_connection(("127.0.0.1", port), timeout=5) as client:
+            self._connections += 1
             if tcp:
                 client.recv(512)
             client.sendall(payload)
@@ -47,12 +51,13 @@ class LowSample:
             except ConnectionResetError:
                 pass
 
-    def run(self, output: Path) -> SampleResult:
+    def run(self, output: Path, *, rotate: bool = False) -> SampleResult:
         """Отказывает для занятого каталога и дожидается штатного завершения Low."""
         output = Path(output).resolve()
         if output.exists() and (not output.is_dir() or any(output.iterdir())):
             raise ValueError("Нужен пустой каталог результата")
         output.mkdir(parents=True, exist_ok=True)
+        self._connections = 0
         instance = str(uuid4())
         deployment = str(uuid4())
         command = [
@@ -71,6 +76,8 @@ class LowSample:
             f"--deployment-id={deployment}",
             "--profile-revision=1",
         ]
+        if rotate:
+            command.extend(["--journal-max-bytes=262144", "--journal-quota-bytes=2097152"])
         creation_flags = 0
         if sys.platform == "win32":
             creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -110,6 +117,11 @@ class LowSample:
             self._exchange(http, b"HEAD / HTTP/1.0\r\n\r\n")
             self._exchange(http, b"GET /probe HTTP/1.0\r\n\r\n")
             self._exchange(http, b"GET / HTTP/1.0\r\nX-Payload: " + b"x" * 2500)
+            if rotate:
+                # Синтетические усечённые запросы заполняют минимальный файл журнала;
+                # следующий header получает новый journal_id и больший journal_seq.
+                for _ in range(160):
+                    self._exchange(http, b"POST /rotation HTTP/1.0\r\nX-Payload: " + b"r" * 2500)
             try:
                 if sys.platform == "win32":
                     process.send_signal(signal.CTRL_BREAK_EVENT)
@@ -127,6 +139,7 @@ class LowSample:
                 tuple(sorted(output.glob("low-*.jsonl"))),
                 instance,
                 deployment,
+                connections=self._connections,
             )
             if result.return_code != 0:
                 raise RuntimeError("Low завершился с ошибкой")
@@ -139,18 +152,19 @@ class LowSample:
             process.stderr.close()
 
 
-def run_sample(output: Path) -> SampleResult:
+def run_sample(output: Path, *, rotate: bool = False) -> SampleResult:
     """Точка входа для локального smoke и тестов."""
-    return LowSample().run(output)
+    return LowSample().run(output, rotate=rotate)
 
 
 def main() -> None:
     """Создаёт образец только в явно указанном каталоге."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--rotate", action="store_true", help="Создать реальные файлы ротации")
     args = parser.parse_args()
     try:
-        result = run_sample(args.output)
+        result = run_sample(args.output, rotate=args.rotate)
     except (ValueError, RuntimeError) as error:
         parser.exit(1, str(error) + "\n")
     print(json.dumps(asdict(result), default=str, ensure_ascii=False))

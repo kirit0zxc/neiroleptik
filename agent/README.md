@@ -1,5 +1,18 @@
 # Телеметрия: первый шаг D1
 
+Исполнитель команд Low запускается отдельно: `python -m agent.runtime.executor`.
+Инструкция запуска и совместного smoke —
+[`infra/runtime/executor.md`](../infra/runtime/executor.md). Командный API определяется
+`specs/commands.md` и `contracts/openapi.json`; локальные гарантии и восстановление —
+`specs/runtime-agent-executor.md`. Medium/High подключаются следующим этапом.
+
+Регистрация: `python -m agent.runtime.executor.enroll` сохраняет новый закрытый
+файл токена и заявляет только `low`. Исполнитель читает `--token-file` или
+`HF_AGENT_TOKEN`, отправляет heartbeat сразу и затем каждые десять секунд,
+независимо от Docker. Stop подтверждается после отсутствия контейнера и
+освобождения опубликованных TCP-портов. Для Windows 11 + Docker Desktop,
+HTTP-профиля 8080 и доступа к центру через HTTPS/SSH см. инструкцию выше.
+
 Правила команды находятся в корневом `AGENTS.md`.
 Контекст: `HoneyForge-plan.html`, персональная зона `HoneyForge-4-Telemetry.html`.
 Подробности и следующие шаги: `specs/events.md`, `specs/architecture.md`.

@@ -1,0 +1,3 @@
+
+# JSONL-контракт требует LF независимо от core.autocrlf на Windows.
+*.jsonl text eol=lf

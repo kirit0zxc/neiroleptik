@@ -27,7 +27,7 @@ watermark — максимальный опубликованный и committed
 источник истины, одних pub/sub сообщений недостаточно.
 
 GET /api/v1/stream-events?after=100&until=120&limit=100
-Ответ: {"items":[{"type":"event","stream_seq":"101","event":{...}}],
+Ответ: {"items":[{"stream_seq":"101","event":{...}}],
 "watermark":"120","next_cursor":"101"}.
 next_cursor=null, когда достигнут until; watermark остаётся тем же на всех страницах.
 Если until не передан, сервер фиксирует watermark в первом ответе; клиент передаёт

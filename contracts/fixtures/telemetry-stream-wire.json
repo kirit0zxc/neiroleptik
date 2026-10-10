@@ -1,0 +1,312 @@
+{
+  "after": "9007199254740992",
+  "hello": {
+    "type": "hello",
+    "watermark": "9007199254740995"
+  },
+  "pages": [
+    {
+      "items": [
+        {
+          "stream_seq": "9007199254740993",
+          "event": {
+            "schema_version": 1,
+            "event_id": "00000000-0000-0000-0000-000000000001",
+            "agent_id": "00000000-0000-0000-0000-000000000001",
+            "deployment_id": "00000000-0000-0000-0000-00000000000a",
+            "instance_id": "00000000-0000-0000-0000-00000000000b",
+            "session_id": null,
+            "source_seq": 0,
+            "occurred_at": "2026-10-10T00:00:00+00:00",
+            "type": "session.command",
+            "source": {
+              "ip": "192.0.2.1",
+              "port": 123
+            },
+            "service": {
+              "protocol": "ssh",
+              "port": 22
+            },
+            "data": {
+              "input": "<script>\u001b[31m\u001b]0;test\u0007",
+              "truncated": true
+            },
+            "artifact_ids": [],
+            "profile_revision": 1,
+            "received_at": "2026-10-10T00:00:00+00:00"
+          }
+        }
+      ],
+      "watermark": "9007199254740995",
+      "next_cursor": "9007199254740993"
+    },
+    {
+      "items": [
+        {
+          "stream_seq": "9007199254740994",
+          "event": {
+            "schema_version": 1,
+            "event_id": "00000000-0000-0000-0000-000000000001",
+            "agent_id": "00000000-0000-0000-0000-000000000002",
+            "deployment_id": "00000000-0000-0000-0000-00000000000a",
+            "instance_id": "00000000-0000-0000-0000-00000000000b",
+            "session_id": null,
+            "source_seq": 0,
+            "occurred_at": "2026-10-10T00:00:00+00:00",
+            "type": "session.command",
+            "source": {
+              "ip": "192.0.2.1",
+              "port": 123
+            },
+            "service": {
+              "protocol": "ssh",
+              "port": 22
+            },
+            "data": {
+              "input": "<script>\u001b[31m\u001b]0;test\u0007",
+              "truncated": true
+            },
+            "artifact_ids": [],
+            "profile_revision": 1,
+            "received_at": "2026-10-10T00:00:00+00:00"
+          }
+        },
+        {
+          "stream_seq": "9007199254740995",
+          "event": {
+            "schema_version": 1,
+            "event_id": "00000000-0000-0000-0000-000000000003",
+            "agent_id": "00000000-0000-0000-0000-000000000001",
+            "deployment_id": "00000000-0000-0000-0000-00000000000a",
+            "instance_id": "00000000-0000-0000-0000-00000000000b",
+            "session_id": null,
+            "source_seq": 0,
+            "occurred_at": "2026-10-10T00:00:00+00:00",
+            "type": "session.command",
+            "source": {
+              "ip": "192.0.2.1",
+              "port": 123
+            },
+            "service": {
+              "protocol": "ssh",
+              "port": 22
+            },
+            "data": {
+              "input": "<script>\u001b[31m\u001b]0;test\u0007",
+              "truncated": true
+            },
+            "artifact_ids": [],
+            "profile_revision": 1,
+            "received_at": "2026-10-10T00:00:00+00:00"
+          }
+        }
+      ],
+      "watermark": "9007199254740995",
+      "next_cursor": null
+    }
+  ],
+  "live": {
+    "type": "event",
+    "stream_seq": "9007199254740996",
+    "event": {
+      "schema_version": 1,
+      "event_id": "00000000-0000-0000-0000-000000000004",
+      "agent_id": "00000000-0000-0000-0000-000000000001",
+      "deployment_id": "00000000-0000-0000-0000-00000000000a",
+      "instance_id": "00000000-0000-0000-0000-00000000000b",
+      "session_id": null,
+      "source_seq": 0,
+      "occurred_at": "2026-10-10T00:00:00+00:00",
+      "type": "session.command",
+      "source": {
+        "ip": "192.0.2.1",
+        "port": 123
+      },
+      "service": {
+        "protocol": "ssh",
+        "port": 22
+      },
+      "data": {
+        "input": "<script>\u001b[31m\u001b]0;test\u0007",
+        "truncated": true
+      },
+      "artifact_ids": [],
+      "profile_revision": 1,
+      "received_at": "2026-10-10T00:00:00+00:00"
+    }
+  },
+  "reconnect_hello": {
+    "type": "hello",
+    "watermark": "9007199254740997"
+  },
+  "reconnect_page": {
+    "items": [
+      {
+        "stream_seq": "9007199254740997",
+        "event": {
+          "schema_version": 1,
+          "event_id": "00000000-0000-0000-0000-000000000005",
+          "agent_id": "00000000-0000-0000-0000-000000000001",
+          "deployment_id": "00000000-0000-0000-0000-00000000000a",
+          "instance_id": "00000000-0000-0000-0000-00000000000b",
+          "session_id": null,
+          "source_seq": 0,
+          "occurred_at": "2026-10-10T00:00:00+00:00",
+          "type": "session.command",
+          "source": {
+            "ip": "192.0.2.1",
+            "port": 123
+          },
+          "service": {
+            "protocol": "ssh",
+            "port": 22
+          },
+          "data": {
+            "input": "<script>\u001b[31m\u001b]0;test\u0007",
+            "truncated": true
+          },
+          "artifact_ids": [],
+          "profile_revision": 1,
+          "received_at": "2026-10-10T00:00:00+00:00"
+        }
+      }
+    ],
+    "watermark": "9007199254740997",
+    "next_cursor": null
+  },
+  "history": {
+    "items": [
+      {
+        "schema_version": 1,
+        "event_id": "00000000-0000-0000-0000-000000000005",
+        "agent_id": "00000000-0000-0000-0000-000000000001",
+        "deployment_id": "00000000-0000-0000-0000-00000000000a",
+        "instance_id": "00000000-0000-0000-0000-00000000000b",
+        "session_id": null,
+        "source_seq": 0,
+        "occurred_at": "2026-10-10T00:00:00+00:00",
+        "type": "session.command",
+        "source": {
+          "ip": "192.0.2.1",
+          "port": 123
+        },
+        "service": {
+          "protocol": "ssh",
+          "port": 22
+        },
+        "data": {
+          "input": "<script>\u001b[31m\u001b]0;test\u0007",
+          "truncated": true
+        },
+        "artifact_ids": [],
+        "profile_revision": 1,
+        "received_at": "2026-10-10T00:00:00+00:00"
+      },
+      {
+        "schema_version": 1,
+        "event_id": "00000000-0000-0000-0000-000000000004",
+        "agent_id": "00000000-0000-0000-0000-000000000001",
+        "deployment_id": "00000000-0000-0000-0000-00000000000a",
+        "instance_id": "00000000-0000-0000-0000-00000000000b",
+        "session_id": null,
+        "source_seq": 0,
+        "occurred_at": "2026-10-10T00:00:00+00:00",
+        "type": "session.command",
+        "source": {
+          "ip": "192.0.2.1",
+          "port": 123
+        },
+        "service": {
+          "protocol": "ssh",
+          "port": 22
+        },
+        "data": {
+          "input": "<script>\u001b[31m\u001b]0;test\u0007",
+          "truncated": true
+        },
+        "artifact_ids": [],
+        "profile_revision": 1,
+        "received_at": "2026-10-10T00:00:00+00:00"
+      },
+      {
+        "schema_version": 1,
+        "event_id": "00000000-0000-0000-0000-000000000003",
+        "agent_id": "00000000-0000-0000-0000-000000000001",
+        "deployment_id": "00000000-0000-0000-0000-00000000000a",
+        "instance_id": "00000000-0000-0000-0000-00000000000b",
+        "session_id": null,
+        "source_seq": 0,
+        "occurred_at": "2026-10-10T00:00:00+00:00",
+        "type": "session.command",
+        "source": {
+          "ip": "192.0.2.1",
+          "port": 123
+        },
+        "service": {
+          "protocol": "ssh",
+          "port": 22
+        },
+        "data": {
+          "input": "<script>\u001b[31m\u001b]0;test\u0007",
+          "truncated": true
+        },
+        "artifact_ids": [],
+        "profile_revision": 1,
+        "received_at": "2026-10-10T00:00:00+00:00"
+      },
+      {
+        "schema_version": 1,
+        "event_id": "00000000-0000-0000-0000-000000000001",
+        "agent_id": "00000000-0000-0000-0000-000000000002",
+        "deployment_id": "00000000-0000-0000-0000-00000000000a",
+        "instance_id": "00000000-0000-0000-0000-00000000000b",
+        "session_id": null,
+        "source_seq": 0,
+        "occurred_at": "2026-10-10T00:00:00+00:00",
+        "type": "session.command",
+        "source": {
+          "ip": "192.0.2.1",
+          "port": 123
+        },
+        "service": {
+          "protocol": "ssh",
+          "port": 22
+        },
+        "data": {
+          "input": "<script>\u001b[31m\u001b]0;test\u0007",
+          "truncated": true
+        },
+        "artifact_ids": [],
+        "profile_revision": 1,
+        "received_at": "2026-10-10T00:00:00+00:00"
+      },
+      {
+        "schema_version": 1,
+        "event_id": "00000000-0000-0000-0000-000000000001",
+        "agent_id": "00000000-0000-0000-0000-000000000001",
+        "deployment_id": "00000000-0000-0000-0000-00000000000a",
+        "instance_id": "00000000-0000-0000-0000-00000000000b",
+        "session_id": null,
+        "source_seq": 0,
+        "occurred_at": "2026-10-10T00:00:00+00:00",
+        "type": "session.command",
+        "source": {
+          "ip": "192.0.2.1",
+          "port": 123
+        },
+        "service": {
+          "protocol": "ssh",
+          "port": 22
+        },
+        "data": {
+          "input": "<script>\u001b[31m\u001b]0;test\u0007",
+          "truncated": true
+        },
+        "artifact_ids": [],
+        "profile_revision": 1,
+        "received_at": "2026-10-10T00:00:00+00:00"
+      }
+    ],
+    "next_cursor": null
+  }
+}

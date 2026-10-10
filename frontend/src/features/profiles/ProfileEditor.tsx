@@ -45,10 +45,21 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
   const [reloading, setReloading] = useState(false);
   const [reloadError, setReloadError] = useState<string | null>(null);
   const revisions = useRevisions(id);
-  // После создания форма пересоздаётся на адресе нового профиля: номер
-  // сохранённой ревизии приходит в состоянии перехода, чтобы сообщение не пропало.
+  // После создания — переход с /profiles/new на /profiles/:id, это другой
+  // маршрут, и форма монтируется заново: номер сохранённой ревизии приходит в
+  // состоянии перехода, чтобы сообщение не пропало.
   const location = useLocation();
-  const [saved, setSaved] = useState<number | null>(() => (location.state as { saved?: number } | null)?.saved ?? null);
+  const [saved, setSaved] = useState<number | null>(() => {
+    const fromNav = (location.state as { saved?: unknown } | null)?.saved;
+    return typeof fromNav === 'number' ? fromNav : null;
+  });
+  // Сообщение показано — убираем его из записи истории, чтобы F5 и «вперёд»
+  // не повторяли устаревшее «Сохранено».
+  useEffect(() => {
+    if ((location.state as { saved?: unknown } | null)?.saved !== undefined) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, navigate]);
   const form = useForm<ProfileInput, unknown, ProfileForm>({ resolver: zodResolver(ProfileSchema), defaultValues: initial, mode: 'onTouched' });
   const services = useFieldArray({ control: form.control, name: 'services' });
   const creds = useFieldArray({ control: form.control, name: 'credentials' });

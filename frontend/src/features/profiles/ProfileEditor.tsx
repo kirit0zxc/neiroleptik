@@ -9,8 +9,8 @@ import { ErrorState, Loading, Panel, ui } from '../../shared/ui';
 import { canEdit, useMe } from '../auth/auth';
 import { useProfile, useRevisions, useSaveProfile } from './api';
 import {
-  ALLOWED, emptyProfile, formFromConfig, formToCreate, hasCredentials, hasHigh, LEVELS,
-  ProfileSchema, servicesForLevel, type ProfileForm, type ProfileInput,
+  ALLOWED, bannerLabel, emptyProfile, formFromConfig, formToCreate, hasCredentials, hasHigh, LEVELS,
+  type Level, nextServiceProtocol, ProfileSchema, servicesForLevel, type ProfileForm, type ProfileInput,
 } from './schema';
 import s from './profiles.module.css';
 
@@ -52,29 +52,35 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
   const level = form.watch('level');
   const credentialsMode = form.watch('credentials_mode');
   const preservedUsernames = form.watch('preserved_usernames');
+  const serviceValues = form.watch('services');
+  const addProtocol = nextServiceProtocol(level, serviceValues);
   const { errors } = form.formState;
 
-  // Смена уровня: у Low нет входа — учётки убираем; сервисы, которые уровню
-  // не подходят, заменяем набором по умолчанию.
+  // Открытый профиль мог быть создан в обход формы (например, два HTTP на Low):
+  // показываем нарушения сразу, ничего не меняя в значениях.
   useEffect(() => {
-    if (!hasCredentials(level)) {
+    if (id) void form.trigger('services');
+  }, [id, snapshot.revision, form]);
+
+  // Явная смена уровня пользователем: у Low нет входа — учётки убираем;
+  // сервисы, которые новому уровню не подходят, заменяем набором по умолчанию.
+  // Только здесь, а не при открытии или правке: иначе форма молча подменяла
+  // бы сохранённую конфигурацию (замечание к PR #9), а не показывала ошибку.
+  const applyLevel = (next: Level) => {
+    if (!hasCredentials(next)) {
       if (creds.fields.length) creds.replace([]);
       if (form.getValues('credentials_mode') !== 'replace') form.setValue('credentials_mode', 'replace');
       if (form.getValues('preserved_usernames').length) form.setValue('preserved_usernames', []);
     }
     // Скрытый блок VM не должен блокировать Low/Medium невидимой ошибкой.
-    if (!hasHigh(level)) {
-      const high = form.getValues('high');
-      const defaults = emptyProfile(level).high;
-      if (high.cpu !== defaults.cpu || high.memory_mb !== defaults.memory_mb || high.ttl_seconds !== defaults.ttl_seconds) {
-        form.setValue('high', defaults);
-        form.clearErrors('high');
-      }
+    if (!hasHigh(next)) {
+      form.setValue('high', emptyProfile(next).high);
+      form.clearErrors('high');
     }
     const current = form.getValues('services');
-    const next = servicesForLevel(level, current);
-    if (next !== current) services.replace(next);
-  }, [level, creds, services, form]);
+    const replaced = servicesForLevel(next, current);
+    if (replaced !== current) services.replace(replaced);
+  };
 
   const onSubmit = form.handleSubmit((values) => save.mutate(formToCreate(values), {
     onSuccess: (p) => {
@@ -102,6 +108,9 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
       setSnapshot({ name: p.name, revision: p.revision });
       form.reset(formFromConfig(p.name, p.description, p.config));
       save.reset();
+      // Перечитанная ревизия может совпасть с прежней: эффект не сработает,
+      // а reset снял ошибки — проверяем сервисы явно.
+      void form.trigger('services');
       setSaved(null);
     } catch (err) {
       setReloadError(err instanceof Error ? err.message : 'Не удалось перечитать профиль');
@@ -129,7 +138,7 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
             </Field>
             <Field label="Уровень взаимодействия" error={errors.level}>
               {(a) => (
-                <select {...a} {...form.register('level')}>
+                <select {...a} {...form.register('level', { onChange: (e: { target: { value: Level } }) => applyLevel(e.target.value) })}>
                   {LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
                 </select>
               )}
@@ -154,16 +163,21 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
                 <Field label="Порт" error={errors.services?.[i]?.port}>
                   {(a) => <input {...a} inputMode="numeric" {...form.register(`services.${i}.port`)} />}
                 </Field>
-                <Field label="Баннер" error={errors.services?.[i]?.banner} wide>
+                <Field label={bannerLabel(serviceValues[i]?.protocol ?? '')} error={errors.services?.[i]?.banner} wide>
                   {(a) => <input {...a} {...form.register(`services.${i}.banner`)} />}
                 </Field>
                 <button type="button" className={s.remove} onClick={() => services.remove(i)}
                   disabled={services.fields.length === 1} aria-label={`Удалить сервис ${i + 1}`}>×</button>
               </div>
             ))}
-            {level !== 'high' && (
+            {/* Живой регион есть всегда: читалка объявит подсказку, когда кнопка «+ Сервис» пропадёт. */}
+            <p className={s.note} aria-live="polite">
+              {addProtocol || level === 'high' ? ''
+                : level === 'low' ? 'На Low — не больше одного TCP и одного HTTP.' : 'Не больше 8 сервисов.'}
+            </p>
+            {addProtocol && (
               <button type="button" className={ui.button}
-                onClick={() => services.append({ protocol: ALLOWED[level][0]!, port: '' as unknown as number, banner: '' })}>
+                onClick={() => services.append({ protocol: addProtocol, port: '' as unknown as number, banner: '' }, { focusName: `services.${services.fields.length}.protocol` })}>
                 + Сервис
               </button>
             )}

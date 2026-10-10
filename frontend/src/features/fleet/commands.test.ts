@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import type { PreviewDeployment } from '../../shared/api/types';
-import { availableCommands, isFinal, jobLabel } from './commands';
+import { availableCommands, driverErrorText, isFinal, jobLabel } from './commands';
 
 const d = (patch: Partial<PreviewDeployment>): PreviewDeployment => ({
   id: 'x', host_id: 'h', interaction_level: 'medium', state: 'running',
@@ -44,5 +44,17 @@ describe('ход задания', () => {
     expect(jobLabel({ state: 'leased', error: null })).toEqual({ tone: 'warn', label: 'взято агентом' });
     expect(jobLabel({ state: 'failed', error: 'нет места на диске' }).label).toBe('ошибка: нет места на диске');
     expect(jobLabel({ state: 'expired', error: null }).tone).toBe('bad');
+    expect(jobLabel({ state: 'failed', error: 'START_FAILED' }).label).toBe('ошибка: не удалось запустить');
+  });
+
+  it('коды ошибок драйвера — понятным текстом, неизвестный код как есть', () => {
+    expect(driverErrorText('UNSUPPORTED_PROFILE')).toBe('профиль не поддерживается этим хостом');
+    expect(driverErrorText('HEALTHCHECK_FAILED')).toBe('проверка работоспособности не прошла');
+    expect(driverErrorText('START_FAILED')).toBe('не удалось запустить');
+    expect(driverErrorText('BACKEND_UNAVAILABLE')).toBe('среда запуска недоступна (Docker или KVM)');
+    expect(driverErrorText('CLEANUP_FAILED')).toBe('не удалось убрать после остановки');
+    expect(driverErrorText('INVALID_STATE')).toBe('команда недопустима в текущем состоянии');
+    expect(driverErrorText('DISK_FULL')).toBe('DISK_FULL');
+    expect(driverErrorText('toString')).toBe('toString');
   });
 });

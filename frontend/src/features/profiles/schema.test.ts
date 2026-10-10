@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { emptyProfile, formFromConfig, formToCreate, ProfileSchema, servicesForLevel, type ProfileForm } from './schema';
+import { bannerLabel, emptyProfile, formFromConfig, formToCreate, nextServiceProtocol, ProfileSchema, servicesForLevel, type ProfileForm } from './schema';
 
 const valid = (patch: Partial<ProfileForm> = {}): ProfileForm => ({ ...emptyProfile('medium'), name: 'Тестовый сервер', credentials: [{ username: 'admin', password: 'demo' }], ...patch });
 const issues = (p: unknown) => {
@@ -37,6 +37,54 @@ describe('схема профиля (F8)', () => {
       'services.0.protocol: На уровне low нельзя ssh',
       'credentials: У Low нет входа — учётки не нужны',
     ]));
+  });
+
+  it('Low: не больше одного TCP и одного HTTP (драйвер участника 3)', () => {
+    const low = (services: ProfileForm['services']) => issues({ ...emptyProfile('low'), name: 'x', services });
+    expect(low([{ protocol: 'tcp', port: 23, banner: 'BusyBox telnetd' }, { protocol: 'http', port: 80, banner: '' }])).toEqual([]);
+    expect(low([{ protocol: 'http', port: 80, banner: '' }, { protocol: 'http', port: 81, banner: '' }]))
+      .toEqual(['services.1.protocol: На Low не больше одного HTTP-сервиса — удалите лишний или выберите другой протокол']);
+    expect(low([{ protocol: 'tcp', port: 23, banner: 'a' }, { protocol: 'tcp', port: 24, banner: 'b' }]))
+      .toEqual(['services.1.protocol: На Low не больше одного TCP-сервиса — удалите лишний или выберите другой протокол']);
+  });
+
+  it('баннер TCP обязателен и только из печатных ASCII', () => {
+    const tcp = (banner: string) => issues({ ...emptyProfile('low'), name: 'x', services: [{ protocol: 'tcp', port: 23, banner }] });
+    expect(tcp('')).toEqual(['services.0.banner: У TCP баннер обязателен']);
+    expect(tcp('Привет')).toEqual(['services.0.banner: Баннер TCP: только латиница, цифры, пробел и знаки ASCII']);
+    for (const bad of ['a\tb', 'a\u007Fb']) {
+      expect(tcp(bad)).toEqual(['services.0.banner: Баннер TCP: только латиница, цифры, пробел и знаки ASCII']);
+    }
+    expect(tcp('   ')).toEqual(['services.0.banner: У TCP баннер обязателен']);
+    expect(tcp('a\nb')).toContain('services.0.banner: Баннер должен быть одной строкой');
+    expect(tcp(' ~SSH-2.0 x!')).toEqual([]);
+    // У HTTP баннер (текст заглушки) может быть пустым и не-ASCII.
+    expect(issues({ ...emptyProfile('low'), name: 'x', services: [{ protocol: 'http', port: 80, banner: 'Привет' }] })).toEqual([]);
+    // ASCII-правило только для TCP: баннер SSH на Medium его не проверяет.
+    expect(issues(valid({ services: [{ protocol: 'ssh', port: 2222, banner: 'Привет' }] }))).toEqual([]);
+  });
+
+  it('смена уровня на Low: два HTTP не подходят — набор по умолчанию', () => {
+    const two = [{ protocol: 'http', port: 80, banner: '' }, { protocol: 'http', port: 81, banner: '' }];
+    expect(servicesForLevel('low', two)).toEqual(emptyProfile('low').services);
+  });
+
+  it('High: значения по умолчанию как в центре — TTL 900 с, 2 vCPU, 2048 МБ', () => {
+    expect(emptyProfile('high').high).toEqual({ ttl_seconds: 900, cpu: 2, memory_mb: 2048 });
+  });
+
+  it('подпись поля баннера зависит от протокола', () => {
+    expect(bannerLabel('http')).toBe('Текст страницы-заглушки');
+    expect(bannerLabel('tcp')).toBe('Баннер');
+    expect(bannerLabel('ssh')).toBe('Баннер');
+  });
+
+  it('«+ Сервис» на Low добавляет недостающий протокол и пропадает, когда есть оба', () => {
+    expect(nextServiceProtocol('low', [{ protocol: 'http' }])).toBe('tcp');
+    expect(nextServiceProtocol('low', [{ protocol: 'tcp' }])).toBe('http');
+    expect(nextServiceProtocol('low', [{ protocol: 'tcp' }, { protocol: 'http' }])).toBeNull();
+    expect(nextServiceProtocol('medium', [{ protocol: 'ssh' }])).toBe('ssh');
+    expect(nextServiceProtocol('high', [{ protocol: 'ssh' }])).toBeNull();
   });
 
   it('учётка: логин по маске сервера', () => {

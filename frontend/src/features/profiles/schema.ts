@@ -28,6 +28,11 @@ export const hasHigh = (level: Level) => level === 'high';
 const HOSTNAME = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$/;
 /** Логин учётки — по маске сервера (CredentialInput.username). */
 const USERNAME = /^[a-zA-Z0-9_.-]+$/;
+/** Баннер TCP — только печатные ASCII (0x20–0x7E): так требует драйвер Low. */
+const PRINTABLE_ASCII = /^[ -~]+$/;
+
+/** На Low драйвер поднимает не больше одного сервиса каждого протокола. */
+const LOW_SINGLE: readonly Protocol[] = ['tcp', 'http'];
 
 const service = z.object({
   protocol: z.enum(PROTOCOLS),
@@ -69,6 +74,15 @@ export const ProfileSchema = z.object({
   p.services.forEach((s, i) => {
     if (!allowed.includes(s.protocol)) {
       ctx.addIssue({ code: 'custom', path: ['services', i, 'protocol'], message: `На уровне ${p.level} нельзя ${s.protocol}` });
+    }
+    if (s.protocol === 'tcp') {
+      if (!s.banner.trim()) ctx.addIssue({ code: 'custom', path: ['services', i, 'banner'], message: 'У TCP баннер обязателен' });
+      else if (!PRINTABLE_ASCII.test(s.banner)) {
+        ctx.addIssue({ code: 'custom', path: ['services', i, 'banner'], message: 'Баннер TCP: только латиница, цифры, пробел и знаки ASCII' });
+      }
+    }
+    if (p.level === 'low' && LOW_SINGLE.includes(s.protocol) && p.services.findIndex((x) => x.protocol === s.protocol) < i) {
+      ctx.addIssue({ code: 'custom', path: ['services', i, 'protocol'], message: `На Low не больше одного ${s.protocol.toUpperCase()}-сервиса — удалите лишний или выберите другой протокол` });
     }
     const prev = seen.get(s.port);
     if (prev !== undefined) {
@@ -126,8 +140,24 @@ export function servicesForLevel<S extends { protocol: string }>(level: Level, s
   const fits = services.length > 0
     && services.every((s) => allowed.includes(s.protocol))
     && (level !== 'medium' || services.some((s) => s.protocol === 'ssh'))
-    && (level !== 'high' || services.length === 1);
+    && (level !== 'high' || services.length === 1)
+    && (level !== 'low' || LOW_SINGLE.every((p) => services.filter((s) => s.protocol === p).length <= 1));
   return fits ? services : emptyProfile(level).services;
+}
+
+/** Подпись поля banner: у HTTP это тело ответа заглушки, у TCP и SSH — баннер. */
+export function bannerLabel(protocol: string): string {
+  return protocol === 'http' ? 'Текст страницы-заглушки' : 'Баннер';
+}
+
+/**
+ * Протокол для кнопки «+ Сервис» или null, если добавлять нечего: на High
+ * сервис ровно один, на Low — не больше одного TCP и одного HTTP.
+ */
+export function nextServiceProtocol(level: Level, services: readonly { protocol: string }[]): Protocol | null {
+  if (level === 'high' || services.length >= 8) return null;
+  if (level === 'low') return LOW_SINGLE.find((p) => !services.some((s) => s.protocol === p)) ?? null;
+  return ALLOWED[level][0] ?? null;
 }
 
 /** Новый профиль: SSH-уровни требуют явного добавления приманочных учёток. */

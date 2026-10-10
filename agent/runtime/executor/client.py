@@ -3,20 +3,28 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ipaddress
 import json
 import math
 import re
+import socket
+import ssl
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from http.client import HTTPException
-from typing import Protocol
+from functools import partial
+from http.client import HTTPConnection, HTTPException, HTTPResponse, HTTPSConnection
+from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import (
     BaseHandler,
+    HTTPHandler,
     HTTPRedirectHandler,
+    HTTPSHandler,
     OpenerDirector,
     ProxyHandler,
     Request,
@@ -29,6 +37,10 @@ from agent.runtime.executor.protocol import ClaimedCommand, LeaseReply, validate
 from agent.runtime.executor.protocol import CommandClient as CommandClient
 
 _ERROR_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+# Отдельный ограниченный пул для HTTP. Через общий пул asyncio идут вызовы Docker CLI,
+# и зависшая сеть не должна занимать его потоки. Четырёх хватает на одновременные
+# heartbeat, claim/ack и продление lease; лишние запросы ждут и отменяются по сроку.
+_HTTP_WORKERS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="honeyforge-http")
 
 
 class _ResponseReader(Protocol):
@@ -57,6 +69,106 @@ class _NoRedirects(HTTPRedirectHandler):
         newurl: str,
     ) -> None:
         return None
+
+
+class _RequestWatch:
+    """Сторожевой таймер одного запроса: по общему сроку разрывает его соединения.
+
+    urllib ограничивает таймаутом каждую отдельную операцию сокета, а не весь запрос.
+    Центр или прокси, присылающий заголовки по байту, держал бы поток бесконечно, а
+    asyncio.wait_for лишь перестаёт ждать. Таймер закрывает сокет на чтение и запись,
+    блокирующее чтение завершается ошибкой, и поток освобождается к сроку. Разрешение
+    имени (DNS) этим не прерывается; его ограничивает отдельный пул HTTP-потоков.
+    """
+
+    _current = threading.local()
+
+    def __init__(self, timeout: float) -> None:
+        self._lock = threading.Lock()
+        self._connections: list[HTTPConnection] = []
+        self._expired = False
+        self._timer = threading.Timer(timeout, self._expire)
+        self._timer.daemon = True
+
+    def __enter__(self) -> _RequestWatch:
+        _RequestWatch._current.watch = self
+        self._timer.start()
+        return self
+
+    def __exit__(self, *_details: object) -> None:
+        self._timer.cancel()
+        _RequestWatch._current.watch = None
+
+    @classmethod
+    def track(cls, connection: HTTPConnection) -> None:
+        """Связывает соединение с запросом текущего потока; после срока сразу рвёт его."""
+        watch: _RequestWatch | None = getattr(cls._current, "watch", None)
+        if watch is None:
+            return
+        with watch._lock:
+            if connection not in watch._connections:
+                watch._connections.append(connection)
+            expired = watch._expired
+        if expired:
+            cls._abort(connection)
+
+    def _expire(self) -> None:
+        with self._lock:
+            self._expired = True
+            connections = list(self._connections)
+        for connection in connections:
+            self._abort(connection)
+
+    @staticmethod
+    def _abort(connection: HTTPConnection) -> None:
+        # Во время TLS-рукопожатия sock — ещё обычный сокет; его разрыв прерывает и его.
+        sock = connection.sock
+        if sock is not None:
+            with contextlib.suppress(OSError):
+                sock.shutdown(socket.SHUT_RDWR)
+
+
+class _WatchedHTTPConnection(HTTPConnection):
+    """HTTP-соединение, которое сторожевой таймер запроса может разорвать."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        _RequestWatch.track(self)
+
+    def connect(self) -> None:
+        super().connect()
+        # Срок мог истечь, пока сокета ещё не было.
+        _RequestWatch.track(self)
+
+
+class _WatchedHTTPSConnection(HTTPSConnection):
+    """HTTPS-соединение (в том числе через CONNECT-прокси) под сторожевым таймером."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        _RequestWatch.track(self)
+
+    def connect(self) -> None:
+        super().connect()
+        _RequestWatch.track(self)
+
+
+class _WatchedHTTPHandler(HTTPHandler):
+    """Открывает HTTP-соединения, видимые сторожевому таймеру запроса."""
+
+    def http_open(self, req: Request) -> HTTPResponse:
+        return self.do_open(_WatchedHTTPConnection, req)
+
+
+class _WatchedHTTPSHandler(HTTPSHandler):
+    """HTTPS с проверкой сертификата и имени хоста по умолчанию, под сторожевым таймером."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._tls = ssl.create_default_context()
+
+    def https_open(self, req: Request) -> HTTPResponse:
+        return self.do_open(_WatchedHTTPSConnection, req, context=self._tls)
 
 
 class BoundedHttpTransport:
@@ -117,7 +229,11 @@ class BoundedHttpTransport:
         self._timeout = float(timeout)
         self._maximum = max_response_bytes
         self._success_status = success_status
-        handlers: list[BaseHandler] = [_NoRedirects()]
+        handlers: list[BaseHandler] = [
+            _NoRedirects(),
+            _WatchedHTTPHandler(),
+            _WatchedHTTPSHandler(),
+        ]
         if loopback:
             # Loopback-центр не должен идти через прокси окружения (HTTP_PROXY, реестр
             # Windows): по HTTP заголовок Bearer достался бы прокси в открытом виде.
@@ -160,6 +276,11 @@ class BoundedHttpTransport:
             method=method,
         )
         deadline = time.monotonic() + self._timeout
+        with _RequestWatch(self._timeout):
+            return self._exchange(request, deadline)
+
+    def _exchange(self, request: Request, deadline: float) -> object:
+        """Один обмен под сторожевым таймером; ошибки сводятся к безопасным кодам."""
         try:
             with self._opener.open(request, timeout=self._timeout) as response:
                 # read1 возвращает одну доступную порцию; медленная непрерывная передача
@@ -205,10 +326,16 @@ class BoundedHttpTransport:
         path: str,
         payload: dict[str, object] | None,
     ) -> object:
-        """Ожидание ограничено общим сроком, даже если DNS/TLS всё ещё завершается."""
+        """Ожидание ограничено общим сроком, даже если DNS/TLS всё ещё завершается.
+
+        Запрос выполняется в отдельном пуле HTTP-потоков. По истечении срока ожидание
+        прекращается, ещё не начатый запрос отменяется, а начатый разрывает свой
+        сторожевой таймер, поэтому поток не остаётся работать после таймаута.
+        """
+        loop = asyncio.get_running_loop()
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self._request, method, path, payload),
+                loop.run_in_executor(_HTTP_WORKERS, partial(self._request, method, path, payload)),
                 self._timeout,
             )
         except TimeoutError:

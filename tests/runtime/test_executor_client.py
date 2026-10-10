@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import select
+import socket
 import threading
 import time
 from collections.abc import Iterator
@@ -539,3 +541,81 @@ def test_timeout_validation(timeout: object) -> None:
 def test_response_limit_validation(limit: object) -> None:
     with pytest.raises(ValueError):
         HttpCommandClient("https://example.org", BEARER, max_response_bytes=limit)  # type: ignore[arg-type]
+
+
+# --- Регрессия P2: медленные заголовки не оставляют работающий сетевой поток -----------------
+
+
+class SlowHeaders:
+    """Loopback-«центр»: принимает запрос и присылает заголовки по байту, не заканчивая их.
+
+    Фиксирует момент, когда клиент разорвал соединение. До исправления поток urllib
+    продолжал читать после таймаута asyncio, пока сервер не переставал слать байты.
+    """
+
+    def __init__(self, drip_seconds: float = 6.0) -> None:
+        self.listener = socket.create_server(("127.0.0.1", 0))
+        self.port = self.listener.getsockname()[1]
+        self.closed_at: float | None = None
+        self.closed = threading.Event()
+        self._drip_seconds = drip_seconds
+        self._worker = threading.Thread(target=self._serve, daemon=True)
+        self._worker.start()
+
+    def _serve(self) -> None:
+        connection, _ = self.listener.accept()
+        with connection:
+            received = b""
+            while b"\r\n\r\n" not in received:
+                chunk = connection.recv(4096)
+                if not chunk:
+                    break
+                received += chunk
+            finish = time.monotonic() + self._drip_seconds
+            while time.monotonic() < finish:
+                try:
+                    connection.sendall(b"X")
+                    readable, _, _ = select.select([connection], [], [], 0.05)
+                    if readable and not connection.recv(1):
+                        break
+                except OSError:
+                    break
+            else:
+                return
+            self.closed_at = time.monotonic()
+            self.closed.set()
+
+    def close(self) -> None:
+        self.listener.close()
+
+
+def test_slow_headers_do_not_keep_the_network_thread_after_timeout() -> None:
+    """Регрессия P2: по общему сроку запрос разрывает соединение, а не только перестаёт ждать."""
+    server = SlowHeaders()
+    try:
+        client = HttpCommandClient(f"http://127.0.0.1:{server.port}", BEARER, allow_http=True)
+        client._timeout = 0.5
+        started = time.monotonic()
+        with pytest.raises(ClientError) as failed:
+            asyncio.run(client.heartbeat())
+        assert failed.value.code == "NETWORK_ERROR"
+        assert server.closed.wait(3.0), "клиент не разорвал соединение после срока"
+        assert server.closed_at is not None and server.closed_at - started < 2.0
+    finally:
+        server.close()
+
+
+def test_http_requests_never_occupy_the_default_asyncio_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Сеть выполняется в отдельном ограниченном пуле: общий пул остаётся Docker CLI."""
+    seen: list[str] = []
+
+    def request(self: HttpCommandClient, *args: object) -> object:
+        seen.append(threading.current_thread().name)
+        return {"command": None}
+
+    monkeypatch.setattr(HttpCommandClient, "_request", request)
+    client = HttpCommandClient("https://center.test", BEARER)
+    assert asyncio.run(client.claim()) is None
+    assert seen and seen[0].startswith("honeyforge-http")

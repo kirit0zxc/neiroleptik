@@ -52,4 +52,3 @@ assert.equal(delivered.length, 5);
 assert.equal(client.currentCursor, wire.reconnect_hello.watermark);
 client.stop();
 console.log('StreamClient + backend wire: live buffer, bigint, pagination, pair identity, dedup and reconnect passed');
-

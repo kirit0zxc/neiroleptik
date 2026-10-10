@@ -1,1 +1,1 @@
-"""Изолированное чтение committed телеметрии; production routes не подключены."""
+"""Изолированное PostgreSQL-ядро и сервисы чтения; production routes не подключены."""

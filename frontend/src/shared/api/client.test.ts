@@ -52,6 +52,11 @@ const broken = (status: number, partial: string) => new HttpResponse(new Readabl
     expect(read).toMatchObject({ status: 200, code: 'BAD_RESPONSE', message: 'Сервер вернул непонятный ответ' });
   });
 
+  it('пустое тело успешного ответа — без данных, а не ошибка', async () => {
+    server.use(http.post('/e', () => new HttpResponse('', { status: 200 })));
+    await expect(api('/e', { method: 'POST', body: '{}' })).resolves.toBeUndefined();
+  });
+
   it('код ошибки из ErrorResponse.code сохраняется для логики экрана', async () => {
     server.use(
       http.post('/c', () => HttpResponse.json({ detail: 'Перечитайте поколение', code: 'STALE_GENERATION' }, { status: 409 })),

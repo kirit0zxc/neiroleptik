@@ -58,13 +58,15 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   } catch {
     throw new ApiError(0, 'Ответ сервера получен не полностью — результат неизвестен');
   }
+  // Пустое тело — ответ без данных; вызывающий сам решает, хватает ли ему этого.
+  if (!text.trim()) return undefined as T;
   try {
     return JSON.parse(text) as T;
   } catch {
     // Тело получено целиком, но это не JSON. Изменяющий запрос мог выполниться —
     // результат неизвестен; чтение (например, страница прокси вместо API) —
     // отказ, а не бесконечный повтор.
-    if (UNSAFE.has(method)) throw new ApiError(0, 'Ответ сервера получен не полностью — результат неизвестен');
+    if (UNSAFE.has(method)) throw new ApiError(0, 'Ответ сервера не распознан — результат неизвестен');
     throw new ApiError(res.status, 'Сервер вернул непонятный ответ', [], 'BAD_RESPONSE');
   }
 }

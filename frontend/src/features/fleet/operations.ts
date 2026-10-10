@@ -70,8 +70,13 @@ export class Operations {
         method: 'POST',
         body: JSON.stringify({ command: action.command, idempotency_key: action.key, expected_generation: action.generation }),
       });
+      // 202 без job_id (например, пустое тело): команда могла быть принята — результат неизвестен.
+      if (!r?.job_id) throw new ApiError(0, 'Ответ сервера не распознан — результат неизвестен');
+      // Поздний ответ на уже отменённое или заменённое действие не трогает текущее.
+      if (this.get(id).action !== action) return;
       this.set(id, { sending: false, jobId: r.job_id });
     } catch (error) {
+      if (this.get(id).action !== action) return;
       this.set(id, { sending: false, error });
       if (error instanceof ApiError && error.status === 409) this.refresh();
     }

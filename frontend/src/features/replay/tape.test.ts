@@ -93,6 +93,21 @@ describe('Replay: безопасность (S2)', () => {
 });
 
 describe('Replay: Enter атакующего', () => {
+  it.each([
+    ['\r\r\nroot'],
+    ['\r', '\r\nroot'],
+    ['\r\r', '\nroot'],
+    ['\r', '\r', '\nroot'],
+    ['\r', '', '\r', '\n', 'root'],
+  ])('сохраняет дополнительный перевод строки после эха: %j', (...parts) => {
+    const tape = new ReplayTape();
+    tape.append([chunk('in', 'cmd\r')]);
+    // Разные страницы и границы чанков не должны менять записанный текст.
+    for (const part of parts) tape.append([chunk('out', part)]);
+    tape.finish();
+    expect(textOf(tape)).toBe('cmd\n\nroot');
+  });
+
   it('\r в конце чанка виден сразу, \n следующего чанка не удваивает строку', () => {
     const tape = new ReplayTape();
     tape.append([chunk('in', 'whoami\r')]);

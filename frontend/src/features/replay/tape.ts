@@ -100,7 +100,13 @@ export class ReplayTape {
           // в выводе (out), возможно разрезанным между чанками. Поглощаем ведущий
           // `\r`, затем `\n`; одинокий `\r` оставляет ожидание `\n` следующего чанка.
           let consumedCr = false;
-          if (text[0] === '\r') { text = text.slice(1); consumedCr = true; }
+          if (text[0] === '\r') {
+            text = text.slice(1);
+            consumedCr = true;
+            // CR эха уже удалён: дальше завершаем CRLF потока out, ожидая
+            // только LF. Следующий CR — самостоятельный перевод строки.
+            this.skipLfDir = 'out';
+          }
           if (text[0] === '\n') { text = text.slice(1); this.skipLf = false; }
           else if (!consumedCr || text.length > 0) this.skipLf = false;
         } else {

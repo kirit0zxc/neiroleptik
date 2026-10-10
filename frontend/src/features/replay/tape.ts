@@ -50,7 +50,7 @@ function base64Bytes(data: string): Uint8Array {
 export class ReplayTape {
   readonly segments: Segment[] = [];
   private readonly decoders: Record<Direction, TextDecoder> = { in: new TextDecoder('utf-8'), out: new TextDecoder('utf-8') };
-  /** Хвост, который нельзя показывать до следующего чанка: начало ESC-последовательности или \r. */
+  /** Хвост, который нельзя показывать до следующего чанка: начало ESC-последовательности. */
   private readonly carry: Record<Direction, string> = { in: '', out: '' };
   private readonly last: Record<Direction, { seq: number; offsetMs: number } | null> = { in: null, out: null };
   /** Чанк закончился на 

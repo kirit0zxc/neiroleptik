@@ -14,8 +14,11 @@ import s from './overview.module.css';
  * отсутствует, обслуживается моками).
  */
 export interface Summary {
+  /** Момент расчёта; окно «за час» — [as_of − 1 ч, as_of). */
+  as_of: string;
   deployments: { total: number; running: number; failed: number };
-  hosts: { total: number; online: number; offline: number };
+  /** revoked — отозванные, не считаются offline. */
+  hosts: { total: number; online: number; offline: number; revoked: number };
   events_last_hour: number;
   alerts_open: number;
   top_sources: { ip: string; count: number }[];

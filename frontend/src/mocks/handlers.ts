@@ -129,16 +129,25 @@ export const handlers = [
   // Сводка обзора — по текущему состоянию моков (превью этапа 4).
   http.get('/api/v1/analytics/summary', () => {
     const deps = currentDeployments();
-    const hourAgo = Date.now() - 3600_000;
-    const recent = publishedEvents().filter((e) => Date.parse(e.occurred_at) >= hourAgo);
+    // Окно [as_of − 1 ч, as_of) по occurred_at (согласовано с участником 4).
+    const asOf = Date.now();
+    const hourAgo = asOf - 3600_000;
+    const recent = publishedEvents().filter((e) => { const t = Date.parse(e.occurred_at); return t >= hourAgo && t < asOf; });
     const counts = new Map<string, number>();
     for (const e of recent) counts.set(e.source.ip, (counts.get(e.source.ip) ?? 0) + 1);
     return HttpResponse.json({
       deployments: { total: deps.length, running: deps.filter((d) => d.state === 'running').length, failed: deps.filter((d) => d.state === 'failed').length },
-      hosts: { total: hosts.length, online: hosts.filter((h) => h.status === 'online').length, offline: hosts.filter((h) => h.status !== 'online').length },
+      as_of: new Date(asOf).toISOString(),
+      hosts: {
+        total: hosts.length,
+        online: hosts.filter((h) => h.status === 'online').length,
+        offline: hosts.filter((h) => h.status === 'offline').length,
+        revoked: hosts.filter((h) => h.status === 'revoked').length,
+      },
       events_last_hour: recent.length,
       alerts_open: 1,
-      top_sources: [...counts].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([ip, count]) => ({ ip, count })),
+      // Равные счётчики — стабильно по IP.
+      top_sources: [...counts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).slice(0, 5).map(([ip, count]) => ({ ip, count })),
     });
   }),
 

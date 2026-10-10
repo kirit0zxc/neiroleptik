@@ -25,10 +25,10 @@ export class ReplayClock {
    * часы не встают: позиция держится у края и идёт дальше с новыми данными.
    */
   tick(now: number, duration: number, complete = true) {
-    if (complete && this.playing && this.position(now, duration) >= duration) {
-      this.base = duration;
-      this.startedAt = null;
-    }
+    if (!this.playing || this.position(now, duration) < duration) return;
+    this.base = duration;
+    // Живая запись: «стоим» у края, чтобы новые данные проигрывались, а не появлялись скачком.
+    this.startedAt = complete ? null : now;
   }
 
   /** `complete=false` — запись идёт: с конца не прыгаем в начало, ждём новых данных. */

@@ -152,6 +152,25 @@ describe('живая лента (F10–F12)', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it('повторный 422 после автоматического перечитывания — ошибка, а не новый сброс', async () => {
+    const user = userEvent.setup();
+    for (let i = 0; i < 55; i++) publish(ev(`again-${i}`));
+    open('/events', controlledStream().create);
+    await screen.findAllByTestId('event-row');
+    let firstPages = 0;
+    server.use(http.get('/api/v1/events', ({ request }) => {
+      if (new URL(request.url).searchParams.get('cursor')) return HttpResponse.json({ detail: 'Курсор не принимается' }, { status: 422 });
+      firstPages++;
+      return undefined;
+    }));
+    await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    await screen.findByText('Список событий обновлён — загружен заново.');
+    await waitFor(() => expect(rows()).toHaveLength(50));
+    await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Курсор не принимается');
+    expect(firstPages).toBe(1);
+  });
+
   it('история в порядке центра: received_at, затем event_id по убыванию', async () => {
     const t = '2026-10-10T09:00:00.000Z';
     publish(ev('ord-a', { received_at: t }));

@@ -78,16 +78,24 @@ export function EventsPage() {
 
   const recoverOverflow = () => { void reloadHistory().catch(() => {}); };
 
-  // 422 на следующей странице: курсор снимка больше не принимается — перечитать с начала.
+  // 422 на следующей странице: курсор снимка больше не принимается — перечитать с
+  // начала, но автоматически один раз. Повторный 422 — ошибка: неверные фильтры
+  // перечитыванием не исправить. Новая выборка или успешная страница снимают отметку.
   const [restarted, setRestarted] = useState(false);
-  useEffect(() => { setRestarted(false); }, [key]);
+  const autoReset = useRef(false);
+  useEffect(() => { setRestarted(false); autoReset.current = false; }, [key]);
   const loadMore = async () => {
     setRestarted(false);
     const r = await pages.fetchNextPage();
-    if (r.error instanceof ApiError && r.error.status === 422) {
-      setRestarted(true);
-      await reloadHistory().catch(() => {});
+    if (!(r.error instanceof ApiError && r.error.status === 422)) {
+      if (!r.error) autoReset.current = false;
+      return;
     }
+    // Повтор: остаётся ошибка запроса с кнопкой «Повторить».
+    if (autoReset.current) return;
+    autoReset.current = true;
+    setRestarted(true);
+    await reloadHistory().catch(() => {});
   };
 
   const onLive = useCallback((events: HfEvent[]) => {

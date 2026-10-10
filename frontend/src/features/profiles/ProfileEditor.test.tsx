@@ -70,9 +70,13 @@ describe('форма профиля (F8, F9)', () => {
     const user = userEvent.setup();
     const sent = openBadLow([{ protocol: 'http', port: 8080, banner: 'x' }, { protocol: 'tcp', port: 23, banner }]);
     const second = await screen.findByRole('group', { name: 'Сервис 2' });
-    expect(within(second).getByLabelText('Баннер')).toHaveValue(banner);
+    const field = within(second).getByLabelText('Баннер');
+    expect(field).toHaveValue(banner);
     expect(await within(second).findByText(message)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
+    // Отправка формы асинхронна: дожидаемся её конца — фокус уходит на поле с
+    // ошибкой — и только потом проверяем, что запрос не ушёл.
+    await waitFor(() => expect(field).toHaveFocus());
     expect(sent).toEqual([]);
     expect(within(second).getByLabelText('Протокол')).toHaveValue('tcp');
   });

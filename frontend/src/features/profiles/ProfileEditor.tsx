@@ -108,6 +108,9 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
       setSnapshot({ name: p.name, revision: p.revision });
       form.reset(formFromConfig(p.name, p.description, p.config));
       save.reset();
+      // Перечитанная ревизия может совпасть с прежней: эффект не сработает,
+      // а reset снял ошибки — проверяем сервисы явно.
+      void form.trigger('services');
       setSaved(null);
     } catch (err) {
       setReloadError(err instanceof Error ? err.message : 'Не удалось перечитать профиль');

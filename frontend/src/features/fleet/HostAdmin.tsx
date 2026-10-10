@@ -142,7 +142,16 @@ export function RevokeHostButton({ host }: { host: Host }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const opener = useRef<HTMLButtonElement>(null);
+  /** Строка хоста для фокуса после отзыва; пока модальное окно открыто, вне его фокус не встаёт. */
+  const focusRow = useRef<HTMLTableRowElement | null>(null);
   const qc = useQueryClient();
+  useEffect(() => {
+    const row = focusRow.current;
+    if (confirming || !row) return;
+    focusRow.current = null;
+    row.tabIndex = -1;
+    row.focus();
+  }, [confirming]);
   if (!canRevoke(host)) return null;
 
   const close = () => { setConfirming(false); setError(null); opener.current?.focus(); };
@@ -150,9 +159,8 @@ export function RevokeHostButton({ host }: { host: Host }) {
     setBusy(true); setError(null);
     try {
       const updated = await revokeHost(host.id);
-      // Кнопка сейчас исчезнет — фокус остаётся на строке хоста, а не уходит в body.
-      const row = opener.current?.closest('tr');
-      if (row) { row.tabIndex = -1; row.focus(); }
+      // Кнопка сейчас исчезнет — фокус переведём на строку хоста, когда окно закроется.
+      focusRow.current = opener.current?.closest('tr') ?? null;
       qc.setQueryData<Host[]>(['hosts'], (old) => old?.map((h) => (h.id === updated.id ? updated : h)));
       setConfirming(false);
       void qc.invalidateQueries({ queryKey: ['hosts'] });

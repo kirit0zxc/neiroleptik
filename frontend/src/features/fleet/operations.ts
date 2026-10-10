@@ -1,6 +1,6 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 import { api, ApiError } from '../../shared/api/client';
-import type { Command } from './commands';
+import { commandRejectText, type Command } from './commands';
 
 /**
  * Действие пользователя: команда, ключ идемпотентности и поколение, по
@@ -30,8 +30,13 @@ export class Operations {
   private readonly listeners = new Set<() => void>();
   /** Перечитать данные ловушек (после отказа центра или отмены). */
   private readonly refresh: () => void;
+  /** Сообщить о ходе операции (Юми, раздел 9). */
+  private readonly notify: (event: string, payload: unknown) => void;
 
-  constructor(refresh: () => void = () => {}) { this.refresh = refresh; }
+  constructor(refresh: () => void = () => {}, notify: (event: string, payload: unknown) => void = () => {}) {
+    this.refresh = refresh;
+    this.notify = notify;
+  }
 
   get(id: string): Operation { return this.ops.get(id) ?? IDLE; }
 
@@ -56,6 +61,16 @@ export class Operations {
   /** Задание завершилось: следующее нажатие будет новым действием. */
   finish(id: string) { if (this.get(id).action) this.set(id, { action: null }); }
 
+  /** Задания, об итоге которых уже сказано (живут дольше строки таблицы). */
+  private readonly reported = new Set<string>();
+
+  /** true — об итоге задания ещё не сообщали; сообщить можно один раз. */
+  reportOnce(jobId: string): boolean {
+    if (this.reported.has(jobId)) return false;
+    this.reported.add(jobId);
+    return true;
+  }
+
   /** Отказ от неотправленного действия (постоянный сбой): блокировка снимается. */
   cancel(id: string) {
     this.set(id, { action: null, error: null });
@@ -75,9 +90,14 @@ export class Operations {
       // Поздний ответ на уже отменённое или заменённое действие не трогает текущее.
       if (this.get(id).action !== action) return;
       this.set(id, { sending: false, jobId: r.job_id });
+      // Центр принял команду (202) — это ещё не запуск: ждём агента.
+      this.notify('command:sent', { command: action.command });
     } catch (error) {
       if (this.get(id).action !== action) return;
       this.set(id, { sending: false, error });
+      // Запрос мог дойти, ответ потерян: результат неизвестен.
+      if (error instanceof ApiError && (error.status === 0 || error.status >= 500)) this.notify('command:unknown', { command: action.command });
+      else this.notify('command:rejected', { command: action.command, reason: commandRejectText(error) });
       if (error instanceof ApiError && error.status === 409) this.refresh();
     }
   }

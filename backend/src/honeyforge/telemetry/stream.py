@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from honeyforge.common import DomainError
+from honeyforge.telemetry.db_operations import DBOperations
 from honeyforge.telemetry.presentation import PublicEventPresenter
 from honeyforge.telemetry.read_contract import PublicationReader
 
@@ -35,20 +36,22 @@ class LiveStreamService:
     async def run(
         self, send: Callable[[dict[str, Any]], Awaitable[None]], authenticate: Callable[[], None]
     ) -> None:
+        operations = DBOperations()
+
         async def deliver(payload: dict[str, Any]) -> None:
-            await asyncio.to_thread(authenticate)
+            await operations.call(authenticate)
             await asyncio.wait_for(send(payload), self.send_seconds)
 
-        await asyncio.to_thread(authenticate)
-        last = await asyncio.to_thread(self.reader.watermark)
+        await operations.call(authenticate)
+        last = await operations.call(self.reader.watermark)
         await deliver({"type": "hello", "watermark": str(last)})
         while True:
-            await asyncio.to_thread(authenticate)
-            floor = await asyncio.to_thread(self.reader.retention_floor)
+            await operations.call(authenticate)
+            floor = await operations.call(self.reader.retention_floor)
             if floor is not None and last < floor:
                 raise DomainError(410, "История потока недоступна")
-            watermark = await asyncio.to_thread(self.reader.watermark)
-            rows = await asyncio.to_thread(self.reader.stream, last, watermark, self.page_size)
+            watermark = await operations.call(self.reader.watermark)
+            rows = await operations.call(self.reader.stream, last, watermark, self.page_size)
             for row in rows:
                 await deliver(
                     {

@@ -124,3 +124,90 @@ suite остановился на отсутствии HF_TEST_DATABASE_URL. П�
 Нет ingest HTTP, Low адаптера или replay. Этот этап не доказывает живой Low → UI.
 Перед push повторить полный цикл трёх субагентов и совместимость с новым main;
 для merge PR нужны CI и явное одобрение человека актуальной версии.
+
+## Исправление подтверждённых дефектов stream, 10.10.2026
+
+Этот раздел содержит актуальные результаты повторной проверки; предыдущие
+разделы описывают исходный этап реализации.
+
+- Исходный проверенный HEAD: 0bf6a766a6224e459d5d3bcb1748c3e8fb9ef6a6.
+- Актуальный origin/main после повторного fetch: f1cf13632fc61c4e0da7340e5e7650942e479d12.
+- Main включён обычным merge: 17562253e52809d0de57f7ac529dda15c290cf42.
+- Storage: 50b4f3383b1aa27d896f466cb55ce29c75fc6028, остаётся предком HEAD.
+- Ветка/worktree: codex/telemetry-stream,
+  C:/Users/dimvo/.codex/worktrees/telemetry-stream/neiroleptik.
+- Итоговая версия исправлений — локальный коммит, содержащий этот раздел;
+  точный SHA получается через git rev-parse HEAD после его создания.
+
+До изменения кода обновлены events.md и architecture.md. Внутренний DBOperations
+устанавливает PostgreSQL SET LOCAL statement_timeout не более 1000 мс на каждый
+SQL чтения/проверки сессии, с общим бюджетом вызова 3 секунды. Executor Future
+остаётся учтённым до завершения worker: cancel запрещает следующий SQL и ожидает
+rollback/close. Future защищён от отмены; transport ожидает обе дочерние задачи
+даже при повторной отмене endpoint и ASGI cancel scope. Event loop не блокируется.
+Hello/live, страницы, seq, cookie/Origin, отзыв и close codes сохранены.
+На простое транзакция не удерживается. Локальная настройка не остаётся после
+возврата соединения и не применяется к операциям вне контекста WS.
+
+HistoryService.filters обрабатывает OverflowError при UTC-нормализации как
+DomainError(422), с общим безопасным detail. Проверены обе границы для from/to
+в сервисе и HTTP, нормализация допустимых крайних дат; существующие SQL-тесты
+подтверждают from включительно / to исключительно.
+
+Новые штатные регрессии: backend/tests/telemetry/test_stream_regressions.py.
+Использовано воспроизведение из work/telemetry-review как основание; штатные
+тесты не импортируют его и не зависят от его абсолютного пути. Отдельный Engine
+с пулом размера 1 и случайная telemetry_test схема доказывают ожидание Lock
+через pg_stat_activity. Отмена чтения, проверки сессии, повторная отмена,
+обычный TestClient disconnect, отмена всех asyncio-задач transport при shutdown
+и серверный deadline проверяются до снятия блокировки. Утверждения проверяют
+завершение worker, checkedout=0, отсутствие активного SQL и незавершённых задач;
+срок освобождения активного SQL/соединения после отмены — менее 2 секунд.
+Rollback блокирующей транзакции в finally используется только для очистки.
+
+Все PostgreSQL-прогоны выполнены последовательно через
+scripts/run_backend_tests_locked.ps1 с FileShare.None на
+C:/DTSU/vsprojects/neiroleptik/work/telemetry-two-branches/POSTGRES_TEST.lock.
+Использована существующая honeyforge_test; миграции и cleanup штатных фикстур
+входят в защищённый интервал. Пропущенных тестов нет.
+
+| Команда / проверка итоговой реализации | Результат |
+| --- | --- |
+| uv sync --frozen --project backend | passed, 49 packages |
+| wrapper: pytest tests/telemetry/test_stream_regressions.py -q | 19 passed, 15.89s |
+| wrapper: pytest tests/telemetry -q | 116 passed, 48.62s |
+| wrapper: полный pytest -q из backend | 206 passed, 73.37s |
+| uv run --frozen --project backend ruff check backend/src backend/tests | passed |
+| uv run --frozen --project backend ruff format --check backend/src backend/tests | passed, 62 файла |
+| uv run --frozen --project backend mypy --config-file backend/pyproject.toml backend/src | passed, 44 source files |
+| uv run --frozen --project backend python -m honeyforge.cli export-openapi --check | passed |
+| uv build --wheel --project backend | passed, honeyforge_control-0.1.0-py3-none-any.whl |
+| Node 24: scripts/check_stream_wire.mjs | passed: live buffer, bigint, pagination, pair identity, dedup, reconnect |
+| git diff --check | passed |
+
+19 регрессий включают 10 настоящих PostgreSQL проверок ресурсов/deadline,
+4 HTTP-проверки дат с реальной cookie-сессией PostgreSQL и 5 проверок самой
+валидации дат без SQL внутри HistoryService.filters. Полная suite включает
+штатные изолированные и PostgreSQL-тесты; эти уровни не подменяют друг друга.
+Первый полный прогон до усиления shutdown дал 201 passed; после окончательных
+изменений выполнен полный прогон 206 passed. Остаётся одно существующее
+предупреждение Starlette/httpx deprecation.
+
+Совместимость проверена с указанным актуальным main, который входит в историю
+ветки: основной OpenAPI и production FastAPI не изменены; wire harness использует
+фактический текущий StreamClient. Общие модели, миграции, ingest, sender/runtime
+и frontend-функциональность в исправлении не менялись. Основной checkout и storage
+не переключались. AGENTS.md отслеживается, не изменён; blob совпадает с main:
+921e7165b8f1c6a4013196d9a83d65b98aba7a66. Локальных AGENTS.md нет.
+
+Срок менее 2 секунд относится к активному SQL при доступной PostgreSQL. Получение
+соединения ограничивается pool_timeout/connect_timeout внедрённого Engine;
+при потере сети действуют таймауты драйвера. Произвольный неограниченный
+синхронный код Python этим механизмом не прерывается; внутренние адаптеры обязаны
+соблюдать описанный контракт. Loopback/reverse proxy и браузер без MSW в этом
+исправлении не проверялись. Production-интеграция, публичная проекция и миграции
+остаются на согласовании. Исправление не доказывает Low → UI.
+
+Push/PR/Approve/merge PR не выполнялись. Перед будущим push обязательны полный
+цикл трёх субагентов по AGENTS.md и проверка с актуальным main; этот локальный
+этап не заменяет CI и человеческое одобрение PR.

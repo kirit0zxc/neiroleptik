@@ -226,3 +226,8 @@ CommittedReadAdapter связывает сервисы stream с PublicationRead
 StoredEvent.original() в отдельный read DTO, не сериализует PK/bytes. Retention
 возвращает None: очистки хранилища ещё нет, SQL gaps не считаются утратой.
 Тестовый FastAPI может явно внедрять этот adapter; production main не меняется.
+
+WS telemetry использует внутренний DBOperations: учтённый worker, контекстный
+серверный SQL deadline и обязательная асинхронная очистка при отмене. Hook
+SQLAlchemy не изменяет операции вне контекста WS. Общие модели, миграции и
+production FastAPI не подключаются к этому прототипу.

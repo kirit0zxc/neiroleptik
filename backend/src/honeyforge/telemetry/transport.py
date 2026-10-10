@@ -3,6 +3,7 @@
 import asyncio
 from typing import Any
 
+import anyio
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
@@ -84,6 +85,17 @@ def create_router(
         finally:
             for task in (sender, receiver):
                 task.cancel()
-            await asyncio.gather(sender, receiver, return_exceptions=True)
+            # ASGI cancel scope не должен прерывать возврат SQL-соединения.
+            with anyio.CancelScope(shield=True):
+                cleanup = asyncio.gather(sender, receiver, return_exceptions=True)
+                cancelled = False
+                while not cleanup.done():
+                    try:
+                        await asyncio.shield(cleanup)
+                    except asyncio.CancelledError:
+                        cancelled = True
+                cleanup.result()
+                if cancelled:
+                    raise asyncio.CancelledError
 
     return router

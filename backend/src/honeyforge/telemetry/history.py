@@ -62,7 +62,7 @@ class HistoryService:
                 begin,
                 finish,
             )
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             raise DomainError(422, "Некорректные фильтры истории") from None
 
     def page(

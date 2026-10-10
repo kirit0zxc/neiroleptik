@@ -46,3 +46,15 @@ MetaData; модуль явно отменяет ненужный ему DB clea
 Python 3.12.15. Итоговый полный backend pytest: 140 passed, 0 failed, 0 skipped;
 в том числе 43 PostgreSQL-теста этого модуля и 7 изолированных тестов.
 Результаты и SHA зависимости находятся в исходном STORAGE_READY.md.
+
+## История и stream после включения storage
+
+test_read_services/test_wire_fixture проверяют независимые read-only сервисы и
+согласованные JSON fixtures; test_transport проверяет настоящие auth отказы.
+test_auth_postgres и test_stream_postgres проверяют PostgreSQL, snapshot,
+pending/rollback, bigint, race watermark → commit → polling, настоящие cookie
+и маску всех трёх каналов. test_sql_output_matches_exact_frontend_wire связывает
+SQL output с scripts/check_stream_wire.mjs, запускающим текущий StreamClient.
+Матрица R01–R37 и ограничения: specs/telemetry-stream-validation.md.
+Запуски выполняются только под общим FileShare.None lock. Production router
+не подключён; проверка live Low и replay сюда не входит.

@@ -220,3 +220,9 @@ Deployment определяется управляемой привязкой к
 центра; instance подтверждается ACK. Это не реализует авторизацию ingest.
 TCP type требует решения владельца и Дианы; эвристика health-проб и удаление
 файлов не утверждены. Третья runtime-ветка в этом задании не создаётся.
+
+CommittedReadAdapter связывает сервисы stream с PublicationReader из storage SHA
+50b4f3383b1aa27d896f466cb55ce29c75fc6028. Преобразует UUID/keyset/фильтры и
+StoredEvent.original() в отдельный read DTO, не сериализует PK/bytes. Retention
+возвращает None: очистки хранилища ещё нет, SQL gaps не считаются утратой.
+Тестовый FastAPI может явно внедрять этот adapter; production main не меняется.

@@ -1,102 +1,126 @@
-# Проверка stream: независимый этап
+# Проверка истории и stream телеметрии
 
-Дата: 10.10.2026, Москва. Статус: partial, без production rollout.
-Ветка: codex/telemetry-stream.
-Worktree: C:/Users/dimvo/.codex/worktrees/telemetry-stream/neiroleptik.
-Проверенная база main: 6d8eb2eea7bb67fddd0819801ebe812771196835 (fetch из handoff).
-Storage SHA: не включён; STORAGE_READY.md отсутствовал при проверке.
-Точная пара main/storage для PostgreSQL отсутствует; проверку SQL не заявляем.
-Stream SHA: локальный коммит, содержащий этот отчёт (git rev-parse HEAD).
+Дата: 10.10.2026, Москва. Статус: локальная реализация и SQL интеграция тестового
+приложения, без production rollout, push или PR.
 
-## Правила
+- Ветка: codex/telemetry-stream.
+- Worktree: C:/Users/dimvo/.codex/worktrees/telemetry-stream/neiroleptik.
+- Проверенная база main: 6d8eb2eea7bb67fddd0819801ebe812771196835.
+- Включённый storage SHA: 50b4f3383b1aa27d896f466cb55ce29c75fc6028.
+- Независимая часть сохранена коммитом 8296f1a перед обычным merge bff702d.
+- Итоговый stream SHA: git rev-parse HEAD для коммита с этим отчётом.
 
-Корневой AGENTS.md полностью прочитан. Он отслеживается, существует в HEAD,
-не изменён локально. Blob HEAD и базы: 921e7165b8f1c6a4013196d9a83d65b98aba7a66.
-Локальных AGENTS.md в backend/frontend/specs нет. Основной checkout и storage
-worktree не переключались и не изменялись. Исключений из правил не применялось.
+Эта точная пара main/storage проверена совместно. Локальный origin/main оставался
+равным указанной базе; последний fetch зафиксирован первым агентом в handoff
+10.10.2026 20:30:30 Москва. Перед будущим push нужен новый актуальный main.
+
+## Правила и merge
+
+Корневой AGENTS.md полностью прочитан до работы и после merge; отслеживается,
+существует в HEAD, не изменён локально. Blob HEAD и базы:
+921e7165b8f1c6a4013196d9a83d65b98aba7a66. Локальных AGENTS.md в затронутых
+каталогах нет. Основной checkout и worktree первого агента не переключались
+и не изменялись. Чужие файлы не переносились. Конфликты specs разрешены
+с сохранением требований обеих веток; fixtures storage сохранены.
 Push/PR/Approve/merge PR и сообщения участникам не выполнялись.
-Цикл трёх субагентов нужен перед будущим push, этот этап его не заменяет.
+Цикл трёх субагентов обязателен перед будущим push; этот этап его не заменяет.
 
-## Реализация и границы
+## Реализация
 
-Сначала обновлены events/frontend-protocol-v1/architecture. Реализованы:
-подписанный ограниченный HMAC cursor (версия, snapshot W, порядок, keyset,
+До кода обновлены specs/events.md, frontend-protocol-v1.md и architecture.md.
+Реализованы подписанный ограниченный HMAC cursor (версия, W, порядок, keyset,
 нормализованные фильтры); история с limit+1; bigint catch-up с фиксированным
-until и доказуемой retention границей; немутирующая публичная копия с явно
-внедрённой политикой; WS polling committed журнала с ограниченной страницей,
-таймаутом отправки и освобождением задач; короткие настоящие AuthService Session
-в worker thread перед данными и при простое. Нет production ключа по умолчанию.
+until; немутирующая публичная копия с явно внедрённой политикой; WS polling
+committed журнала с ограниченной страницей, send timeout и освобождением задач.
+AuthService проверяет настоящую cookie/Origin в короткой Session вне event loop
+перед данными и при простое. Ключ HMAC внедряется, production настройка не добавлена.
 
-PublicationReader — внутренняя read-only граница. Реальный repository подключится
-после готового storage SHA. Синтетический TestReader существует только в tests.
-Нет fallback на память в рабочем приложении. Router подключается исключительно
-явной сборкой тестового приложения; main.create_app и общий OpenAPI не изменены.
-Production политика проекции, миграции, запуск publisher и подключение публичных
-endpoints по-прежнему требуют backend согласования. В изолированном transport
-временный отказ/slow send использует стандартный 1013; production применение
-этой политики ещё требует согласования. 4401/4403 сохранены для auth/Origin.
+CommittedReadAdapter подключает настоящий PublicationReader включённого storage.
+UUID/keyset/фильтры преобразуются без сериализации PK, canonical_bytes и digest.
+Нижняя retention граница None: cleanup отсутствует, SQL gaps не считаются 410.
+Внедрённая политика retention проверена отдельно только на независимом уровне.
+Синтетический TestReader существует только в tests; fallback в памяти нет.
 
-## Исполняемые проверки
+Router подключён только к явно собранным тестовым приложениям. Рабочий
+main.create_app, общая Base/Alembic и публичный OpenAPI не изменены.
+Production проекция, миграции, запуск publisher и публичные endpoints требуют
+backend согласования. В изолированном transport стандартный 1013 используется
+для временного отказа/slow send; production применение ещё согласуется.
+4401/4403 применяются только для auth/Origin. SQL содержит синтетические Event
+оригиналы; это настоящая PostgreSQL интеграция, но не живой Low backend.
 
-Команды выполнялись из этого worktree (backend команды также из backend).
-Backend pytest удерживал FileShare.None на общем POSTGRES_TEST.lock, ожидание
-ограничено 30 сек. Повторяемый запуск:
+## Воспроизводимые проверки
+
+PostgreSQL 17.11: отдельная honeyforge_test на loopback 55439, UTC. Секретный URL
+без вывода скопирован из игнорируемого .env storage в игнорируемый .env stream.
+Все pytest удерживали общий FileShare.None POSTGRES_TEST.lock, ожидание до 30s.
+SQL fixtures storage создают случайные telemetry_test схемы, используют штатный
+защищённый Engine и удаляют только тестовые схемы. Auth дополнительно проверена
+на отдельной изолированной схеме пользователей. Production DB не затрагивалась.
 
 ```powershell
 ./scripts/test_backend_locked.ps1 -LockPath C:/DTSU/vsprojects/neiroleptik/work/telemetry-two-branches/POSTGRES_TEST.lock
+./scripts/test_backend_locked.ps1 -LockPath C:/DTSU/vsprojects/neiroleptik/work/telemetry-two-branches/POSTGRES_TEST.lock -TestArguments @('-q', 'backend/tests')
 ```
 
-- uv sync --frozen --project backend: успешно, CPython 3.12.13.
-- pytest -q backend/tests/telemetry: 36 passed, 2 skipped; предупреждение Starlette
-  об httpx2. Skip: отсутствует HF_TEST_DATABASE_URL, два PostgreSQL auth сценария.
-- pytest -q backend/tests --maxfail=1: 36 passed, 2 skipped, 1 setup error:
-  не задан безопасный PostgreSQL URL honeyforge_test. Полный suite не завершён.
-- ruff check backend/src backend/tests: успешно.
-- ruff format --check backend/src backend/tests: 49 файлов соответствуют.
-- mypy backend/src/honeyforge (backend/pyproject.toml): 37 файлов, успешно.
-- python -m honeyforge.cli export-openapi --check --path contracts/openapi.json:
-  успешно. Дополнительно проверено отсутствие telemetry routes в рабочем OpenAPI.
-- uv build --wheel --project backend: успешно, honeyforge_control-0.1.0.
-- git diff --check: успешно после удаления лишних пустых строк.
-- node scripts/check_stream_wire.mjs, Node 24.19: успешно; настоящий StreamClient,
-  реальные сериализованные ответы синтетических backend сервисов: live во время
-  страниц, bigint >2^53, next_cursor, agent/event identity, дубли, reconnect.
-  Фикстура contracts/fixtures/telemetry-stream-wire.json проверяется pytest против
-  текущего вывода сервисов. Это wire contract тест, не сетевой SQL backend.
-- npm ci: успешно; исходная среда Node 22.11 выдала engine warnings.
-- npm run typecheck: успешно.
-- Первый npm run test:ci и build: ошибка запуска rolldown native binding.
-  Повтор с Node 24 и локальной установкой optional binding описан ниже по итогам.
-
-## Сценарии 06_STREAM_TESTS.md
-
-| Сценарии | Доказательство / ограничение |
+| Проверка | Итог |
 | --- | --- |
-| R01–R09 | Независимые pytest: страницы, одинаковые event_id, поздняя синтетическая публикация вне W, фильтры/границы, подпись/версия/размер cursor, лимиты |
-| R10 | Pending publication в настоящей SQL БД: ожидает storage |
-| R11–R18 | Независимые pytest: bigint, gaps, fixed until, exact last page, ошибки; R16 только внедрённая retention политика, cleanup не реализован |
-| R19–R20 | Hello и добавление после W проверены на синтетическом read source; PostgreSQL Barrier/commit гонка ещё не проверена |
-| R21 | SQL rollback/pending видимость ожидает storage |
-| R22–R24 | Wire harness использует текущий StreamClient, проверяет live буфер/догрузку/reconnect/дедупликацию |
-| R25/R34/R35 | Существующие frontend tests требуют успешно запущенного полного frontend suite; браузерный прогон не выполнен |
-| R26 | Ограниченный page_size и send timeout unit; publisher/backpressure на PostgreSQL ещё не проверены |
-| R27 | Отмена задач unit; auth Session структурно закрывается через with; SQL ресурсы/reconnect loopback ещё не проверены |
-| R28 | Два клиента независимого уровня; несколько SQL экземпляров ожидают storage |
-| R29–R31 | Реальные auth отказы без cookie/с чужим Origin проходят; PostgreSQL viewer/revoke/expire тесты написаны, пропущены; отзыв callback unit не объявляется SQL тестом |
-| R32–R33 | Синтетическая маска во всех трёх каналах, оригинал неизменён, whitelist, input/output/method/path/truncated сохраняются |
-| R36 | Флаг принадлежит Диане; изменения не дублировались |
-| R37 | Подтверждено расхождение: YumiEvents.attackPayload читает data.command, внешний Event требует data.input. Frontend не менялся |
+| uv sync --frozen --project backend | passed; CPython 3.12.13 |
+| pytest backend/tests/telemetry | 97 passed, без skipped; storage и stream совместно |
+| pytest backend/tests | 187 passed, без skipped, 60.70s |
+| ruff check backend/src backend/tests | passed |
+| ruff format --check backend/src backend/tests | passed, 60 файлов |
+| mypy с backend/pyproject.toml | passed, 43 source files |
+| honeyforge.cli export-openapi --check | passed; production telemetry routes отсутствуют |
+| uv build --wheel --project backend | passed, honeyforge_control-0.1.0 |
+| git diff --check / staged check | passed для итоговой версии |
+| npm ci / npm run typecheck | passed |
+| Frontend vitest run на Node 24.19 | 44 файла, 401 passed |
+| Frontend tsc -b + vite build на Node 24.19 | passed; предупреждение о крупных chunks |
+| node scripts/check_stream_wire.mjs | passed на настоящем текущем StreamClient |
 
-## Передача владельцу
+Сначала без доступного стенда независимый прогон дал 36 passed/2 skipped, полный
+suite остановился на отсутствии HF_TEST_DATABASE_URL. После появления ready и
+настройки стенда эти ограничения сняты. В первом новом SQL прогоне исправлены
+повторные index в нашей batch fixture; storage проверки не ослаблялись.
+Оставшееся backend предупреждение: Starlette/httpx deprecation.
 
-Точный fixture: contracts/fixtures/telemetry-stream-wire.json. REST items содержат
-stream_seq/event без type; WS type сохраняется. Юми: требуется согласованное
-изменение frontend адаптера data.input → внутренний payload.command;
-управляющие команды start/stop/reset не переименовывать. HTML/ANSI/OSC сохраняются
-как недоверенный текст, optional HTTP поля сервер не выдумывает.
+Системные Node 22.11/npm 8 дали engine warnings и не установили optional binding.
+Для frontend использован bundled Node 24.19 и точный
+@rolldown/binding-win32-x64-msvc@1.2.13, полученный npm pack и распакованный в
+игнорируемые node_modules. package.json/lockfile и frontend исходники не менялись.
+Воспроизводить проверки на поддерживаемом Node; исправление среды не является
+изменением зависимости приложения. Генерируемое npm ci изменение MSW отменено.
 
-Ожидается готовый storage SHA и безопасный PostgreSQL стенд; затем обычный merge,
-проверка AGENTS.md и совместный transaction/publisher → history/catch-up/WS прогон.
-Согласование production проекции и миграции отдельно. Нет проверки браузера без
-MSW, сетевого reverse proxy или loopback WS reconnect/shutdown.
-Текущий этап не является replay или живым Low → UI.
+## Покрытие сценариев 06_STREAM_TESTS.md
+
+| Сценарии | Доказательство / границы |
+| --- | --- |
+| R01–R09 | Unit страницы/подпись/фильтры/лимиты; SQL tie agent/event, snapshot и late received, точные границы occurred_at |
+| R10 | Настоящий store commit pending outbox не появляется до publisher commit |
+| R11–R18 | Unit и SQL bigint >2^53, fixed until, gaps, exact last page; R16 только unit retention политика |
+| R19–R21 | SQL Barrier/Event между чтением W и polling, отдельный commit; publisher pause до commit/rollback невидим reader |
+| R22–R24 | Текущий StreamClient: live буфер, страницы, bigint, pair identity, дубли, reconnect; SQL output побайтно в JSON-структуре совпадает с тем же wire fixture |
+| R25/R34/R35 | Существующий frontend suite зелёный; сервер хранит HTML/ANSI/OSC оригинал; браузер без MSW не проверен |
+| R26 | Bounded page_size/send timeout; медленная отправка не блокирует настоящий SQL publisher, catch-up остаётся читаемым |
+| R27 | Отмена задач, короткие Session/connection, disconnect TestClient; loopback/reverse proxy ещё не проверены |
+| R28 | Два клиента/экземпляра SQL reader/live service используют один committed журнал, без локального списка |
+| R29–R31 | Viewer cookie REST/WS; отсутствие cookie, Origin; PostgreSQL отзыв/истечение при простое и после live закрывают 4401, дальнейшие данные не отправляются |
+| R32–R33 | Тестовая маска во всех трёх SQL каналах, оригинальные bytes неизменны, internal поля не выходят, input/output/method/path/truncated сохраняются |
+| R36 | Флаг принадлежит Диане; изменения не дублировались и новый флаг не создавался |
+| R37 | Найдено расхождение YumiEvents.attackPayload: читает data.command вместо внешнего data.input; исправление frontend ожидает согласования ответственности |
+
+## Передача владельцу и оставшиеся условия
+
+Точные wire fixtures: contracts/fixtures/telemetry-stream-wire.json. REST items
+содержат stream_seq/event без type; WS type сохраняется. SQL integration test
+сверяет фактический output с fixture, используемым текущим StreamClient harness.
+Юми требует адаптера data.input → внутренний payload.command;
+управляющие start/stop/reset не переименовывать. HTTP optional поля не выдумываются.
+
+Ожидаются согласованные production проекция и миграции, включение публичных
+маршрутов, frontend флаг Дианы. Нет браузерного прогона history/live/disconnect
+без MSW, loopback WS клиента (websockets не установлен) и reverse proxy проверки.
+Нет ingest HTTP, Low адаптера или replay. Этот этап не доказывает живой Low → UI.
+Перед push повторить полный цикл трёх субагентов и совместимость с новым main;
+для merge PR нужны CI и явное одобрение человека актуальной версии.

@@ -14,6 +14,8 @@ test('остановка и запуск ловушки с ходом задан
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('перестанет принимать подключения');
   await dialog.getByRole('button', { name: 'Подтвердить' }).click();
+  // После закрытия модального диалога фокус — на ходе задания, а не на body.
+  await expect(low.getByRole('status')).toBeFocused();
 
   await expect(low.getByRole('status')).toContainText('Остановить: успешно', { timeout: 10_000 });
   await expect(low.getByText('остановлена')).toBeVisible();

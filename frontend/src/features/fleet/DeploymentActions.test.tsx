@@ -51,8 +51,9 @@ describe('команды ловушек на API (F6)', () => {
     await user.click(await confirmDialog());
 
     expect(await within(low).findByText(/Остановить: (ожидает|выполняется)/)).toBeInTheDocument();
-    // Защита от повторных кликов; фокус не теряется — он на ходе задания.
+    // Защита от повторных кликов; фокус после закрытия диалога — на ходе задания.
     for (const b of within(low).queryAllByRole('button')) expect(b).toBeDisabled();
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(within(low).getByRole('status')).toHaveFocus();
     await within(low).findByText('Остановить: успешно', {}, JOB_WAIT);
     expect(await within(await row('decoy-low-01')).findByText('остановлена')).toBeInTheDocument();
@@ -97,6 +98,19 @@ describe('команды ловушек на API (F6)', () => {
     expect(sent).toHaveLength(2);
     expect(sent[1]).toEqual(sent[0]);
     expect(created.size).toBe(1);
+  });
+
+  it('постоянный сбой отправки: «Отменить» снимает блокировку без перезагрузки', async () => {
+    const user = userEvent.setup();
+    server.use(http.post('/api/v1/deployments/:id/commands', () => HttpResponse.json({ detail: 'Ошибка сервера' }, { status: 500 })));
+    open();
+    const high = await row('decoy-high-01');
+    await user.click(within(high).getByRole('button', { name: 'Запустить' }));
+    const alert = await within(high).findByRole('alert');
+    expect(within(high).getByRole('button', { name: 'Сбросить VM' })).toBeDisabled();
+    await user.click(within(alert).getByRole('button', { name: 'Отменить' }));
+    expect(within(high).queryByRole('alert')).toBeNull();
+    expect(within(high).getByRole('button', { name: 'Сбросить VM' })).toBeEnabled();
   });
 
   it('STALE_GENERATION: данные перечитаны, «Повторить» — новое действие со свежим поколением', async () => {

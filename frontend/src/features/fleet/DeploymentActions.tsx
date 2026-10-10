@@ -26,6 +26,14 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
   const [confirm, setConfirm] = useState<Command | null>(null);
   const status = useRef<HTMLSpanElement>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
+  // Перевести фокус к ходу задания, когда модальный диалог уже закрыт: пока он
+  // открыт, всё вокруг недоступно для фокуса.
+  const [focusStatus, setFocusStatus] = useState(false);
+  useEffect(() => {
+    if (!focusStatus || confirm) return;
+    status.current?.focus();
+    setFocusStatus(false);
+  }, [focusStatus, confirm]);
 
   const send = useMutation({
     mutationFn: (a: Action) => api<{ job_id: string }>(
@@ -51,7 +59,7 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
     setJobId(null);
     send.mutate(next);
     // Нажатая кнопка сейчас станет неактивной — фокус переходит к ходу задания.
-    status.current?.focus();
+    setFocusStatus(true);
   };
   const ask = (c: Command, from: HTMLButtonElement) => {
     opener.current = from;
@@ -89,7 +97,11 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
         <span role="alert" className={s.err}>
           {commandRejectText(send.error)}
           {unsent && (
-            <> <button className={`${ui.button} ${s.small}`} onClick={() => send.mutate(action!)}>Повторить</button></>
+            <>
+              {' '}<button className={`${ui.button} ${s.small}`} onClick={() => { send.mutate(action!); setFocusStatus(true); }}>Повторить</button>
+              {/* Выход без перезагрузки, если сбой не проходит; парк покажет, дошла ли команда. */}
+              {' '}<button className={`${ui.button} ${s.small}`} onClick={() => { send.reset(); setAction(null); void qc.invalidateQueries({ queryKey: ['deployments'] }); }}>Отменить</button>
+            </>
           )}
           {staleRetry && (
             <> Повторить? <button className={`${ui.button} ${s.small}`} onClick={(e) => ask(staleRetry, e.currentTarget)}>Повторить</button></>

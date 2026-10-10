@@ -122,8 +122,9 @@ export function YumiConsole() {
           </p>
         ))}
         {/* Для читалок — готовая последняя реплика, без побуквенной печати. */}
-        {/* key по id: одинаковая реплика подряд — новый узел, читалка объявит её снова. */}
-        <p key={last?.id ?? 0} className={s.srOnly} aria-live="polite">{last?.text ?? ''}</p>
+        {/* Для читалок — готовая реплика новым узлом (key по id): role=log объявляет
+            добавленное, в том числе одинаковую реплику подряд; печать по буквам скрыта. */}
+        <p key={last?.id ?? 0} className={s.srOnly} data-announce>{last?.text ?? ''}</p>
       </div>
     </section>
   );

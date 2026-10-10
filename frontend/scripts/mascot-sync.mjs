@@ -50,11 +50,24 @@ for (const m of states.matchAll(/action:\s*(\[[^\]]*\]|'[^']*')/g)) for (const n
 // Имя клипа → файл по реестру; прямой путь (anim/vrma/...) берётся как есть.
 const registry = new Map();
 for (const m of readFileSync(to('src/mascot/core/clips.ts'), 'utf8').matchAll(/^\s+(\w+):\s+vrma\('([^']+)'/gm)) registry.set(m[1], m[2]);
+// Танцы (состояние dance, `action: DANCES`) в HoneyForge намеренно не возим:
+// таблица реакций их не вызывает, а меню «Станцевать» есть только в плавающем
+// окне модуля, которого в HoneyForge нет (specs/frontend.md, раздел 9).
 const files = new Set();
+const unresolved = [];
 for (const name of used) {
   if (registry.has(name)) files.add(registry.get(name));
-  else if (name.startsWith('anim/vrma/')) files.add(decodeURIComponent(name.slice('anim/vrma/'.length)));
-  else console.warn('клип не найден в реестре:', name);
+  else if (name.startsWith('anim/vrma/')) {
+    try { files.add(decodeURIComponent(name.slice('anim/vrma/'.length))); } catch { unresolved.push(name); }
+  } else unresolved.push(name);
+}
+for (const name of unresolved) console.warn('клип не найден в реестре:', name);
+// Реестр не разобрался (сменился формат clips.ts) или имя не найдено — список
+// нужных клипов неполон, и --prune удалил бы нужное. Удалять не будем.
+const pruneSafe = registry.size > 0 && unresolved.length === 0 && files.size > 0;
+if (prune && !pruneSafe) {
+  console.error('--prune отменён: список нужных клипов неполон (см. предупреждения выше). Ничего не удалено.');
+  process.exitCode = 1;
 }
 
 // 3. Нужные анимации — из mascot; лишние — удалить (--prune).
@@ -64,9 +77,10 @@ for (const file of files) {
   if (!existsSync(join(vrmaFrom, file))) { console.warn('нет файла в mascot:', file); continue; }
   copyFileSync(join(vrmaFrom, file), join(vrmaTo, file));
 }
-if (prune) {
+if (prune && pruneSafe) {
   for (const file of readdirSync(vrmaTo)) {
-    if (files.has(file)) continue;
+    // Удаляем только клипы; чужие файлы в папке не трогаем.
+    if (!file.endsWith('.vrma') || files.has(file)) continue;
     unlinkSync(join(vrmaTo, file));
     // Синхронизируемые папки (OneDrive) могут вернуть файл — проверяем результат.
     if (existsSync(join(vrmaTo, file))) { console.error('не удалось удалить:', file); process.exitCode = 1; }

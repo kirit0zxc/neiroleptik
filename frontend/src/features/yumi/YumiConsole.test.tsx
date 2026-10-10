@@ -22,7 +22,7 @@ describe('Юми в приложении (раздел 9)', () => {
     render(<App client={makeQueryClient()} />);
     await row('decoy-low-01');
     const log = consoleOf();
-    expect(await within(log).findByText('Я на посту. Слежу за ловушками.', { selector: '[aria-live]' })).toBeInTheDocument();
+    expect(await within(log).findByText('Я на посту. Слежу за ловушками.', { selector: '[data-announce]' })).toBeInTheDocument();
     // Видимых строк ровно одна: StrictMode не задвоил приветствие.
     expect(log.querySelectorAll('p[aria-hidden="true"]')).toHaveLength(1);
     const slot = screen.getByRole('region', { name: 'Юми' });
@@ -37,9 +37,9 @@ describe('Юми в приложении (раздел 9)', () => {
     const low = await row('decoy-low-01');
     await user.click(within(low).getByRole('button', { name: 'Остановить' }));
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Подтвердить' }));
-    await within(consoleOf()).findByText('Отправила команду «Остановить». Жду агента.', { selector: '[aria-live]' });
-    await within(consoleOf()).findByText('Команда «Остановить» выполнена.', { selector: '[aria-live]' }, { timeout: 8000 });
+    await within(consoleOf()).findByText('Отправила команду «Остановить». Жду агента.', { selector: '[data-announce]' });
+    await within(consoleOf()).findByText('Команда «Остановить» выполнена.', { selector: '[data-announce]' }, { timeout: 8000 });
     // Узел живой области пересоздаётся на каждую реплику — ищем заново.
-    expect(consoleOf().querySelector('[aria-live]')!.textContent).toBe('Команда «Остановить» выполнена.');
+    expect(consoleOf().querySelector('[data-announce]')!.textContent).toBe('Команда «Остановить» выполнена.');
   }, 15_000);
 });

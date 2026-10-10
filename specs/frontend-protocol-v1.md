@@ -27,7 +27,7 @@ watermark — максимальный опубликованный и committed
 источник истины, одних pub/sub сообщений недостаточно.
 
 GET /api/v1/stream-events?after=100&until=120&limit=100
-Ответ: {"items":[{"type":"event","stream_seq":"101","event":{...}}],
+Ответ: {"items":[{"stream_seq":"101","event":{...}}],
 "watermark":"120","next_cursor":"101"}.
 next_cursor=null, когда достигнут until; watermark остаётся тем же на всех страницах.
 Если until не передан, сервер фиксирует watermark в первом ответе; клиент передаёт
@@ -94,3 +94,11 @@ from включительно, to исключительно; фильтр по 
 410 -> полный resync stream, 422 -> валидация, 429 -> задержка повторного входа,
 503 -> сервис временно не готов. Ошибки reverse-proxy могут быть не JSON;
 frontend должен иметь fallback по статусу.
+
+## Внутренний источник будущего stream, 10.10.2026
+
+Неподключённое PostgreSQL-ядро предоставляет committed watermark и чтение
+publication (after,until], а также snapshot <=W с keyset по
+received_at/event_id/agent_id DESC. Канонические байты, digest и внутренний PK
+не являются UI DTO. HTTP/WS, курсоры и публичная маскирующая проекция остаются
+отдельной интеграцией. Готовность ядра не означает доставку Low → UI.

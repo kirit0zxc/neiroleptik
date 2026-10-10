@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 
 from pydantic import SecretStr
 
+from agent.telemetry.http_deadline import RequestDeadline
 from agent.telemetry.schemas import Ack, Batch
 from agent.telemetry.spool import SpoolRepository
 
@@ -85,6 +86,11 @@ class HttpBatchTransport:
         self._timeout = timeout
 
     def post(self, payload: bytes) -> HttpResponse:
+        with RequestDeadline(self._timeout) as deadline:
+            return self._exchange(payload, deadline)
+
+    def _exchange(self, payload: bytes, deadline: RequestDeadline) -> HttpResponse:
+        """Один обмен: таймер владеет сокетом независимо от HTTPConnection/HTTPResponse."""
         connection: http.client.HTTPConnection
         if self._tls:
             connection = http.client.HTTPSConnection(
@@ -92,6 +98,9 @@ class HttpBatchTransport:
             )
         else:
             connection = http.client.HTTPConnection(self._host, self._port, timeout=self._timeout)
+        # Фабрика сокета CPython 3.12 сохраняет стандартный HTTP/TLS разбор;
+        # typeshed не объявляет этот внутренний атрибут HTTPConnection.
+        connection._create_connection = deadline.connect  # type: ignore[attr-defined]
         try:
             connection.request(
                 "POST",
@@ -103,14 +112,16 @@ class HttpBatchTransport:
                     "Accept": "application/json",
                 },
             )
-            response = connection.getresponse()
-            # Тела HTTP-ошибок не нужны для классификации и могут содержать секреты.
-            body = response.read(MAX_ACK_BYTES + 1) if response.status == 200 else b""
-            if len(body) > MAX_ACK_BYTES:
-                raise ResponseTooLarge("Ответ центра превышает лимит ACK")
-            if response.status == 200 and response.length not in {None, 0}:
-                raise TransportError("HTTP-ответ оборван до заявленной границы тела")
-            return HttpResponse(response.status, body, response.getheader("Retry-After"))
+            with connection.getresponse() as response:
+                # HTTPResponse владеет файловой обёрткой даже при Connection: close.
+                # Закрываем её явно и при таймауте, и при успешном ответе.
+                body = response.read(MAX_ACK_BYTES + 1) if response.status == 200 else b""
+                deadline.remaining()
+                if len(body) > MAX_ACK_BYTES:
+                    raise ResponseTooLarge("Ответ центра превышает лимит ACK")
+                if response.status == 200 and response.length not in {None, 0}:
+                    raise TransportError("HTTP-ответ оборван до заявленной границы тела")
+                return HttpResponse(response.status, body, response.getheader("Retry-After"))
         except (OSError, http.client.HTTPException):
             raise TransportError("Не удалось получить полный ответ центра") from None
         finally:

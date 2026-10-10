@@ -1,5 +1,6 @@
 """Потеря ответа и недоверенный ACK не должны удалять доказательства из spool."""
 
+import http.client
 import json
 import socket
 import threading
@@ -402,3 +403,41 @@ def test_cli_missing_token_does_not_create_spool(tmp_path, monkeypatch):
 def test_invalid_endpoint_is_rejected_before_network(url):
     with pytest.raises(ValueError):
         HttpBatchTransport(url, SecretStr(TOKEN))
+
+
+@pytest.mark.parametrize(
+    ("url", "expected_host", "expected_port", "connection_type"),
+    [
+        ("http://[::1]/events", "::1", 80, http.client.HTTPConnection),
+        ("https://[2001:db8::123]/events", "2001:db8::123", 443, http.client.HTTPSConnection),
+        ("http://[::1]:8080/events", "::1", 8080, http.client.HTTPConnection),
+        ("https://[2001:db8::123]:8443/events", "2001:db8::123", 8443, http.client.HTTPSConnection),
+        ("http://127.0.0.1/events", "127.0.0.1", 80, http.client.HTTPConnection),
+        ("https://192.0.2.1/events", "192.0.2.1", 443, http.client.HTTPSConnection),
+        ("http://localhost/events", "localhost", 80, http.client.HTTPConnection),
+        ("https://center.example/events", "center.example", 443, http.client.HTTPSConnection),
+        ("http://127.0.0.1:8080/events", "127.0.0.1", 8080, http.client.HTTPConnection),
+        ("https://192.0.2.1:8443/events", "192.0.2.1", 8443, http.client.HTTPSConnection),
+        ("http://localhost:8080/events", "localhost", 8080, http.client.HTTPConnection),
+        ("https://center.example:8443/events", "center.example", 8443, http.client.HTTPSConnection),
+        ("http://[::1]:0/events", "::1", 0, http.client.HTTPConnection),
+    ],
+)
+def test_endpoint_creates_connection_with_correct_host_and_port(
+    monkeypatch, url, expected_host, expected_port, connection_type
+):
+    """Настоящий конструктор разбирает адрес; подключение подменено до DNS и сети."""
+    connections = []
+
+    def capture_connection(connection):
+        connections.append(connection)
+        raise OSError("Подключение подменено тестом")
+
+    monkeypatch.setattr(http.client.HTTPConnection, "connect", capture_connection)
+    with pytest.raises(TransportError):
+        HttpBatchTransport(url, SecretStr(TOKEN)).post(b"{}")
+
+    assert len(connections) == 1
+    connection = connections[0]
+    assert type(connection) is connection_type
+    assert (connection.host, connection.port) == (expected_host, expected_port)

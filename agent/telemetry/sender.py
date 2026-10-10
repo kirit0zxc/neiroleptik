@@ -75,7 +75,10 @@ class HttpBatchTransport:
         if not re.fullmatch(r"hf_agent_[A-Za-z0-9_-]{1,119}", token.get_secret_value()):
             raise ValueError("Некорректный формат agent token")
         self._host = parsed.hostname
-        self._port = parsed.port
+        # Явный порт исключает повторный разбор IPv6 без скобок как host:port.
+        self._port = (
+            parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
+        )
         self._path = parsed.path or "/"
         self._tls = parsed.scheme == "https"
         self._token = token

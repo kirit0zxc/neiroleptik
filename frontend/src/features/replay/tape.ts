@@ -53,8 +53,13 @@ export class ReplayTape {
   /** Хвост, который нельзя показывать до следующего чанка: начало ESC-последовательности. */
   private readonly carry: Record<Direction, string> = { in: '', out: '' };
   private readonly last: Record<Direction, { seq: number; offsetMs: number } | null> = { in: null, out: null };
-  /** Чанк закончился на CR: ведущий LF следующего чанка — та же пара CRLF. */
-  private readonly skipLf: Record<Direction, boolean> = { in: false, out: false };
+  /**
+   * Предыдущий показанный фрагмент закончился на CR (Enter атакующего). Флаг
+   * общий для обоих направлений: эхо нажатия приходит в `out` как `\r\n` сразу
+   * за `\r` из `in`, и это один перевод строки. Ведущий `\r?\n?` следующего
+   * фрагмента в этом случае поглощается, чтобы не было лишней пустой строки.
+   */
+  private skipLf = false;
   private seen = new Set<number>();
 
   /** Длительность записи — время последнего чанка. */
@@ -73,22 +78,24 @@ export class ReplayTape {
         // Разрыв: недописанный символ уже отдан как U+FFFD (decode без stream),
         // начатая последовательность выбрасывается — её продолжение потеряно.
         this.decoders[c.direction] = new TextDecoder('utf-8');
-        this.skipLf[c.direction] = false;
+        this.skipLf = false;
         this.emit(c.direction, c.seq, c.offset_ms, this.carry[c.direction] + text, false);
         this.carry[c.direction] = '';
         this.segments.push({ seq: c.seq, offsetMs: c.offset_ms, direction: c.direction, gap: true });
         continue;
       }
       text = this.carry[c.direction] + text;
-      if (this.skipLf[c.direction] && text) {
-        if (text.startsWith('\n')) text = text.slice(1);
-        this.skipLf[c.direction] = false;
+      if (this.skipLf && text) {
+        // Поглощаем эхо перевода строки: ведущий CR и/или LF (один раз).
+        if (text[0] === '\r') text = text.slice(1);
+        if (text[0] === '\n') text = text.slice(1);
+        this.skipLf = false;
       }
       const cut = this.holdBack(text);
       this.carry[c.direction] = text.slice(cut);
       const shown = text.slice(0, cut);
       // \r показываем сразу (Enter атакующего виден без ожидания следующего чанка).
-      if (shown.endsWith('\r')) this.skipLf[c.direction] = true;
+      if (shown.endsWith('\r')) this.skipLf = true;
       this.emit(c.direction, c.seq, c.offset_ms, shown, true);
     }
   }

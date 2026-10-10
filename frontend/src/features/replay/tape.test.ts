@@ -100,4 +100,14 @@ describe('Replay: Enter атакующего', () => {
     tape.append([chunk('in', '\nls')]);
     expect(textOf(tape)).toBe('whoami\nls');
   });
+
+  it('эхо Enter в out (\\r\\n) не даёт лишней пустой строки после команды', () => {
+    const tape = new ReplayTape();
+    // Ввод 'whoami' + Enter, затем эхо центра: CRLF и результат в out.
+    tape.append([chunk('in', 'whoami\r'), chunk('out', '\r\nroot\r\n')]);
+    tape.finish();
+    // Между командой и выводом ровно один перевод строки, не два.
+    expect(textOf(tape)).toBe('whoami\nroot\n');
+    expect(textOf(tape)).not.toContain('\n\n');
+  });
 });

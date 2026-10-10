@@ -1,0 +1,201 @@
+{
+  "67": {
+    "expression": "happy",
+    "weight": 0.7,
+    "action": "anim/vrma/67_hXBrhdpmbtpo6dwf3zVGyw(includeTPose).vrma",
+    "loop": true,
+    "resetAfterMs": null,
+    "speakOver": true,
+    "rootMotion": false,
+    "fadeMs": 1500,
+    "trim": [
+      6.4,
+      8.5
+    ],
+    "glow": {
+      "color": "#9ED8BC",
+      "intensity": 1,
+      "pulseHz": 0
+    }
+  },
+  "victory_demo": {
+    "expression": "relaxed",
+    "weight": 0.7,
+    "action": "victory",
+    "loop": false,
+    "resetAfterMs": "clip",
+    "speakOver": true,
+    "faceTrack": [
+      {
+        "at": 0.81,
+        "expression": "happy",
+        "weight": 0.7
+      },
+      {
+        "at": 1.3,
+        "expression": "relaxed",
+        "weight": 0.7
+      }
+    ],
+    "glow": {
+      "color": "#9ED8BC",
+      "intensity": 0.5,
+      "pulseHz": 0
+    }
+  },
+  "hellow": {
+    "expression": "neutral",
+    "weight": 0,
+    "action": "wave",
+    "loop": false,
+    "resetAfterMs": 3200,
+    "faceTrack": [
+      {
+        "at": 0.3,
+        "expression": "happy",
+        "weight": 0.6
+      },
+      {
+        "at": 0.6,
+        "expression": "neutral",
+        "weight": 0.6
+      }
+    ],
+    "glow": {
+      "color": "#9ED8BC",
+      "intensity": 0.5,
+      "pulseHz": 0
+    }
+  },
+  "wellcome": {
+    "expression": "neutral",
+    "weight": 0,
+    "action": "wave",
+    "loop": false,
+    "resetAfterMs": 3200,
+    "faceTrack": [
+      {
+        "at": 0.6,
+        "expression": "neutral",
+        "weight": 0.6
+      }
+    ],
+    "glow": {
+      "color": "#9ED8BC",
+      "intensity": 0.5,
+      "pulseHz": 0
+    }
+  },
+  "приветствие_фурина": {
+    "expression": "neutral",
+    "weight": 0,
+    "action": "spin",
+    "loop": false,
+    "resetAfterMs": "clip",
+    "speakOver": true,
+    "faceTrack": [
+      {
+        "at": 2.6,
+        "expression": "happy",
+        "weight": 0.7
+      },
+      {
+        "at": 3.98,
+        "expression": "relaxed",
+        "weight": 0.7
+      },
+      {
+        "at": 5.31,
+        "expression": "happy",
+        "weight": 0.7
+      },
+      {
+        "at": 6,
+        "expression": "relaxed",
+        "weight": 0.7
+      }
+    ],
+    "glow": {
+      "color": "#9ED8BC",
+      "intensity": 0.5,
+      "pulseHz": 0
+    }
+  },
+  "мир_укороченый": {
+    "expression": "neutral",
+    "weight": 0,
+    "action": "peace",
+    "loop": false,
+    "resetAfterMs": "clip",
+    "speakOver": true,
+    "trim": [
+      0,
+      2.2
+    ],
+    "faceTrack": [
+      {
+        "at": 1.2,
+        "expression": "happy",
+        "weight": 0.7
+      }
+    ],
+    "glow": {
+      "color": "#9ED8BC",
+      "intensity": 0.5,
+      "pulseHz": 0
+    }
+  },
+  "greeting": {
+    "expression": "neutral",
+    "weight": 0,
+    "action": "greeting",
+    "loop": false,
+    "resetAfterMs": "clip",
+    "speakOver": true,
+    "fadeMs": 1500,
+    "trim": [
+      1,
+      7.27
+    ],
+    "glow": {
+      "color": "#9ED8BC",
+      "intensity": 0.5,
+      "pulseHz": 0
+    }
+  },
+  "вращение": {
+    "expression": "angry",
+    "weight": 0.7,
+    "action": "rotateAlt",
+    "loop": true,
+    "resetAfterMs": null,
+    "speakOver": true,
+    "fadeMs": 1500,
+    "trim": [
+      1.56,
+      5.74
+    ],
+    "glow": {
+      "color": "#9ED8BC",
+      "intensity": 1,
+      "pulseHz": 0
+    }
+  },
+  "67-2": {
+    "expression": "angry",
+    "weight": 0.7,
+    "action": "anim/vrma/67_hXBrhdpmbtpo6dwf3zVGyw(includeTPose).vrma",
+    "loop": false,
+    "resetAfterMs": "clip",
+    "speakOver": true,
+    "trim": [
+      10.6,
+      12.8
+    ],
+    "glow": {
+      "color": "#9ED8BC",
+      "intensity": 0.5,
+      "pulseHz": 0
+    }
+  }
+}

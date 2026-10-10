@@ -6,6 +6,7 @@ import { MascotSlot, YumiConsole } from '../shared/mascot-slot/MascotSlot';
 import { streamLabel, useStreamStatus } from '../shared/stream/stream';
 import { StatusBadge } from '../shared/ui';
 import { Terrain } from '../shared/ui/Terrain';
+import { YumiEvents } from '../features/yumi/YumiEvents';
 import s from './shell.module.css';
 
 const NAV = [
@@ -62,6 +63,7 @@ export function AppShell() {
         </aside>
         <main className={s.main}><Outlet /></main>
       </div>
+      {me && <YumiEvents username={me.user.username} />}
       <YumiConsole />
     </div>
   );

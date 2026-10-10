@@ -121,6 +121,17 @@ describe('живая лента (F10–F12)', () => {
     expect(await screen.findAllByTestId('event-row')).toHaveLength(3);
   });
 
+  it('событие с сессией ведёт на её запись, без сессии — ссылки нет', async () => {
+    publish(ev('with-session', { session_id: '00000000-0000-0000-0000-0000005e5510' }));
+    publish(ev('no-session', { session_id: null }));
+    open('/events', controlledStream().create);
+    const withRow = (await screen.findByText('cmd-with-session')).closest('tr')!;
+    expect(within(withRow).getByRole('link', { name: 'Запись сессии 00000000' }))
+      .toHaveAttribute('href', '/sessions/00000000-0000-0000-0000-0000005e5510');
+    const noRow = screen.getByText('cmd-no-session').closest('tr')!;
+    expect(within(noRow).queryByRole('link')).toBeNull();
+  });
+
   it('«Показать ещё» догружает следующую страницу', async () => {
     const user = userEvent.setup();
     for (let i = 0; i < 55; i++) publish(ev(`bulk-${i}`));

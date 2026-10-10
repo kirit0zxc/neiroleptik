@@ -57,9 +57,9 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
   // не повторяли устаревшее «Сохранено».
   useEffect(() => {
     if ((location.state as { saved?: unknown } | null)?.saved !== undefined) {
-      navigate(location.pathname, { replace: true, state: null });
+      navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, { replace: true, state: null });
     }
-  }, [location.state, location.pathname, navigate]);
+  }, [location.state, location.pathname, location.search, location.hash, navigate]);
   const form = useForm<ProfileInput, unknown, ProfileForm>({ resolver: zodResolver(ProfileSchema), defaultValues: initial, mode: 'onTouched' });
   const services = useFieldArray({ control: form.control, name: 'services' });
   const creds = useFieldArray({ control: form.control, name: 'credentials' });

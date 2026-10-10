@@ -78,11 +78,35 @@ describe('приложение на моках (F1, F3, F5, S1, S4)', () => {
     vi.stubEnv('VITE_ANALYTICS_ENABLED', '1');
     resetMockSession(true);
     stubWebSocket();
+    let eventsHit = 0;
+    server.use(http.get('/api/v1/events', () => { eventsHit++; return HttpResponse.json({ items: [] }); }));
     go('/');
     render(<App client={makeQueryClient()} />);
     expect(await screen.findByRole('heading', { name: 'Обзор' })).toBeInTheDocument();
-    // Поток не поднимаем: событий ещё нет на сервере.
+    // Поток не поднимаем и ленту /events не дёргаем: событий ещё нет на сервере.
+    expect(await screen.findByText('Лента событий ещё не подключена.')).toBeInTheDocument();
     expect(wsCount).toBe(0);
+    expect(eventsHit).toBe(0);
+    go('/events');
+    render(<App client={makeQueryClient()} />);
+    expect(await screen.findByText(/подключение серверной телеметрии/)).toBeInTheDocument();
+  });
+
+  it('флаг replay включает запись сессии независимо от ленты и обзора', async () => {
+    vi.stubEnv('VITE_API_MOCK', '0');
+    vi.stubEnv('VITE_TELEMETRY_ENABLED', '0');
+    vi.stubEnv('VITE_EVENTS_ENABLED', '0');
+    vi.stubEnv('VITE_ANALYTICS_ENABLED', '0');
+    vi.stubEnv('VITE_REPLAY_ENABLED', '1');
+    resetMockSession(true);
+    stubWebSocket();
+    // Запись сессии доступна (не Planned); поток при этом не поднимаем.
+    go('/sessions/s-1');
+    render(<App client={makeQueryClient()} />);
+    expect(await screen.findByText((_t, el) => el?.tagName === 'H1' && /сесси/i.test(el.textContent ?? ''))).toBeInTheDocument();
+    expect(screen.queryByText(/подключение серверной телеметрии/)).toBeNull();
+    expect(wsCount).toBe(0);
+    // Лента при этом остаётся недоступной.
     go('/events');
     render(<App client={makeQueryClient()} />);
     expect(await screen.findByText(/подключение серверной телеметрии/)).toBeInTheDocument();

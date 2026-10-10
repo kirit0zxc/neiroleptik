@@ -15,6 +15,7 @@ import { AuditPage } from '../features/audit/AuditPage';
 import { SessionPage } from '../features/replay/ReplayPage';
 import { MascotCore } from '../mascot/core/MascotCore';
 import { Yumi, YumiContext } from '../features/yumi/yumi';
+import { analyticsEnabled, eventsEnabled, replayEnabled } from './telemetry';
 import { AppShell, NotFound, Planned } from './AppShell';
 
 export function makeQueryClient() {
@@ -31,32 +32,6 @@ export function makeQueryClient() {
 
 /** Откуда брать поток событий: настоящий WebSocket или подделка в тестах. */
 const StreamFactory = createContext<() => EventStream>(createEventStream);
-
-/**
- * Телеметрия разделена на три независимых возможности сервера, чтобы включать
- * их по мере готовности backend (как просил владелец телеметрии):
- *   - VITE_EVENTS_ENABLED    — лента событий и живой WebSocket-поток;
- *   - VITE_ANALYTICS_ENABLED — экран «Обзор» (сводка `/analytics/summary`);
- *   - VITE_REPLAY_ENABLED    — запись сессии (replay).
- * VITE_TELEMETRY_ENABLED остаётся общим выключателем — включает все три сразу
- * (обратная совместимость). На моках (VITE_API_MOCK=1) доступно всё.
- */
-const flagOn = (v: string | undefined) => v === '1';
-const onMocks = () => flagOn(import.meta.env.VITE_API_MOCK);
-const telemetryAll = () => flagOn(import.meta.env.VITE_TELEMETRY_ENABLED);
-
-/** Лента событий и поток готовы на сервере (или моки/umbrella). */
-function eventsEnabled() {
-  return onMocks() || telemetryAll() || flagOn(import.meta.env.VITE_EVENTS_ENABLED);
-}
-/** Сводка обзора готова на сервере (или моки/umbrella). */
-function analyticsEnabled() {
-  return onMocks() || telemetryAll() || flagOn(import.meta.env.VITE_ANALYTICS_ENABLED);
-}
-/** Запись сессии (replay) готова на сервере (или моки/umbrella). */
-function replayEnabled() {
-  return onMocks() || telemetryAll() || flagOn(import.meta.env.VITE_REPLAY_ENABLED);
-}
 
 /** Каркас вошедшего оператора: поток событий живёт, пока открыта сессия. */
 function LiveShell() {

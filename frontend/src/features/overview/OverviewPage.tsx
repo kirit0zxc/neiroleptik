@@ -7,6 +7,7 @@ import { formatTime } from '../../shared/format/time';
 import { useStreamEvents, useStreamResync } from '../../shared/stream/stream';
 import { Empty, ErrorState, Loading, Panel, ui } from '../../shared/ui';
 import { describeEvent, eventLabel } from '../events/describe';
+import { eventsEnabled } from '../../app/telemetry';
 import s from './overview.module.css';
 
 /**
@@ -41,7 +42,11 @@ export function OverviewPage() {
         : summary.isError ? <ErrorState message={summary.error.message} onRetry={() => void summary.refetch()} />
         : <Tiles data={summary.data} />}
       <div className={s.columns}>
-        <RecentEvents />
+        {/* Лента событий — отдельная возможность телеметрии. Если она ещё не
+            включена на сервере, не дёргаем /events и /stream, которых нет. */}
+        {eventsEnabled()
+          ? <RecentEvents />
+          : <Panel title="Последние события"><Empty>Лента событий ещё не подключена.</Empty></Panel>}
         <Panel title="Активные источники за час">
           {summary.data && summary.data.top_sources.length ? (
             <ol className={s.sources}>

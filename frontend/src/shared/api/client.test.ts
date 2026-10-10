@@ -31,6 +31,18 @@ describe('API-клиент (раздел 4)', () => {
     expect((err as ApiError).message).toBe('Профиль уже изменён: перечитайте текущую версию');
   });
 
+  it('код ошибки из ErrorResponse.code сохраняется для логики экрана', async () => {
+    server.use(
+      http.post('/c', () => HttpResponse.json({ detail: 'Перечитайте поколение', code: 'STALE_GENERATION' }, { status: 409 })),
+      http.post('/n', () => HttpResponse.json({ detail: 'Без кода' }, { status: 409 })),
+    );
+    const withCode = await api('/c', { method: 'POST', body: '{}' }).catch((e: unknown) => e) as ApiError;
+    expect(withCode.code).toBe('STALE_GENERATION');
+    expect(withCode.message).toBe('Перечитайте поколение');
+    const noCode = await api('/n', { method: 'POST', body: '{}' }).catch((e: unknown) => e) as ApiError;
+    expect(noCode.code).toBeNull();
+  });
+
   it('422: список ошибок раскладывается по путям полей без «body»', async () => {
     server.use(http.post('/p', () => HttpResponse.json({ detail: [
       { loc: ['body', 'config', 'services', 0, 'port'], type: 'value_error', msg: 'порт занят' },

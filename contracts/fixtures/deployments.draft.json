@@ -2,28 +2,40 @@
   {
     "id": "decoy-low-01",
     "host_id": "host-runtime-01",
-    "interaction_level": "low",
-    "state": "running",
     "profile_id": "p-web-panel",
+    "revision": 2,
+    "state": "running",
+    "interaction_level": "low",
     "desired_revision": 2,
-    "applied_revision": 2
+    "applied_revision": 2,
+    "generation": 1,
+    "instance_id": "8f6d1c2a-3b4e-4f50-9a61-7b8c9d0e1f21",
+    "created_at": "2026-10-09T09:00:00Z"
   },
   {
     "id": "decoy-medium-01",
     "host_id": "host-runtime-01",
-    "interaction_level": "medium",
-    "state": "running",
     "profile_id": "p-linux-srv",
+    "revision": 4,
+    "state": "running",
+    "interaction_level": "medium",
     "desired_revision": 4,
-    "applied_revision": 3
+    "applied_revision": 3,
+    "generation": 3,
+    "instance_id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+    "created_at": "2026-10-09T09:05:00Z"
   },
   {
     "id": "decoy-high-01",
     "host_id": "host-runtime-02",
-    "interaction_level": "high",
-    "state": "failed",
     "profile_id": "p-linux-vm",
+    "revision": 1,
+    "state": "failed",
+    "interaction_level": "high",
     "desired_revision": 1,
-    "applied_revision": 1
+    "applied_revision": 1,
+    "generation": 2,
+    "instance_id": null,
+    "created_at": "2026-10-09T09:10:00Z"
   }
 ]

@@ -2,7 +2,7 @@ import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import { api } from '../../shared/api/client';
-import { EVENT_TYPES, eventKey, type HfEvent, type PreviewDeployment } from '../../shared/api/types';
+import { EVENT_TYPES, eventKey, type Deployment, type HfEvent } from '../../shared/api/types';
 import { formatTime } from '../../shared/format/time';
 import { useStreamEvents, useStreamResync } from '../../shared/stream/stream';
 import { Empty, ErrorState, Loading, Panel, ui } from '../../shared/ui';
@@ -154,7 +154,7 @@ export function EventsPage() {
 function FilterBar({ value, onApply }: { value: EventFilters; onApply: (f: EventFilters) => void }) {
   const [draft, setDraft] = useState<EventFilters>(value);
   const [errors, setErrors] = useState<ReturnType<typeof validateFilters>>({});
-  const deps = useQuery({ queryKey: ['deployments'], queryFn: () => api<PreviewDeployment[]>('/api/v1/deployments') });
+  const deps = useQuery({ queryKey: ['deployments'], queryFn: () => api<Deployment[]>('/api/v1/deployments') });
 
   // Фильтры поменялись снаружи (назад/вперёд в браузере) — обновить поля.
   const [shown, setShown] = useState(value);

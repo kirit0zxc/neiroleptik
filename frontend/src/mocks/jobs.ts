@@ -1,60 +1,86 @@
 import { http, HttpResponse } from 'msw';
 import deploymentsFixture from '../../../contracts/fixtures/deployments.draft.json';
-import type { Deployment, InteractionLevel, PreviewDeployment } from '../shared/api/types';
+import type { Deployment, InteractionLevel } from '../shared/api/types';
 import type { Command, Job, JobState } from '../features/fleet/commands';
 
 /**
- * Мок ловушек, команд и заданий (specs, «Команды ловушки»). Команд и заданий
- * в контракте стадии 1 нет — это превью этапа 3. Создание развёртывания
- * (`POST /deployments`) отвечает по контракту (DeploymentRead, state=planned);
- * команды и их задания обслуживаются только здесь.
+ * Мок ловушек, команд и заданий строго по контракту центра
+ * (contracts/openapi.json, specs/commands.md): DeploymentRead, CommandCreate
+ * с expected_generation, JobRead с error_code, коды отказов 409. Используется
+ * в тестах и демо; поведение должно совпадать с настоящим API.
  */
-let deployments: PreviewDeployment[] = structuredClone(deploymentsFixture) as PreviewDeployment[];
-let jobs = new Map<string, Job>();
-const byKey = new Map<string, string>();
-let nextJob = 1;
+type Outcome = { kind: 'fail'; code: string; message: string } | { kind: 'expire'; stage: 'delivery' | 'execution' } | null;
+/** Задание мока: JobRead плюс заданный тестом исход (наружу не отдаётся). */
+type MockJob = Job & { outcome: Outcome };
+
+let deployments: Deployment[] = structuredClone(deploymentsFixture) as Deployment[];
+let jobs = new Map<string, MockJob>();
+/** Тело первой отправки по паре (ловушка, idempotency_key). */
+const byKey = new Map<string, { job_id: string; command: Command; expected_generation: number }>();
 let nextDeployment = 1;
-/** Тесты могут заставить задание завершиться ошибкой. */
-let failWith: string | null = null;
+/** Тесты и демо могут задать исход следующих заданий. */
+let outcome: Outcome = null;
 
 export function resetMockJobs() {
-  deployments = structuredClone(deploymentsFixture) as PreviewDeployment[];
+  deployments = structuredClone(deploymentsFixture) as Deployment[];
   jobs = new Map();
   byKey.clear();
-  nextJob = 1;
   nextDeployment = 1;
-  failWith = null;
+  outcome = null;
 }
 
 /** Текущие ловушки — для сводки обзора. */
-export function currentDeployments(): readonly PreviewDeployment[] { return deployments; }
+export function currentDeployments(): readonly Deployment[] { return deployments; }
 
-export function failNextJobs(message: string | null) { failWith = message; }
+/** Следующие задания завершатся ошибкой драйвера с этим кодом и текстом. */
+export function failNextJobs(code: string, message: string) { outcome = { kind: 'fail', code, message }; }
+/**
+ * Следующие задания истекут, как в центре: `delivery` — агент не взял команду
+ * (состояние ловушки не меняется), `execution` — взял, но не подтвердил
+ * (центр не знает итога: ловушка становится unknown).
+ */
+export function expireNextJobs(stage: 'delivery' | 'execution' = 'delivery') { outcome = { kind: 'expire', stage }; }
 
-const STEPS: JobState[] = ['requested', 'leased', 'running', 'succeeded'];
+/** Состояния, из которых центр принимает команду (specs/commands.md). */
+const ALLOWED: Record<Command, readonly Deployment['state'][]> = {
+  start: ['planned', 'stopped', 'failed'],
+  stop: ['running', 'failed', 'unknown'],
+  reset: ['running', 'failed'],
+};
 
-/** Что делает успешная команда с ловушкой. */
-function apply(d: PreviewDeployment, command: Command): PreviewDeployment {
-  switch (command) {
-    case 'start': return { ...d, state: 'running', applied_revision: d.desired_revision };
-    case 'stop': return { ...d, state: 'stopped' };
-    case 'apply_config': return { ...d, applied_revision: d.desired_revision };
-    case 'reset': return { ...d, state: 'running' };
-    case 'rotate_credentials': return d;
+const FINAL: readonly JobState[] = ['succeeded', 'failed', 'expired'];
+const reject = (code: string, detail: string) => HttpResponse.json({ detail, code }, { status: 409 });
+const update = (id: string, patch: Partial<Deployment>) => {
+  deployments = deployments.map((d) => (d.id === id ? { ...d, ...patch } : d));
+};
+
+/** Один шаг задания за опрос: requested → leased → running → итог. */
+function advance(job: MockJob): MockJob {
+  if (FINAL.includes(job.state)) return job;
+  const now = new Date().toISOString();
+  const d = deployments.find((x) => x.id === job.deployment_id);
+  if (!d) return job;
+  if (job.state === 'requested' && job.outcome?.kind === 'expire' && job.outcome.stage === 'delivery') {
+    return { ...job, state: 'expired', error: 'Агент не взял команду', error_code: 'DELIVERY_EXPIRED', completed_at: now };
   }
-}
-
-function advance(job: Job): Job {
-  if (job.state === 'succeeded' || job.state === 'failed' || job.state === 'expired') return job;
-  const next = STEPS[STEPS.indexOf(job.state) + 1]!;
-  if (next === 'succeeded') {
-    if (job.error) {
-      deployments = deployments.map((d) => (d.id === job.deployment_id && d.state === 'deploying' ? { ...d, state: 'failed' } : d));
-      return { ...job, state: 'failed' };
-    }
-    deployments = deployments.map((d) => (d.id === job.deployment_id ? apply(d, job.command) : d));
+  // Агент взял команду: только теперь центр показывает переходное состояние.
+  if (job.state === 'requested') {
+    if (d.state !== 'unknown') update(d.id, { state: job.command === 'stop' ? 'stopping' : 'deploying' });
+    return { ...job, state: 'leased' };
   }
-  return { ...job, state: next };
+  if (job.state === 'leased') return { ...job, state: 'running' };
+  if (job.outcome?.kind === 'expire') {
+    update(d.id, { state: 'unknown' });
+    return { ...job, state: 'expired', error: 'Истёк срок выполнения', error_code: 'EXECUTION_EXPIRED', completed_at: now };
+  }
+  // running → итог: применяем результат к ловушке, как ACK агента.
+  if (job.outcome?.kind === 'fail') {
+    update(d.id, { state: job.command === 'stop' ? 'running' : 'failed' });
+    return { ...job, state: 'failed', error: job.outcome.message, error_code: job.outcome.code, completed_at: now };
+  }
+  if (job.command === 'stop') update(d.id, { state: 'stopped' });
+  else update(d.id, { state: 'running', applied_revision: d.revision, instance_id: crypto.randomUUID() });
+  return { ...job, state: 'succeeded', completed_at: now };
 }
 
 export const jobHandlers = (
@@ -65,17 +91,34 @@ export const jobHandlers = (
   http.get('/api/v1/deployments', () => HttpResponse.json(deployments)),
   http.post('/api/v1/deployments/:id/commands', async ({ params, request }) => {
     const bad = csrfFailure(request); if (bad) return bad;
-    const { command, idempotency_key } = (await request.json()) as { command: Command; idempotency_key: string };
+    const body = (await request.json()) as { command: Command; idempotency_key: string; expected_generation: number };
     const d = deployments.find((x) => x.id === params.id);
-    if (!d) return HttpResponse.json({ detail: 'Ловушка не найдена' }, { status: 404 });
-    // Повтор того же нажатия — то же задание, а не второе.
-    const known = byKey.get(idempotency_key);
-    if (known) return HttpResponse.json({ job_id: known }, { status: 202 });
-    const active = [...jobs.values()].some((j) => j.deployment_id === d.id && !['succeeded', 'failed', 'expired'].includes(j.state));
-    if (active) return HttpResponse.json({ detail: 'У ловушки уже выполняется задание' }, { status: 409 });
-    const job: Job = { job_id: `job-${nextJob++}`, deployment_id: d.id, command, state: 'requested', error: failWith };
+    if (!d) return HttpResponse.json({ detail: 'Назначение не найдено' }, { status: 404 });
+    // Повтор той же пары (ловушка, ключ) с тем же телом — прежнее задание.
+    const key = `${d.id} ${body.idempotency_key}`;
+    const previous = byKey.get(key);
+    if (previous) {
+      return previous.command === body.command && previous.expected_generation === body.expected_generation
+        ? HttpResponse.json({ job_id: previous.job_id }, { status: 202 })
+        : reject('IDEMPOTENCY_CONFLICT', 'Ключ использован с другим запросом');
+    }
+    if ([...jobs.values()].some((j) => j.deployment_id === d.id && !FINAL.includes(j.state))) {
+      return reject('COMMAND_BUSY', 'У ловушки уже есть незавершённая команда');
+    }
+    if (body.expected_generation !== d.generation) return reject('STALE_GENERATION', 'Перечитайте поколение ловушки');
+    if (!ALLOWED[body.command]?.includes(d.state)) return reject('INVALID_STATE', 'Команда недоступна в текущем состоянии');
+    if (body.command === 'reset' && d.interaction_level !== 'high') return reject('UNSUPPORTED_COMMAND', 'reset разрешён только для High');
+
+    // Создание команды только увеличивает поколение; состояние меняется, когда агент её возьмёт.
+    const generation = d.generation + 1;
+    update(d.id, { generation });
+    const job: MockJob = {
+      job_id: crypto.randomUUID(), deployment_id: d.id, command: body.command, state: 'requested',
+      error: null, error_code: null, generation, created_at: new Date().toISOString(), completed_at: null,
+      outcome,
+    };
     jobs.set(job.job_id, job);
-    byKey.set(idempotency_key, job.job_id);
+    byKey.set(key, { job_id: job.job_id, command: body.command, expected_generation: body.expected_generation });
     return HttpResponse.json({ job_id: job.job_id }, { status: 202 });
   }),
   // Контракт: создаётся развёртывание в состоянии planned (DeploymentRead).
@@ -84,23 +127,21 @@ export const jobHandlers = (
     const body = (await request.json()) as { host_id: string; profile_id: string; revision: number };
     const level = levelOf(body.profile_id);
     if (!level) return HttpResponse.json({ detail: 'Профиль не найден' }, { status: 404 });
-    const id = `decoy-${level}-${String(nextDeployment++).padStart(2, '0')}-${deployments.length + 1}`;
-    const created: PreviewDeployment = {
-      id, host_id: body.host_id, interaction_level: level, state: 'planned',
-      profile_id: body.profile_id, desired_revision: body.revision, applied_revision: null,
+    const created: Deployment = {
+      id: `decoy-${level}-${String(nextDeployment++).padStart(2, '0')}-${deployments.length + 1}`,
+      host_id: body.host_id, profile_id: body.profile_id, revision: body.revision, state: 'planned',
+      interaction_level: level, desired_revision: body.revision, applied_revision: null,
+      generation: 0, instance_id: null, created_at: new Date().toISOString(),
     };
     deployments = [...deployments, created];
-    const read: Deployment = {
-      id, host_id: body.host_id, profile_id: body.profile_id, revision: body.revision,
-      state: 'planned', created_at: new Date().toISOString(),
-    };
-    return HttpResponse.json(read, { status: 201 });
+    return HttpResponse.json(created, { status: 201 });
   }),
   http.get('/api/v1/jobs/:id', ({ params }) => {
     const job = jobs.get(String(params.id));
     if (!job) return HttpResponse.json({ detail: 'Задание не найдено' }, { status: 404 });
     const next = advance(job);
     jobs.set(job.job_id, next);
-    return HttpResponse.json(next);
+    const { outcome: _hidden, ...read } = next;
+    return HttpResponse.json(read satisfies Job);
   }),
 ];

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { api } from '../../shared/api/client';
-import type { Deployment, Host, PreviewDeployment } from '../../shared/api/types';
+import type { Deployment, Host } from '../../shared/api/types';
 import { ago } from '../../shared/format/time';
 import { Empty, ErrorState, Loading, Panel, StatusBadge, ui } from '../../shared/ui';
 import { canEdit, useMe } from '../auth/auth';
@@ -10,18 +10,11 @@ import { deploymentStatus, hostStatus } from './status';
 
 const LEVEL = { low: 'Low', medium: 'Medium', high: 'High' } as const;
 
-/** Превью распознаём только в явно включённом демо; реальный API — DeploymentRead. */
-function previewOf(deployment: Deployment | PreviewDeployment): PreviewDeployment | null {
-  return import.meta.env.VITE_API_MOCK === '1' && !('revision' in deployment)
-    ? deployment : null;
-}
-
-/** Парк: хосты и ловушки (F4, F5), команды ловушек (F6). Мастер запуска — D3. */
+/** Парк: хосты и ловушки (F4, F5), команды ловушек (F6) — только operator/admin. */
 export function FleetPage() {
   const editable = canEdit(useMe()?.user.role);
-  const commandsVisible = editable && import.meta.env.VITE_API_MOCK === '1';
   const hosts = useQuery({ queryKey: ['hosts'], queryFn: () => api<Host[]>('/api/v1/hosts'), refetchInterval: 10_000 });
-  const deps = useQuery({ queryKey: ['deployments'], queryFn: () => api<Array<Deployment | PreviewDeployment>>('/api/v1/deployments'), refetchInterval: 10_000 });
+  const deps = useQuery({ queryKey: ['deployments'], queryFn: () => api<Deployment[]>('/api/v1/deployments'), refetchInterval: 10_000 });
 
   return (
     <>
@@ -57,23 +50,19 @@ export function FleetPage() {
           : !deps.data.length ? <Empty>Ловушек пока нет.</Empty>
           : (
             <table className={ui.table}>
-              <thead><tr><th>Ловушка</th><th>Уровень</th><th>Хост</th><th>Состояние</th><th>Профиль</th>{commandsVisible && <th>Действия</th>}</tr></thead>
+              <thead><tr><th>Ловушка</th><th>Уровень</th><th>Хост</th><th>Состояние</th><th>Профиль</th>{editable && <th>Действия</th>}</tr></thead>
               <tbody>
                 {deps.data.map((d) => {
-                  const preview = previewOf(d);
-                  const st = preview ? deploymentStatus(preview) : 'revision' in d
-                    ? deploymentStatus({ state: d.state, desired_revision: d.desired_revision ?? d.revision, applied_revision: d.applied_revision ?? null })
-                    : { tone: 'idle', label: 'неизвестно' } as const;
-                  // Берём уровень назначенной ревизии из ответа, не из последней версии профиля.
-                  const revision = preview?.desired_revision ?? ('revision' in d ? d.revision : '—');
+                  const st = deploymentStatus(d);
                   return (
                     <tr key={d.id}>
                       <td className="mono">{d.id}</td>
-                      <td>{preview ? LEVEL[preview.interaction_level] : 'interaction_level' in d && d.interaction_level ? LEVEL[d.interaction_level] : '—'}</td>
+                      {/* Уровень назначенной ревизии — из ответа, не из текущей версии профиля. */}
+                      <td>{LEVEL[d.interaction_level] ?? '—'}</td>
                       <td className="mono">{d.host_id}</td>
                       <td><StatusBadge tone={st.tone}>{st.label}</StatusBadge></td>
-                      <td className="mono">{d.profile_id} · r{revision}</td>
-                      {commandsVisible && <td>{preview && <DeploymentActions deployment={preview} />}</td>}
+                      <td className="mono">{d.profile_id} · r{d.revision}</td>
+                      {editable && <td><DeploymentActions deployment={d} /></td>}
                     </tr>
                   );
                 })}

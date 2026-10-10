@@ -11,11 +11,14 @@ export class ApiError extends Error {
   readonly status: number;
   /** Ошибки полей для 422; пусто для остальных статусов. */
   readonly fields: FieldIssue[];
+  /** Машинный код бизнес-ошибки (`ErrorResponse.code`), например STALE_GENERATION. */
+  readonly code: string | null;
 
-  constructor(status: number, message: string, fields: FieldIssue[] = []) {
+  constructor(status: number, message: string, fields: FieldIssue[] = [], code: string | null = null) {
     super(message);
     this.status = status;
     this.fields = fields;
+    this.code = code;
   }
 }
 
@@ -56,7 +59,12 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
  */
 export async function errorFrom(res: Response): Promise<ApiError> {
   let detail: unknown;
-  try { detail = ((await res.json()) as { detail?: unknown }).detail; } catch { /* тело не JSON */ }
+  let code: string | null = null;
+  try {
+    const body = (await res.json()) as { detail?: unknown; code?: unknown };
+    detail = body.detail;
+    if (typeof body.code === 'string' && body.code) code = body.code;
+  } catch { /* тело не JSON */ }
 
   if (res.status === 422 && Array.isArray(detail)) {
     const fields = detail.flatMap((d): FieldIssue[] => {
@@ -67,7 +75,7 @@ export async function errorFrom(res: Response): Promise<ApiError> {
     });
     return new ApiError(422, 'Проверьте выделенные поля', fields);
   }
-  return new ApiError(res.status, typeof detail === 'string' && detail ? detail : defaultMessage(res.status));
+  return new ApiError(res.status, typeof detail === 'string' && detail ? detail : defaultMessage(res.status), [], code);
 }
 
 function defaultMessage(status: number) {

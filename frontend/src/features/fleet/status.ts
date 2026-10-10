@@ -1,4 +1,4 @@
-import type { Host, PreviewDeployment } from '../../shared/api/types';
+import type { Deployment, Host } from '../../shared/api/types';
 import type { Tone } from '../../shared/ui';
 
 /** Связь агента (F4): online — это связь, а не работа ловушки. */
@@ -15,7 +15,7 @@ export function hostStatus(h: Pick<Host, 'status'>): { tone: Tone; label: string
  * Состояние ловушки (F5) в центре и демо. Работающая ловушка, у
  * которой применённая ревизия отстаёт от желаемой, — «drift», а не успех.
  */
-export function deploymentStatus(d: Pick<PreviewDeployment, 'state' | 'desired_revision' | 'applied_revision'>): { tone: Tone; label: string } {
+export function deploymentStatus(d: Pick<Deployment, 'state' | 'desired_revision' | 'applied_revision'>): { tone: Tone; label: string } {
   const drift = d.applied_revision !== d.desired_revision;
   switch (d.state) {
     case 'running':

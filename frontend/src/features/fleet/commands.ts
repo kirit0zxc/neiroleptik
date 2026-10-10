@@ -1,27 +1,33 @@
-import type { PreviewDeployment } from '../../shared/api/types';
+import { ApiError } from '../../shared/api/client';
+import type { Deployment } from '../../shared/api/types';
 
 /**
- * Команды ловушки (specs/frontend.md, «Команды ловушки»). Экран-превью:
- * команд и заданий в контракте стадии 1 нет (участник 3), обслуживается моками.
+ * Команды ловушки (specs/frontend.md, «Команды ловушки»; specs/commands.md).
+ * Центр выполняет start/stop/reset; apply_config и rotate_credentials на
+ * сервере не реализованы и в UI не показываются.
  */
-export const COMMANDS = ['start', 'stop', 'apply_config', 'rotate_credentials', 'reset'] as const;
+export const COMMANDS = ['start', 'stop', 'reset'] as const;
 export type Command = (typeof COMMANDS)[number];
 
 export type JobState = 'requested' | 'leased' | 'running' | 'succeeded' | 'failed' | 'expired';
 
+/** Задание команды (JobRead). */
 export interface Job {
   job_id: string;
   deployment_id: string;
   command: Command;
   state: JobState;
   error: string | null;
+  /** Код ошибки драйвера или центра — по нему выбираем понятный текст. */
+  error_code: string | null;
+  generation: number;
+  created_at: string;
+  completed_at: string | null;
 }
 
 export const COMMAND_LABEL: Record<Command, string> = {
   start: 'Запустить',
   stop: 'Остановить',
-  apply_config: 'Применить профиль',
-  rotate_credentials: 'Сменить учётки',
   reset: 'Сбросить VM',
 };
 
@@ -29,19 +35,14 @@ export const COMMAND_LABEL: Record<Command, string> = {
 export const CONFIRM: Record<Command, string | null> = {
   start: null,
   stop: 'Ловушка перестанет принимать подключения.',
-  apply_config: null,
-  rotate_credentials: 'Учётки-приманки сменятся; атакующий со старым паролем больше не войдёт.',
   reset: 'Вход закроется, доказательства сохранятся, среда вернётся к чистому образу.',
 };
 
-/** Какие команды можно отправить ловушке в её текущем состоянии. */
-export function availableCommands(d: Pick<PreviewDeployment, 'state' | 'interaction_level' | 'desired_revision' | 'applied_revision'>): Command[] {
+/** Какие команды центр примет в текущем состоянии (specs/commands.md). */
+export function availableCommands(d: Pick<Deployment, 'state' | 'interaction_level'>): Command[] {
   const out: Command[] = [];
-  const drift = d.applied_revision !== d.desired_revision;
-  if (d.state === 'stopped' || d.state === 'failed' || d.state === 'planned') out.push('start');
-  if (d.state === 'running') out.push('stop');
-  if (d.state === 'running' && drift) out.push('apply_config');
-  if (d.state === 'running' && d.interaction_level !== 'low') out.push('rotate_credentials');
+  if (d.state === 'planned' || d.state === 'stopped' || d.state === 'failed') out.push('start');
+  if (d.state === 'running' || d.state === 'failed' || d.state === 'unknown') out.push('stop');
   if (d.interaction_level === 'high' && (d.state === 'running' || d.state === 'failed')) out.push('reset');
   return out;
 }
@@ -63,15 +64,43 @@ export function driverErrorText(error: string): string {
   return Object.hasOwn(DRIVER_ERRORS, error) ? DRIVER_ERRORS[error]! : error;
 }
 
+/** Причина неудачи задания: известный код, иначе текст центра, иначе сам код. */
+function failureText(job: Pick<Job, 'error' | 'error_code'>): string | null {
+  if (job.error_code && Object.hasOwn(DRIVER_ERRORS, job.error_code)) return DRIVER_ERRORS[job.error_code]!;
+  return job.error || job.error_code || null;
+}
+
 /** Ход задания словами (виден, пока задание идёт, и итог). */
-export function jobLabel(job: Pick<Job, 'state' | 'error'>): { tone: 'ok' | 'warn' | 'bad'; label: string } {
+export function jobLabel(job: Pick<Job, 'state' | 'error' | 'error_code'>): { tone: 'ok' | 'warn' | 'bad'; label: string } {
   switch (job.state) {
-    case 'requested': return { tone: 'warn', label: 'поставлено в очередь' };
-    case 'leased': return { tone: 'warn', label: 'взято агентом' };
+    // Принятие команды ещё не значит, что ловушка запустилась.
+    case 'requested':
+    case 'leased': return { tone: 'warn', label: 'ожидает' };
     case 'running': return { tone: 'warn', label: 'выполняется' };
-    case 'succeeded': return { tone: 'ok', label: 'выполнено' };
-    case 'failed': return { tone: 'bad', label: `ошибка${job.error ? `: ${driverErrorText(job.error)}` : ''}` };
-    case 'expired': return { tone: 'bad', label: 'истекло — агент не взял задание вовремя' };
+    case 'succeeded': return { tone: 'ok', label: 'успешно' };
+    case 'failed': {
+      const why = failureText(job);
+      return { tone: 'bad', label: why ? `ошибка: ${why}` : 'ошибка' };
+    }
+    case 'expired': return { tone: 'bad', label: 'истёк срок — агент не выполнил команду вовремя' };
     default: return { tone: 'bad', label: 'неизвестное состояние' };
   }
+}
+
+/** Отказы центра при отправке команды (409, `ErrorResponse.code`). */
+const REJECTS: Readonly<Record<string, string>> = {
+  STALE_GENERATION: 'Ловушку уже изменили — данные обновлены.',
+  COMMAND_BUSY: 'У ловушки уже выполняется команда',
+  INVALID_STATE: 'Команда недоступна в текущем состоянии',
+  UNSUPPORTED_COMMAND: 'Сброс доступен только для High',
+  PROFILE_ARCHIVED: 'Профиль в архиве — запуск невозможен',
+  UNSUPPORTED_PROFILE: 'Хост не поддерживает уровень профиля',
+  AGENT_REVOKED: 'Доступ агента отозван',
+  IDEMPOTENCY_CONFLICT: 'Запрос с этим ключом уже был другим — начните действие заново',
+};
+
+/** Сообщение об отказе: известный код — понятным текстом, иначе текст сервера. */
+export function commandRejectText(error: unknown): string {
+  if (!(error instanceof ApiError)) return 'Команда не отправлена';
+  return error.code && Object.hasOwn(REJECTS, error.code) ? REJECTS[error.code]! : error.message;
 }

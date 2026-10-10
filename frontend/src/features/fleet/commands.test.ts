@@ -1,30 +1,29 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import type { PreviewDeployment } from '../../shared/api/types';
-import { availableCommands, driverErrorText, isFinal, jobLabel } from './commands';
+import { ApiError } from '../../shared/api/client';
+import type { Deployment } from '../../shared/api/types';
+import { availableCommands, commandRejectText, driverErrorText, isFinal, jobLabel } from './commands';
 
-const d = (patch: Partial<PreviewDeployment>): PreviewDeployment => ({
-  id: 'x', host_id: 'h', interaction_level: 'medium', state: 'running',
-  profile_id: 'p', desired_revision: 1, applied_revision: 1, ...patch,
+const d = (patch: Partial<Deployment>): Pick<Deployment, 'state' | 'interaction_level'> => ({
+  state: 'running', interaction_level: 'medium', ...patch,
 });
 
-describe('доступность команд (F6)', () => {
-  it('работающая Medium без drift: стоп и смена учёток', () => {
-    expect(availableCommands(d({}))).toEqual(['stop', 'rotate_credentials']);
+describe('доступность команд (F6, specs/commands.md)', () => {
+  it('start — из planned, stopped, failed', () => {
+    for (const state of ['planned', 'stopped'] as const) expect(availableCommands(d({ state }))).toEqual(['start']);
+    expect(availableCommands(d({ state: 'failed' }))).toEqual(['start', 'stop']);
   });
 
-  it('drift добавляет «применить профиль»', () => {
-    expect(availableCommands(d({ applied_revision: 1, desired_revision: 2 }))).toContain('apply_config');
-  });
-
-  it('Low не меняет учётки и не сбрасывается', () => {
-    expect(availableCommands(d({ interaction_level: 'low' }))).toEqual(['stop']);
+  it('stop — из running, failed и unknown; в unknown запуск запрещён', () => {
+    expect(availableCommands(d({ state: 'running' }))).toEqual(['stop']);
+    expect(availableCommands(d({ state: 'unknown' }))).toEqual(['stop']);
   });
 
   it('reset — только High, работающей или упавшей', () => {
-    expect(availableCommands(d({ interaction_level: 'high' }))).toContain('reset');
-    expect(availableCommands(d({ interaction_level: 'high', state: 'failed' }))).toEqual(['start', 'reset']);
+    expect(availableCommands(d({ interaction_level: 'high' }))).toEqual(['stop', 'reset']);
+    expect(availableCommands(d({ interaction_level: 'high', state: 'failed' }))).toEqual(['start', 'stop', 'reset']);
     expect(availableCommands(d({ interaction_level: 'high', state: 'stopped' }))).toEqual(['start']);
+    expect(availableCommands(d({ interaction_level: 'high', state: 'unknown' }))).toEqual(['stop']);
     expect(availableCommands(d({ interaction_level: 'medium', state: 'failed' }))).not.toContain('reset');
   });
 
@@ -40,11 +39,17 @@ describe('ход задания', () => {
     expect(['requested', 'leased', 'running'].some((s) => isFinal(s as never))).toBe(false);
   });
 
-  it('подписи с текстом ошибки', () => {
-    expect(jobLabel({ state: 'leased', error: null })).toEqual({ tone: 'warn', label: 'взято агентом' });
-    expect(jobLabel({ state: 'failed', error: 'нет места на диске' }).label).toBe('ошибка: нет места на диске');
-    expect(jobLabel({ state: 'expired', error: null }).tone).toBe('bad');
-    expect(jobLabel({ state: 'failed', error: 'START_FAILED' }).label).toBe('ошибка: не удалось запустить');
+  it('подписи: код драйвера важнее текста, иначе текст, иначе код как есть', () => {
+    expect(jobLabel({ state: 'requested', error: null, error_code: null })).toEqual({ tone: 'warn', label: 'ожидает' });
+    expect(jobLabel({ state: 'leased', error: null, error_code: null })).toEqual({ tone: 'warn', label: 'ожидает' });
+    expect(jobLabel({ state: 'running', error: null, error_code: null })).toEqual({ tone: 'warn', label: 'выполняется' });
+    expect(jobLabel({ state: 'succeeded', error: null, error_code: null })).toEqual({ tone: 'ok', label: 'успешно' });
+    expect(jobLabel({ state: 'expired', error: null, error_code: null }).label).toBe('истёк срок — агент не выполнил команду вовремя');
+    expect(jobLabel({ state: 'failed', error: 'container exited 1', error_code: 'START_FAILED' }).label).toBe('ошибка: не удалось запустить');
+    expect(jobLabel({ state: 'failed', error: 'нет места на диске', error_code: 'DISK_FULL' }).label).toBe('ошибка: нет места на диске');
+    expect(jobLabel({ state: 'failed', error: null, error_code: 'DISK_FULL' }).label).toBe('ошибка: DISK_FULL');
+    expect(jobLabel({ state: 'failed', error: null, error_code: null }).label).toBe('ошибка');
+    expect(jobLabel({ state: 'expired', error: null, error_code: null }).tone).toBe('bad');
   });
 
   it('коды ошибок драйвера — понятным текстом, неизвестный код как есть', () => {
@@ -56,5 +61,25 @@ describe('ход задания', () => {
     expect(driverErrorText('INVALID_STATE')).toBe('команда недопустима в текущем состоянии');
     expect(driverErrorText('DISK_FULL')).toBe('DISK_FULL');
     expect(driverErrorText('toString')).toBe('toString');
+  });
+});
+
+describe('отказ при отправке команды (409 с кодом)', () => {
+  const err = (code: string | null, detail = 'текст сервера') => new ApiError(409, detail, [], code);
+  it('известные коды — понятным текстом', () => {
+    expect(commandRejectText(err('STALE_GENERATION'))).toBe('Ловушку уже изменили — данные обновлены.');
+    expect(commandRejectText(err('COMMAND_BUSY'))).toBe('У ловушки уже выполняется команда');
+    expect(commandRejectText(err('INVALID_STATE'))).toBe('Команда недоступна в текущем состоянии');
+    expect(commandRejectText(err('UNSUPPORTED_COMMAND'))).toBe('Сброс доступен только для High');
+    expect(commandRejectText(err('PROFILE_ARCHIVED'))).toBe('Профиль в архиве — запуск невозможен');
+    expect(commandRejectText(err('UNSUPPORTED_PROFILE'))).toBe('Хост не поддерживает уровень профиля');
+    expect(commandRejectText(err('AGENT_REVOKED'))).toBe('Доступ агента отозван');
+    expect(commandRejectText(err('IDEMPOTENCY_CONFLICT'))).toBe('Запрос с этим ключом уже был другим — начните действие заново');
+  });
+  it('неизвестный код или его отсутствие — текст сервера', () => {
+    expect(commandRejectText(err('SOMETHING_NEW', 'Что-то новое'))).toBe('Что-то новое');
+    expect(commandRejectText(err(null, 'Без кода'))).toBe('Без кода');
+    expect(commandRejectText(err('toString', 'Прототип'))).toBe('Прототип');
+    expect(commandRejectText(new Error('сеть'))).toBe('Команда не отправлена');
   });
 });

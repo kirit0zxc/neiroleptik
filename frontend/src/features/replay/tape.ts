@@ -53,11 +53,7 @@ export class ReplayTape {
   /** Хвост, который нельзя показывать до следующего чанка: начало ESC-последовательности. */
   private readonly carry: Record<Direction, string> = { in: '', out: '' };
   private readonly last: Record<Direction, { seq: number; offsetMs: number } | null> = { in: null, out: null };
-  /** Чанк закончился на 
-: ведущий 
- следующего чанка — та же пара 
-
-. */
+  /** Чанк закончился на CR: ведущий LF следующего чанка — та же пара CRLF. */
   private readonly skipLf: Record<Direction, boolean> = { in: false, out: false };
   private seen = new Set<number>();
 

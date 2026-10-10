@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
 from http.client import HTTPConnection, HTTPException, HTTPResponse, HTTPSConnection
-from typing import Any, Protocol
+from typing import Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import (
@@ -72,20 +72,30 @@ class _NoRedirects(HTTPRedirectHandler):
 
 
 class _RequestWatch:
-    """Сторожевой таймер одного запроса: по общему сроку разрывает его соединения.
+    """Сторожевой таймер одного запроса: по общему сроку разрывает его сокеты.
 
     urllib ограничивает таймаутом каждую отдельную операцию сокета, а не весь запрос.
-    Центр или прокси, присылающий заголовки по байту, держал бы поток бесконечно, а
+    Центр или прокси, присылающий данные по байту, держал бы поток бесконечно, а
     asyncio.wait_for лишь перестаёт ждать. Таймер закрывает сокет на чтение и запись,
-    блокирующее чтение завершается ошибкой, и поток освобождается к сроку. Разрешение
-    имени (DNS) этим не прерывается; его ограничивает отдельный пул HTTP-потоков.
+    текущая сетевая операция завершается ошибкой, и поток освобождается к сроку.
+
+    Сторож держит собственную ссылку на каждый назначенный соединению сокет, а не
+    опрашивает HTTPConnection.sock в момент срока. urllib сразу после getresponse
+    выполняет `h.sock = None`, передавая владение сокетом объекту ответа (его .fp).
+    Поэтому к началу чтения тела connection.sock уже None, и опрос был бы бесполезен,
+    а именно чтение chunked-тела зацикливается во внутреннем readline http.client в
+    обход проверки дедлайна в _read. Таймером не прерываются разрешение имени (DNS) и
+    зависшее TLS-рукопожатие: ssl отвязывает обычный сокет до рукопожатия, а TLS-сокет
+    захватывается лишь после возврата wrap_socket. Их ограничивают таймаут отдельной
+    операции сокета и размер отдельного пула HTTP-потоков; вызывающая сторона и тогда
+    получает NETWORK_ERROR по сроку через asyncio.wait_for.
     """
 
     _current = threading.local()
 
     def __init__(self, timeout: float) -> None:
         self._lock = threading.Lock()
-        self._connections: list[HTTPConnection] = []
+        self._sockets: list[socket.socket] = []
         self._expired = False
         self._timer = threading.Timer(timeout, self._expire)
         self._timer.daemon = True
@@ -100,57 +110,60 @@ class _RequestWatch:
         _RequestWatch._current.watch = None
 
     @classmethod
-    def track(cls, connection: HTTPConnection) -> None:
-        """Связывает соединение с запросом текущего потока; после срока сразу рвёт его."""
+    def capture(cls, sock: socket.socket | None) -> None:
+        """Запоминает сокет соединения текущего потока; после срока сразу рвёт его."""
         watch: _RequestWatch | None = getattr(cls._current, "watch", None)
-        if watch is None:
+        if watch is None or sock is None:
             return
         with watch._lock:
-            if connection not in watch._connections:
-                watch._connections.append(connection)
+            watch._sockets.append(sock)
             expired = watch._expired
         if expired:
-            cls._abort(connection)
+            cls._abort(sock)
 
     def _expire(self) -> None:
         with self._lock:
             self._expired = True
-            connections = list(self._connections)
-        for connection in connections:
-            self._abort(connection)
+            sockets = list(self._sockets)
+        for sock in sockets:
+            self._abort(sock)
 
     @staticmethod
-    def _abort(connection: HTTPConnection) -> None:
-        # Во время TLS-рукопожатия sock — ещё обычный сокет; его разрыв прерывает и его.
-        sock = connection.sock
-        if sock is not None:
-            with contextlib.suppress(OSError):
-                sock.shutdown(socket.SHUT_RDWR)
+    def _abort(sock: socket.socket) -> None:
+        # Разрыв на чтение и запись прерывает чтение заголовков и тела, включая chunked;
+        # дрипающее TLS-рукопожатие им не прерывается (см. оговорку в _RequestWatch).
+        with contextlib.suppress(OSError):
+            sock.shutdown(socket.SHUT_RDWR)
 
 
-class _WatchedHTTPConnection(HTTPConnection):
+class _WatchedSocket:
+    """Передаёт сторожу каждый сокет, назначенный соединению, по мере присваивания.
+
+    Свойство перехватывает `self.sock = ...` в connect() (обычный и, для HTTPS,
+    TLS-сокет) и сохраняет ссылку в стороже текущего потока. Последующее обнуление
+    sock самим urllib не лишает сторож ссылки, поэтому он рвёт сокет и во время
+    чтения тела ответа. Обнуление и повторные присваивания самому соединению при
+    этом работают как обычно.
+    """
+
+    _tracked_sock: socket.socket | None = None
+
+    @property
+    def sock(self) -> socket.socket | None:
+        return self._tracked_sock
+
+    @sock.setter
+    def sock(self, value: socket.socket | None) -> None:
+        self._tracked_sock = value
+        _RequestWatch.capture(value)
+
+
+class _WatchedHTTPConnection(_WatchedSocket, HTTPConnection):
     """HTTP-соединение, которое сторожевой таймер запроса может разорвать."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        _RequestWatch.track(self)
 
-    def connect(self) -> None:
-        super().connect()
-        # Срок мог истечь, пока сокета ещё не было.
-        _RequestWatch.track(self)
-
-
-class _WatchedHTTPSConnection(HTTPSConnection):
+class _WatchedHTTPSConnection(_WatchedSocket, HTTPSConnection):
     """HTTPS-соединение (в том числе через CONNECT-прокси) под сторожевым таймером."""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        _RequestWatch.track(self)
-
-    def connect(self) -> None:
-        super().connect()
-        _RequestWatch.track(self)
 
 
 class _WatchedHTTPHandler(HTTPHandler):
@@ -329,8 +342,10 @@ class BoundedHttpTransport:
         """Ожидание ограничено общим сроком, даже если DNS/TLS всё ещё завершается.
 
         Запрос выполняется в отдельном пуле HTTP-потоков. По истечении срока ожидание
-        прекращается, ещё не начатый запрос отменяется, а начатый разрывает свой
-        сторожевой таймер, поэтому поток не остаётся работать после таймаута.
+        прекращается, ещё не начатый запрос отменяется, а у начатого сторож разрывает
+        сокет на чтении заголовков и тела, освобождая поток к сроку. Зависшее разрешение
+        имени или TLS-рукопожатие сторож не прерывает — их ограничивают таймаут операции
+        сокета и размер пула, но вызывающая сторона и тогда получает NETWORK_ERROR по сроку.
         """
         loop = asyncio.get_running_loop()
         try:

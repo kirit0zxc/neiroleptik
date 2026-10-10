@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import json
 import select
@@ -10,6 +11,7 @@ import socket
 import threading
 import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -619,3 +621,142 @@ def test_http_requests_never_occupy_the_default_asyncio_pool(
     client = HttpCommandClient("https://center.test", BEARER)
     assert asyncio.run(client.claim()) is None
     assert seen and seen[0].startswith("honeyforge-http")
+
+
+class SlowBody:
+    """Loopback-«центр»: отдаёт заголовки и один chunked-кадр, затем бесконечную строку
+    размера следующего чанка (цифры без CRLF).
+
+    read1 http.client застревает в readline внутри одного вызова, в обход проверки
+    дедлайна в _read, а urllib сразу после getresponse обнуляет connection.sock —
+    поэтому освободить поток к сроку может только сторож, держащий собственную ссылку
+    на сокет. Фиксирует, сколько соединений клиент разорвал к сроку.
+    """
+
+    def __init__(self, drip_seconds: float = 8.0) -> None:
+        self.listener = socket.create_server(("127.0.0.1", 0))
+        self.listener.settimeout(0.2)
+        self.port = self.listener.getsockname()[1]
+        self.disconnects = 0
+        self._lock = threading.Lock()
+        self._connections: list[socket.socket] = []
+        self._drip_seconds = drip_seconds
+        self._stop = threading.Event()
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self) -> None:
+        while not self._stop.is_set():
+            try:
+                connection, _ = self.listener.accept()
+            except OSError:
+                break
+            with self._lock:
+                self._connections.append(connection)
+            threading.Thread(target=self._serve, args=(connection,), daemon=True).start()
+
+    def _serve(self, connection: socket.socket) -> None:
+        with connection:
+            received = b""
+            while b"\r\n\r\n" not in received:
+                try:
+                    chunk = connection.recv(4096)
+                except OSError:
+                    return
+                if not chunk:
+                    return
+                received += chunk
+            connection.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Transfer-Encoding: chunked\r\n\r\n"
+                b"5\r\nhello\r\n"
+            )
+            finish = time.monotonic() + self._drip_seconds
+            while time.monotonic() < finish:
+                try:
+                    connection.sendall(b"0")
+                    readable, _, _ = select.select([connection], [], [], 0.05)
+                    if readable and not connection.recv(1):
+                        break
+                except OSError:
+                    break
+            else:
+                return
+            with self._lock:
+                self.disconnects += 1
+
+    def wait_disconnects(self, count: int, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._lock:
+                if self.disconnects >= count:
+                    return True
+            time.sleep(0.02)
+        return False
+
+    def close(self) -> None:
+        # Принудительно рвём и уже принятые соединения, чтобы на старом коде зависшие
+        # потоки клиента получили EOF и завершились, а не держались до конца дрипа.
+        self._stop.set()
+        self.listener.close()
+        with self._lock:
+            connections = list(self._connections)
+        for connection in connections:
+            with contextlib.suppress(OSError):
+                connection.shutdown(socket.SHUT_RDWR)
+
+
+def test_slow_response_body_does_not_keep_the_network_thread_after_timeout() -> None:
+    """Регрессия P2: по сроку рвётся соединение и при чтении тела, а не только заголовков.
+
+    urllib после getresponse обнуляет connection.sock, поэтому прежний сторож при
+    чтении chunked-тела не находил сокет и поток зависал до остановки сервера.
+    """
+    server = SlowBody()
+    try:
+        client = HttpCommandClient(f"http://127.0.0.1:{server.port}", BEARER, allow_http=True)
+        client._timeout = 0.5
+        started = time.monotonic()
+        with pytest.raises(ClientError) as failed:
+            asyncio.run(client.heartbeat())
+        assert failed.value.code == "NETWORK_ERROR"
+        assert time.monotonic() - started < 2.0, "ожидание не прекращено к сроку"
+        assert server.wait_disconnects(1, 3.0), "клиент не разорвал соединение при чтении тела"
+    finally:
+        server.close()
+
+
+def test_slow_response_bodies_do_not_starve_healthy_requests(
+    http: HttpHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Регрессия P2: зависшие тела не занимают весь пул до исчерпания потоков.
+
+    Пока оба потока изолированного пула держат медленные тела, запрос к исправному
+    центру обязан получить поток к сроку их разрыва (slow-таймаут 0.5с) в пределах
+    своего большого запаса (5с). Иначе heartbeat, продление lease и ACK падали бы из-за
+    нехватки потоков, а не из-за состояния центра. Пул подменяется на изолированный,
+    чтобы тест не зависел от общего пула и утечки потоков между тестами.
+    """
+    import agent.runtime.executor.client as client_module
+
+    pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="test-http")
+    monkeypatch.setattr(client_module, "_HTTP_WORKERS", pool)
+    server = SlowBody()
+    http.replies["/agent/v1/commands/claim"] = (200, {"command": None})
+
+    async def scenario() -> object:
+        slow = HttpCommandClient(f"http://127.0.0.1:{server.port}", BEARER, allow_http=True)
+        slow._timeout = 0.5
+        stuck = [asyncio.ensure_future(slow.claim()) for _ in range(2)]
+        await asyncio.sleep(0.2)  # дать зависшим телам занять оба потока пула
+        result = await http.client(timeout=5.0).claim()
+        for task in stuck:
+            with contextlib.suppress(ClientError):
+                await task
+        return result
+
+    try:
+        assert asyncio.run(asyncio.wait_for(scenario(), 6.0)) is None
+    finally:
+        server.close()
+        pool.shutdown(wait=False)

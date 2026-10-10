@@ -134,6 +134,76 @@ describe('живая лента (F10–F12)', () => {
     expect(screen.queryByRole('button', { name: 'Показать ещё' })).toBeNull();
   });
 
+  it('422 на «Показать ещё»: история перечитывается с первой страницы, с пометкой', async () => {
+    const user = userEvent.setup();
+    for (let i = 0; i < 55; i++) publish(ev(`stale-${i}`));
+    open('/events', controlledStream().create);
+    await screen.findAllByTestId('event-row');
+    let firstPages = 0;
+    server.use(http.get('/api/v1/events', ({ request }) => {
+      if (new URL(request.url).searchParams.get('cursor')) return HttpResponse.json({ detail: 'Курсор не принимается' }, { status: 422 });
+      firstPages++;
+      return undefined;
+    }));
+    await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    expect(await screen.findByText('Список событий обновлён — загружен заново.')).toBeInTheDocument();
+    await waitFor(() => expect(rows()).toHaveLength(50));
+    expect(firstPages).toBe(1);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('422 на «Показать ещё» на паузе: показанный live остаётся, очередь паузы не появляется сама', async () => {
+    const user = userEvent.setup();
+    for (let i = 0; i < 55; i++) publish(ev(`keep-${i}`));
+    const s = controlledStream();
+    open('/events', s.create);
+    await screen.findByText('онлайн');
+    await screen.findAllByTestId('event-row');
+    publish(ev('shown')); s.send(ev('shown'));
+    await screen.findByText('cmd-shown');
+    await user.click(screen.getByRole('button', { name: '⏸ Пауза' }));
+    publish(ev('waiting')); s.send(ev('waiting'));
+    server.use(http.get('/api/v1/events', ({ request }) => (new URL(request.url).searchParams.get('cursor')
+      ? HttpResponse.json({ detail: 'Курсор не принимается' }, { status: 422 }) : undefined)));
+    await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    await screen.findByText('Список событий обновлён — загружен заново.');
+    await waitFor(() => expect(screen.getByText('cmd-shown')).toBeInTheDocument());
+    expect(screen.queryByText('cmd-waiting')).toBeNull();
+    expect(screen.getByRole('button', { name: '1 новых — показать' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '▶ Продолжить' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('повторный 422 после автоматического перечитывания — ошибка, а не новый сброс', async () => {
+    const user = userEvent.setup();
+    for (let i = 0; i < 55; i++) publish(ev(`again-${i}`));
+    open('/events', controlledStream().create);
+    await screen.findAllByTestId('event-row');
+    let firstPages = 0;
+    server.use(http.get('/api/v1/events', ({ request }) => {
+      if (new URL(request.url).searchParams.get('cursor')) return HttpResponse.json({ detail: 'Курсор не принимается' }, { status: 422 });
+      firstPages++;
+      return undefined;
+    }));
+    await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    await screen.findByText('Список событий обновлён — загружен заново.');
+    await waitFor(() => expect(rows()).toHaveLength(50));
+    await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Курсор не принимается');
+    expect(firstPages).toBe(1);
+  });
+
+  it('история в порядке центра: received_at, затем event_id по убыванию', async () => {
+    const t = '2026-10-10T09:00:00.000Z';
+    publish(ev('ord-a', { received_at: t }));
+    publish(ev('ord-c', { received_at: t }));
+    publish(ev('ord-b', { received_at: '2026-10-10T08:00:00.000Z' }));
+    open('/events?type=session.command', controlledStream().create);
+    await screen.findByText('cmd-ord-a');
+    const order = rows().map((r) => r.textContent ?? '').filter((t) => t.includes('cmd-ord-')).map((t) => /cmd-(ord-\w)/.exec(t)![1]);
+    expect(order.indexOf('ord-c')).toBeLessThan(order.indexOf('ord-a'));
+    expect(order.indexOf('ord-a')).toBeLessThan(order.indexOf('ord-b'));
+  });
+
   it('догрузка стабильного снимка на паузе сохраняет ранее показанный live', async () => {
     const user = userEvent.setup();
     for (let i = 0; i < 55; i++) publish(ev(`history-${i}`));
@@ -216,4 +286,25 @@ describe('живая лента (F10–F12)', () => {
       expect(stream.currentCursor).toBe('11');
     } finally { release(); }
   });
+});
+it('повтор после 422 и ошибки REST сохраняет очередь паузы', async () => {
+  vi.stubEnv('VITE_API_MOCK','1'); resetMockSession(true);
+  const pending=ev('review-retry'); let expired=false; let fail=true;
+  server.use(http.get('/api/v1/events',({request})=>{
+    if(new URL(request.url).searchParams.has('cursor')) {expired=true;return HttpResponse.json({detail:'expired'},{status:422});}
+    if(expired && fail) return HttpResponse.json({detail:'temporary recovery error'},{status:503});
+    return HttpResponse.json({items:expired?[pending,ev('old')]:[ev('old')],next_cursor:'expired'});
+  }));
+  const s=controlledStream(); const user=userEvent.setup();const client=makeQueryClient();client.setDefaultOptions({queries:{retry:false}});
+  window.history.pushState({},'','/events');render(<App client={client} createStream={s.create}/>);
+  await screen.findByText('онлайн');await screen.findByText('cmd-old');
+  await user.click(screen.getByRole('button',{name:'⏸ Пауза'}));s.send(pending);
+  expect(screen.getByRole('button',{name:'1 новых — показать'})).toBeInTheDocument();
+  await user.click(screen.getByRole('button',{name:'Показать ещё'}));
+  await waitFor(()=>expect(screen.getAllByRole('button',{name:'Повторить'})).toHaveLength(1));
+  expect(screen.getByRole('button',{name:'1 новых — показать'})).toBeInTheDocument();
+  fail=false;await user.click(screen.getAllByRole('button',{name:'Повторить'})[0]!);
+  await waitFor(()=>expect(screen.queryAllByRole('button',{name:'Повторить'})).toHaveLength(0));
+  expect(screen.queryByText('cmd-review-retry')).toBeNull();
+  expect(screen.getByRole('button',{name:'1 новых — показать'})).toBeInTheDocument();
 });

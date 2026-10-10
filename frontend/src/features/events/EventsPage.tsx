@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
-import { api } from '../../shared/api/client';
+import { api, ApiError } from '../../shared/api/client';
 import { EVENT_TYPES, eventKey, type Deployment, type HfEvent } from '../../shared/api/types';
 import { formatTime } from '../../shared/format/time';
 import { useStreamEvents, useStreamResync } from '../../shared/stream/stream';
@@ -37,7 +37,9 @@ export function EventsPage() {
   const buffer = useRef(new FeedBuffer());
   const [, rerender] = useState(0);
   const [resyncing, setResyncing] = useState(false);
-  const [resyncError, setResyncError] = useState<string | null>(null);
+  // Ошибка хранит режим запроса: повтор восстановления курсора не должен
+  // превращаться в полный сброс live и очереди паузы.
+  const [resyncError, setResyncError] = useState<{ message: string; keepWindow: boolean } | null>(null);
   const refresh = () => rerender((n) => n + 1);
 
   // Новая выборка не наследует live и pending предыдущих фильтров.
@@ -55,7 +57,9 @@ export function EventsPage() {
 
   // Старый запрос/курсор снимка не переиспользуем после hello или overflow.
   // StreamClient ждёт завершения этого Promise и буферизует новый live.
-  const reloadHistory = useCallback(async () => {
+  // keepWindow: перечитать только REST-историю, сохранив показанные live и
+  // очередь паузы (422 курсора — данные потока не устарели, в отличие от resync).
+  const reloadHistoryWith = useCallback(async (keepWindow: boolean) => {
     setResyncing(true);
     setResyncError(null);
     try {
@@ -64,19 +68,40 @@ export function EventsPage() {
       qc.setQueryData<InfiniteData<EventsResponse>>(queryKey, (old) => old
         ? { pages: old.pages.slice(0, 1), pageParams: [null] }
         : old);
-      buffer.current.loadPage([], false);
+      if (!keepWindow) buffer.current.loadPage([], false);
       await pages.refetch({ throwOnError: true });
     } catch (err) {
-      setResyncError(err instanceof Error ? err.message : 'Не удалось обновить историю');
+      setResyncError({ message: err instanceof Error ? err.message : 'Не удалось обновить историю', keepWindow });
       throw err;
     } finally {
       setResyncing(false);
       rerender((n) => n + 1);
     }
   }, [qc, key, pages.refetch]);
+  const reloadHistory = useCallback(() => reloadHistoryWith(false), [reloadHistoryWith]);
   useStreamResync(reloadHistory);
 
   const recoverOverflow = () => { void reloadHistory().catch(() => {}); };
+
+  // 422 на следующей странице: курсор снимка больше не принимается — перечитать с
+  // начала, но автоматически один раз. Повторный 422 — ошибка: неверные фильтры
+  // перечитыванием не исправить. Новая выборка или успешная страница снимают отметку.
+  const [restarted, setRestarted] = useState(false);
+  const autoReset = useRef(false);
+  useEffect(() => { setRestarted(false); autoReset.current = false; }, [key]);
+  const loadMore = async () => {
+    setRestarted(false);
+    const r = await pages.fetchNextPage();
+    if (!(r.error instanceof ApiError && r.error.status === 422)) {
+      if (!r.error) autoReset.current = false;
+      return;
+    }
+    // Повтор: остаётся ошибка запроса с кнопкой «Повторить».
+    if (autoReset.current) return;
+    autoReset.current = true;
+    setRestarted(true);
+    await reloadHistoryWith(true).catch(() => {});
+  };
 
   const onLive = useCallback((events: HfEvent[]) => {
     const fit = events.filter((e) => matches(e, filters));
@@ -117,9 +142,10 @@ export function EventsPage() {
         {b.overflow > 0 && <p role="alert">Буфер паузы переполнен: {b.overflow} событий требуют повторной загрузки.{' '}
           <button className={ui.button} disabled={resyncing} onClick={recoverOverflow}>Обновить историю</button>
         </p>}
-        {resyncError && <ErrorState message={resyncError} onRetry={recoverOverflow} />}
+        {restarted && <p role="status">Список событий обновлён — загружен заново.</p>}
+        {resyncError && <ErrorState message={resyncError.message} onRetry={() => void reloadHistoryWith(resyncError.keepWindow).catch(() => {})} />}
         {pages.isPending || resyncing ? <Loading what="события" />
-          : pages.isError ? <ErrorState message={pages.error.message} onRetry={() => void pages.refetch()} />
+          : pages.isError ? (resyncError ? null : <ErrorState message={pages.error.message} onRetry={() => void pages.refetch()} />)
           : !b.events.length ? <Empty>{key ? 'Под фильтры ничего не подходит.' : 'Событий пока нет — ловушки ждут гостей.'}</Empty>
           : (
             <table className={ui.table}>
@@ -140,7 +166,7 @@ export function EventsPage() {
           )}
         {pages.hasNextPage && (
           <p className={s.more}>
-            <button className={ui.button} disabled={pages.isFetchingNextPage || resyncing} onClick={() => void pages.fetchNextPage()}>
+            <button className={ui.button} disabled={pages.isFetchingNextPage || resyncing} onClick={() => void loadMore()}>
               {pages.isFetchingNextPage ? 'Загружаем…' : 'Показать ещё'}
             </button>
           </p>

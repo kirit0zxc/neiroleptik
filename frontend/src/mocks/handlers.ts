@@ -7,6 +7,7 @@ import auditFixture from '../../../contracts/fixtures/audit.draft.json';
 import type { HfEvent, InteractionLevel, Profile, ProfileConfigInput, ProfileConfigPublic, Revision } from '../shared/api/types';
 import { currentDeployments, jobHandlers, resetMockJobs } from './jobs';
 import { publishedEvents, resetMockStream, streamHandlers } from './stream';
+import { replayHandlers } from './replay';
 
 /**
  * Моки API по контракту `openapi.json` и фикстурам из `contracts/`.
@@ -81,7 +82,10 @@ export const handlers = [
     const q = new URL(request.url).searchParams;
     const from = q.get('from'); const to = q.get('to');
     const filter = JSON.stringify(['deployment_id', 'type', 'source_ip', 'from', 'to'].map((key) => q.get(key)));
-    const all = [...publishedEvents()].reverse().filter((e) =>
+    // Порядок центра: received_at DESC, event_id DESC, agent_id DESC.
+    const desc = (a: string, b: string) => (a < b ? 1 : a > b ? -1 : 0);
+    const all = [...publishedEvents()].sort((a, b) => Date.parse(b.received_at) - Date.parse(a.received_at)
+      || desc(a.event_id, b.event_id) || desc(a.agent_id, b.agent_id)).filter((e) =>
       (!q.get('deployment_id') || e.deployment_id === q.get('deployment_id'))
       && (!q.get('type') || e.type === q.get('type'))
       && (!q.get('source_ip') || e.source.ip === q.get('source_ip'))
@@ -110,6 +114,7 @@ export const handlers = [
     return HttpResponse.json({ items, next_cursor: next });
   }),
   ...streamHandlers,
+  ...replayHandlers,
 
   // Журнал аудита (AuditRead): только admin, новые сверху, limit/offset.
   http.get('/api/v1/audit', ({ request }) => {
@@ -124,16 +129,25 @@ export const handlers = [
   // Сводка обзора — по текущему состоянию моков (превью этапа 4).
   http.get('/api/v1/analytics/summary', () => {
     const deps = currentDeployments();
-    const hourAgo = Date.now() - 3600_000;
-    const recent = publishedEvents().filter((e) => Date.parse(e.occurred_at) >= hourAgo);
+    // Окно [as_of − 1 ч, as_of) по occurred_at (согласовано с участником 4).
+    const asOf = Date.now();
+    const hourAgo = asOf - 3600_000;
+    const recent = publishedEvents().filter((e) => { const t = Date.parse(e.occurred_at); return t >= hourAgo && t < asOf; });
     const counts = new Map<string, number>();
     for (const e of recent) counts.set(e.source.ip, (counts.get(e.source.ip) ?? 0) + 1);
     return HttpResponse.json({
       deployments: { total: deps.length, running: deps.filter((d) => d.state === 'running').length, failed: deps.filter((d) => d.state === 'failed').length },
-      hosts: { total: hosts.length, online: hosts.filter((h) => h.status === 'online').length, offline: hosts.filter((h) => h.status !== 'online').length },
+      as_of: new Date(asOf).toISOString(),
+      hosts: {
+        total: hosts.length,
+        online: hosts.filter((h) => h.status === 'online').length,
+        offline: hosts.filter((h) => h.status === 'offline').length,
+        revoked: hosts.filter((h) => h.status === 'revoked').length,
+      },
       events_last_hour: recent.length,
       alerts_open: 1,
-      top_sources: [...counts].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([ip, count]) => ({ ip, count })),
+      // Равные счётчики — стабильно по IP.
+      top_sources: [...counts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).slice(0, 5).map(([ip, count]) => ({ ip, count })),
     });
   }),
 

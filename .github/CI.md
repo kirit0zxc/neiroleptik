@@ -1,6 +1,10 @@
 # CI и pull request
 
-CI запускается для каждого PR в `main`, push в `main` и вручную из Actions.
+CI запускается для каждого PR независимо от базовой ветки, push в `main` и вручную
+из Actions. Для стопки PR проверяются и промежуточные базы (`VM_trap`,
+`feat/runtime-drivers`); изменение базы PR (`edited`) и перевод из черновика
+(`ready_for_review`) также запускают проверки. После смены базы дождись результата
+для нового сочетания коммитов — прежняя зелёная проверка его не подтверждает.
 Backend обязателен: отсутствие файлов или пропуск job не дают зелёный `CI result`.
 
 ## Проверки репозитория
@@ -35,6 +39,20 @@ CI использует одноразовые тестовые ключи и Б
 Файл результатов pytest: `backend/test-results.xml` в рабочей директории job;
 полный вывод доступен в шаге Actions.
 
+## Проверки runtime
+
+Job `Runtime checks` проверяет код runtime и ловушек: `agent`, `honeypots`, `infra`
+и `tests`. Python 3.12, зависимости и версии инструментов из общего `uv.lock`
+(`uv sync --frozen`). Выполняются Ruff (ошибки и форматирование), строгий mypy,
+pytest по каталогу `tests`, кроме `tests/telemetry` (их запускает задача телеметрии), сборка
+wheel (`uv build --wheel`) и `docker compose -f compose.runtime.yml config --quiet`.
+Последняя команда проверяет только синтаксис Compose-конфигурации: контейнеры не
+запускаются. Root-конфигурация Ruff исключает `backend`, `frontend` и `scripts`,
+чтобы они проверялись только своими конфигурациями.
+
+Зелёный `Runtime checks` не доказывает работу KVM, Cowrie, Docker, сетевую изоляцию и
+интеграцию с центром: такие проверки требуют отдельного живого стенда.
+
 ## Frontend
 
 В текущем проекте frontend присутствует: CI выполняет `npm ci`, `typecheck`,
@@ -47,8 +65,8 @@ Playwright E2E пока запускается локально; обязате�
 
 ## Ревью
 
-Обязательный итоговый check: `CI result`. Он требует успешных repository/backend
-и frontend, когда последний присутствует. Ошибка, отмена или неожиданный пропуск
+Обязательный итоговый check: `CI result`. Он требует успешных repository, backend,
+telemetry и runtime, а также frontend, когда последний присутствует. Ошибка, отмена или неожиданный пропуск
 проверок блокируют итоговый check. Проверка ветки самим GitHub зависит от настроенных
 rulesets/branch protection; этот файл не устанавливает защиту ветки.
 
@@ -59,6 +77,6 @@ rulesets/branch protection; этот файл не устанавливает з
 ## Agent telemetry checks
 
 Обязательная job телеметрии устанавливает корневой uv.lock на Python 3.12,
-запускает Ruff, mypy, pytest для tests/telemetry, сверку входных JSON Schema
+запускает Ruff, mypy, pytest (весь каталог tests), сверку входных JSON Schema
 и синтетическое offline-демо. PostgreSQL этим набором не проверяется.
-Итоговый CI result также требует успешной telemetry job.
+Итоговый CI result также требует успешных telemetry и runtime job.

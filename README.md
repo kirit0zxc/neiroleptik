@@ -52,6 +52,65 @@ uv run --env-file ../.env --frozen uvicorn honeyforge.main:create_app --factory 
 Остановите контейнер `api`, если его порт уже занят. После изменения API обновляйте
 контракт командой `uv run --frozen python -m honeyforge.cli export-openapi`.
 
+## Runtime ловушек (участник 3)
+
+Реализуется локальный блок D1: ограниченная Low-ловушка, журнал команд и
+неразрушающий preflight Linux/KVM. Клиент центра, Medium и High в runtime пока не
+реализованы; локальные тесты не подтверждают сквозной сценарий или изоляцию
+реальной VM. Код runtime и образ Low не имеют зависимостей времени выполнения
+(pydantic нужен только телеметрии).
+
+Runtime использует тот же корневой проект `honeyforge-agent`, что и телеметрия
+([агент](agent/README.md)): Python 3.12, uv 0.11.28, инструменты из `uv.lock`.
+Команды выполняются из корня репозитория:
+
+```sh
+uv sync --frozen
+uv run --frozen pytest
+uv run --frozen ruff check agent honeypots infra tests
+uv run --frozen ruff format --check agent honeypots infra tests
+uv run --frozen mypy
+uv build --wheel
+docker compose -f compose.runtime.yml config --quiet
+```
+
+Backend проверяется отдельно командами из раздела выше.
+
+### Low на локальном компьютере
+
+```sh
+uv run --frozen python -m honeypots.low
+```
+
+По умолчанию сервис доступен только на loopback: TCP 2222 и HTTP 8080.
+Журнал JSONL выводится в stdout; это диагностический формат, не согласованный
+Event центра и не устойчивый spool. Ctrl-C завершает сервис.
+
+При работающем Docker Engine:
+
+```text
+docker compose -f compose.runtime.yml config --quiet
+docker compose -f compose.runtime.yml up --build
+```
+
+Compose настроен публиковать TCP 13222 и HTTP 18080 только на 127.0.0.1; контейнер
+ограничен по ресурсам и подключён к сети с `internal: true`. Запуск этой
+конфигурации в Docker не проверялся: неизвестно, публикует ли Docker порты для
+контейнера, подключённого только к внутренней сети. Это локальная конфигурация
+разработки; изоляцию хоста и будущего runtime-сервера необходимо отдельно проверить.
+
+### Проверка будущего runtime-хоста
+
+```sh
+uv run --frozen python -m infra.vm.preflight
+```
+
+Команда ничего не создаёт и не изменяет. Linux/KVM/libvirt проверяются статически;
+создание VM, права на изменение сети и матрица изоляции требуют отдельного smoke.
+На Windows ожидается отчёт о неподдерживаемой платформе и ненулевой код возврата.
+
+Сроки сохраняются: D1–D5, 30 человеко-часов (10 / 12 / 8).
+
 ## Документация и интеграция
 
 - [Архитектура](specs/architecture.md), [Control API](specs/control-plane.md).
@@ -59,6 +118,10 @@ uv run --env-file ../.env --frozen uvicorn honeyforge.main:create_app --factory 
 - [Frontend: сессии, stream и replay](specs/frontend-protocol-v1.md).
 - [Передача интерфейсов участникам](specs/integration-handoff.md).
 - [Серверный стенд](specs/server-checklist.md), [CI](.github/CI.md).
+- Runtime: [требования D1](specs/runtime-d1.md),
+  [предложения общих контрактов](specs/runtime-contract-proposal.md) (ожидают
+  согласования участников 2 и 4), [подготовка runtime и Cowrie spike](infra/runtime/README.md).
+- Правила изменений, ревью и человеческого одобрения: [AGENTS.md](AGENTS.md).
 
 OpenAPI описывает реализованный control API. События, stream и replay — проект
 контракта для согласования с участником телеметрии. Для этих экранов frontend

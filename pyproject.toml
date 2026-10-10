@@ -1,7 +1,7 @@
 [project]
 name = "honeyforge-agent"
 version = "0.1.0"
-description = "Локальная телеметрия агента HoneyForge"
+description = "Агент HoneyForge: локальная телеметрия, runtime ловушек и диагностика хоста"
 requires-python = ">=3.12,<3.13"
 dependencies = ["pydantic==2.14.0"]
 
@@ -13,15 +13,17 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["agent"]
+packages = ["agent", "honeypots", "infra"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/telemetry"]
+testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+# backend, frontend и scripts проверяются своими конфигурациями и задачами CI.
+extend-exclude = ["build", "backend", "frontend", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
@@ -30,4 +32,4 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["agent"]
+files = ["agent", "honeypots", "infra"]

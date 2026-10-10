@@ -1,0 +1,39 @@
+name: honeyforge-runtime
+
+services:
+  low:
+    build:
+      context: .
+      dockerfile: honeypots/low/Dockerfile
+    image: honeyforge-low:local
+    command: ["--host", "0.0.0.0", "--tcp-port", "2222", "--http-port", "8080"]
+    ports:
+      - "127.0.0.1:13222:2222"
+      - "127.0.0.1:18080:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    init: true
+    networks: [low]
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s=socket.create_connection(('127.0.0.1',2222),2); assert s.recv(128); s.close(); h=socket.create_connection(('127.0.0.1',8080),2); h.sendall(b'HEAD / HTTP/1.0\\r\\n\\r\\n'); assert h.recv(128).startswith(b'HTTP/1.1 200'); h.close()"
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+networks:
+  low:
+    internal: true

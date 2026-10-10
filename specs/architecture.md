@@ -116,7 +116,17 @@ SQLite WAL карантин. QuarantineEntry — отдельный снимок
 Low JSONL предложен для согласования, реальный журнал ещё не проверен.
 Следующий шаг: ingest в backend/src/honeyforge/telemetry с общей DB/auth,
 ACK после PostgreSQL commit, outbox/publisher, минимальный WS; затем реальный
-Low → БД → UI. HTTP sender, backoff и квоты пока не реализованы.
+Low → БД → UI. HTTP sender и backoff описаны ниже; квоты пока не реализованы.
+
+`agent/telemetry/sender.py`: HttpBatchTransport отправляет Batch напрямую в центр
+по HTTPS (HTTP только loopback), без proxy/redirect, с таймаутом и лимитом ответа.
+TelemetrySender читает снимок spool, проверяет полный ACK, применяет его атомарно
+и назначает экспоненциальный backoff с jitter/Retry-After. 401/403 и неожиданные
+HTTP-статусы приостанавливают доставку; события остаются на диске.
+`agent/telemetry/deliver.py`: CLI существующего spool, token из HF_AGENT_TOKEN,
+один sender на очередь. Сбор файлового Low и серверный ingest подключаются отдельно.
+Тесты используют настоящий loopback HTTP и сценарии обрыва/повтора, но не
+доказывают PostgreSQL commit, наличие работающего ingress или живую ленту.
 
 Следующие серверные модули пока только спроектированы, endpoints и миграций нет:
 

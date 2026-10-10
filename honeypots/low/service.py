@@ -5,6 +5,7 @@ import base64
 import re
 from datetime import UTC, datetime
 from functools import partial
+from uuid import uuid4
 
 from honeypots.low.config import LowConfig
 from honeypots.low.events import EventSink
@@ -27,6 +28,8 @@ class LowService:
         self._tasks: set[asyncio.Task[None]] = set()
         self._lock = asyncio.Lock()
         self._stopping = True
+        self._seq = 0
+        self._connection_ids: dict[asyncio.StreamWriter, str] = {}
         self.last_error: Exception | None = None
 
     @property
@@ -97,6 +100,7 @@ class LowService:
         await asyncio.gather(*tasks, return_exceptions=True)
         self._writers.clear()
         self._tasks.clear()
+        self._connection_ids.clear()
 
     def _accept(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, protocol: str
@@ -106,6 +110,7 @@ class LowService:
             writer.close()
             return
         self._writers.add(writer)
+        self._connection_ids[writer] = str(uuid4())
         task = asyncio.create_task(self._handle(reader, writer, protocol))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -132,11 +137,19 @@ class LowService:
                 writer.transport.abort()
             finally:
                 self._writers.discard(writer)
+                self._connection_ids.pop(writer, None)
 
     def _emit(self, kind: str, protocol: str, writer: asyncio.StreamWriter, payload: bytes) -> None:
         """Кодирует недоверенные байты, не вставляя их в строки журнала как текст."""
         peer = writer.get_extra_info("peername")
+        self._seq += 1
+        bound = writer.get_extra_info("sockname")
+        public_port = getattr(self.config, f"{protocol}_public_port")
+        port = public_port if public_port is not None else int(bound[1])
         event: dict[str, object] = {
+            "seq": self._seq,
+            "connection_id": self._connection_ids[writer],
+            "service": {"protocol": protocol, "port": port},
             "event": kind,
             "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "protocol": protocol,

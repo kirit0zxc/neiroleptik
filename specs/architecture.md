@@ -171,3 +171,16 @@ contracts/openapi.json: имена и форма полей совпадают �
 pending; переполнение pending требует свежего снимка. StreamClient получает
 новый hello до пересинхронизации и ожидает её Promise, буферизуя live.
 Моки используют разные курсоры истории и журнала согласно общему протоколу.
+
+### Восстановление runtime Low
+
+`agent/runtime/contract.py` разбирает текущий AgentConfigRead, изолирует ошибки
+назначений и скрывает секреты в диагностике. `drivers/base.py` сериализует lifecycle;
+`infra/process.py` ограничивает время и вывод Docker CLI и preflight.
+LowService выдаёт seq, connection_id и service по low-journal-v1, а CLI связывает
+публичные порты и файловый журнал с параметрами LowDriver. Локальный smoke
+infra.runtime.sample_low_journal запускает настоящий процесс и сохраняет образец.
+CommandJournal хранит целевые поколения команд центра, включая stop/failed и
+пропущенные недоставленные команды; старый журнал требует явной миграции.
+Сетевой исполнитель команд, преобразователь нового журнала в Event v1 и реальные
+Docker/KVM/High остаются отдельными этапами; loopback smoke их не подтверждает.

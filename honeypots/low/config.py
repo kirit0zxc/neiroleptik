@@ -12,6 +12,8 @@ class LowConfig:
     host: str = "127.0.0.1"
     tcp_port: int = 2222
     http_port: int = 8080
+    tcp_public_port: int | None = None
+    http_public_port: int | None = None
     banner: str = "SSH-2.0-HoneyForge\r\n"
     http_body: str = "Service available\n"
     read_timeout: float = 2.0
@@ -30,6 +32,10 @@ class LowConfig:
             self._integer(name, value, 0, 65535)
         if self.tcp_port and self.tcp_port == self.http_port:
             raise ValueError("Ненулевые TCP- и HTTP-порты должны различаться")
+        for name in ("tcp_public_port", "http_public_port"):
+            value = getattr(self, name)
+            if value is not None:
+                self._integer(name, value, 1, 65535)
         self._integer("max_input_bytes", self.max_input_bytes, 1, 65536)
         self._integer("max_connections", self.max_connections, 1, 1024)
         if (

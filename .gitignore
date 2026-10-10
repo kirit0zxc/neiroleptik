@@ -47,3 +47,6 @@ Thumbs.db
 # Локальные журналы и sidecar SQLite
 *.sqlite3-wal
 *.sqlite3-shm
+
+# Временные каталоги pytest с артефактами локальных проверок
+.pytest-tmp*/

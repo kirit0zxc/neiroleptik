@@ -98,21 +98,21 @@ def test_start_reset_stop_and_failure_preserve_expected_metadata(tmp_path: Path)
         failed = journal.finish(
             failed_reset.command_id, CommandStatus.FAILED, result={"code": "EVIDENCE_SEAL_FAILED"}
         )
-        assert failed.generation == 1
+        assert failed.generation == 2
         assert failed.instance_id == first_instance
-        assert journal.state == RuntimeState(1, first_instance)
-        reset = command(CommandAction.RESET, 1)
+        assert journal.state == RuntimeState(2, first_instance)
+        reset = command(CommandAction.RESET, 2)
         journal.accept(reset)
         with pytest.raises(ValueError, match="использовался"):
             journal.finish(reset.command_id, CommandStatus.SUCCEEDED, instance_id=first_instance)
         assert journal.pending is not None
         journal.finish(reset.command_id, CommandStatus.SUCCEEDED, instance_id=second_instance)
-        stop = command(CommandAction.STOP, 2)
+        stop = command(CommandAction.STOP, 3)
         journal.accept(stop)
         stopped = journal.finish(stop.command_id, CommandStatus.SUCCEEDED)
-        assert stopped.generation == 2
+        assert stopped.generation == 4
         assert stopped.instance_id == second_instance
-        assert journal.state == RuntimeState(2, second_instance)
+        assert journal.state == RuntimeState(4, second_instance)
         assert journal.pending is None
 
 
@@ -186,7 +186,7 @@ def test_failed_result_is_immutable_and_payload_is_snapshotted(tmp_path: Path) -
         with pytest.raises(JournalError) as error:
             journal.finish(request.command_id, CommandStatus.SUCCEEDED, instance_id=str(uuid4()))
         assert error.value.code is JournalErrorCode.RESULT_CONFLICT
-        assert journal.state == RuntimeState(0, None)
+        assert journal.state == RuntimeState(1, None)
 
 
 @pytest.mark.parametrize("generation", [-1, True, False, 1.5, "0", 2**63])
@@ -352,17 +352,65 @@ def test_huge_integers_are_rejected_before_serialisation(tmp_path: Path) -> None
     assert time.monotonic() - started < 5.0
 
 
-def test_a_future_generation_is_also_stale(tmp_path: Path) -> None:
+def test_skipped_undelivered_generations_are_accepted(tmp_path: Path) -> None:
+    """Команда могла истечь в очереди центра, не попав в локальный журнал."""
     with CommandJournal(tmp_path / "commands.sqlite") as journal:
-        with pytest.raises(JournalError) as error:
-            journal.accept(command(generation=5))
-        assert error.value.code is JournalErrorCode.STALE_GENERATION
-        assert journal.pending is None
+        accepted = journal.accept(command(generation=5))
+        assert accepted.generation == 6
+        journal.finish(accepted.command_id, CommandStatus.FAILED)
+        assert journal.state.generation == 6
 
 
-def test_stale_generation_is_reported_before_busy(tmp_path: Path) -> None:
+def test_pending_command_blocks_even_a_newer_generation(tmp_path: Path) -> None:
     with CommandJournal(tmp_path / "commands.sqlite") as journal:
         journal.accept(command())
         with pytest.raises(JournalError) as error:
             journal.accept(command(generation=3))
-        assert error.value.code is JournalErrorCode.STALE_GENERATION
+        assert error.value.code is JournalErrorCode.BUSY
+
+
+def test_start_stop_start_matches_center_generations(tmp_path: Path) -> None:
+    """Регрессия: stop обязан продвигать обработанное поколение команды."""
+    with CommandJournal(tmp_path / "commands.sqlite") as journal:
+        for index, action in enumerate(
+            (CommandAction.START, CommandAction.STOP, CommandAction.START)
+        ):
+            request = command(action, index)
+            journal.accept(request)
+            result = journal.finish(
+                request.command_id,
+                CommandStatus.SUCCEEDED,
+                instance_id=None if action == CommandAction.STOP else str(uuid4()),
+            )
+            assert result.generation == index + 1
+
+
+def test_target_generation_must_match_the_center_command(tmp_path: Path) -> None:
+    with CommandJournal(tmp_path / "commands.sqlite") as journal:
+        with pytest.raises(ValueError):
+            journal.accept(Command(str(uuid4()), CommandAction.START, 0, {}, 7))
+        assert journal.pending is None
+
+
+def test_old_nonempty_journal_requires_explicit_migration(tmp_path: Path) -> None:
+    path = tmp_path / "commands.sqlite"
+    with CommandJournal(path) as journal:
+        journal.accept(command())
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA user_version = 0")
+    with pytest.raises(ValueError, match="миграции"):
+        CommandJournal(path)
+
+
+@pytest.mark.parametrize("version", [0, 2])
+def test_incomplete_old_schema_is_rejected_before_use(tmp_path: Path, version: int) -> None:
+    """Регрессия: пустая старая таблица не обновлялась CREATE TABLE IF NOT EXISTS."""
+    path = tmp_path / "old.sqlite"
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE commands (command_id TEXT PRIMARY KEY)")
+        connection.execute(f"PRAGMA user_version = {version}")
+    with pytest.raises(ValueError, match="миграции"):
+        CommandJournal(path)
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == version
+        assert connection.execute("SELECT count(*) FROM commands").fetchone()[0] == 0

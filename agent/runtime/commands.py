@@ -63,6 +63,7 @@ class Command:
     action: CommandAction
     expected_generation: int
     payload: object = field(default_factory=dict)
+    generation: int | None = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +172,28 @@ class CommandJournal:
         try:
             self._db.execute("PRAGMA synchronous = FULL")
             with self._transaction():
+                version = self._db.execute("PRAGMA user_version").fetchone()[0]
+                existing_table = self._db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='commands'"
+                ).fetchone()
+                if version not in (0, 2) or (existing_table and version != 2):
+                    raise ValueError("Старый журнал требует сверки и отдельной миграции")
+                if existing_table:
+                    columns = {row[1] for row in self._db.execute("PRAGMA table_info(commands)")}
+                    required = {
+                        "command_id",
+                        "action",
+                        "expected_generation",
+                        "payload_json",
+                        "status",
+                        "result_json",
+                        "generation",
+                        "instance_id",
+                        "completion_instance_id",
+                    }
+                    if not required <= columns:
+                        raise ValueError("Схема журнала требует отдельной миграции")
+                self._db.execute("PRAGMA user_version = 2")
                 self._db.execute("""
                     CREATE TABLE IF NOT EXISTS runtime_state (
                         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -259,12 +282,15 @@ class CommandJournal:
         """Принимает команду: сначала повтор по ID, затем поколение и занятость слота.
 
         Повтор с тем же содержанием возвращает прежнюю запись, с другим — COMMAND_CONFLICT.
-        Устаревшее поколение даёт STALE_GENERATION, незавершённая операция — BUSY. Принятие
-        записывается до возврата и поколение не меняет.
+        Поколение ниже обработанного даёт STALE_GENERATION, незавершённая операция — BUSY. Принятие
+        записывается до возврата; обработанное поколение меняется при finish.
         """
         command_id = _uuid(command.command_id)
         action = CommandAction(command.action)
         generation = _generation(command.expected_generation)
+        target = _generation(generation + 1 if command.generation is None else command.generation)
+        if target != generation + 1:
+            raise ValueError("generation команды должна быть expected_generation + 1")
         payload = _canonical_json(command.payload)
         with self._transaction():
             existing = self.get(command_id)
@@ -277,7 +303,7 @@ class CommandJournal:
                     raise JournalError(JournalErrorCode.COMMAND_CONFLICT)
                 return existing
             state = self.state
-            if generation != state.generation:
+            if generation < state.generation:
                 raise JournalError(JournalErrorCode.STALE_GENERATION)
             if self.pending is not None:
                 raise JournalError(JournalErrorCode.BUSY)
@@ -287,7 +313,7 @@ class CommandJournal:
                 (command_id, action, expected_generation, payload_json, status,
                  generation, instance_id) VALUES (?, ?, ?, ?, 'pending', ?, ?)
             """,
-                (command_id, action.value, generation, payload, generation, state.instance_id),
+                (command_id, action.value, generation, payload, target, state.instance_id),
             )
             return CommandRecord(
                 command_id,
@@ -296,7 +322,7 @@ class CommandJournal:
                 payload,
                 CommandStatus.PENDING,
                 None,
-                generation,
+                target,
                 state.instance_id,
             )
 
@@ -348,9 +374,11 @@ class CommandJournal:
                 ).fetchone()
                 if reused is not None or new_instance == state.instance_id:
                     raise ValueError("instance_id уже использовался")
-                state = RuntimeState(_generation(state.generation + 1), new_instance)
+                state = RuntimeState(record.generation, new_instance)
             elif new_instance is not None:
                 raise ValueError("stop и ошибка не создают instance_id")
+            else:
+                state = RuntimeState(record.generation, state.instance_id)
             self._db.execute(
                 """
                 UPDATE commands SET status = ?, result_json = ?, generation = ?,

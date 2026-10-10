@@ -1,34 +1,26 @@
-"""Запуск локальной приманки; внешний bind требуется указать явно."""
+"""Запуск приманки и файлового журнала с корректной остановкой."""
+
+from __future__ import annotations
 
 import argparse
 import asyncio
 import signal
 import sys
+from collections.abc import Callable, Sequence
+from pathlib import Path
 
 from honeypots.low import JsonLineEventSink, LowConfig, LowService
+from honeypots.low.events import EventSink
+from honeypots.low.journal import (
+    DEFAULT_FILE_BYTES,
+    DEFAULT_QUOTA_BYTES,
+    JournalSettings,
+    RotatingJournalSink,
+)
+
+READY_MARKER = "honeyforge-low: запущен"
 
 
-<<<<<<< Updated upstream
-async def _run(config: LowConfig) -> None:
-    """Завершает активные подключения при остановке процесса через поддерживаемые сигналы."""
-    service = LowService(config, JsonLineEventSink(sys.stdout))
-    stopping = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    handlers: list[signal.Signals] = []
-    for signum in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(signum, stopping.set)
-        except NotImplementedError:
-            continue
-        handlers.append(signum)
-    try:
-        await service.start()
-        await stopping.wait()
-    finally:
-        await service.stop()
-        for signum in handlers:
-            loop.remove_signal_handler(signum)
-=======
 def _install_stop_handlers(
     loop: asyncio.AbstractEventLoop, stopping: asyncio.Event
 ) -> Callable[[], None]:
@@ -97,27 +89,72 @@ async def _run(config: LowConfig, journal: JournalSettings | None) -> None:
         if journal_sink is not None:
             journal_sink.close()
         restore()
->>>>>>> Stashed changes
 
 
-def main() -> None:
-    """Преобразует только разрешённые аргументы CLI в проверяемую конфигурацию."""
-    parser = argparse.ArgumentParser(description="Ограниченная TCP/HTTP-приманка HoneyForge")
+def build_parser() -> argparse.ArgumentParser:
+    """Разрешённые параметры сервиса и отдельные параметры журнала."""
+    parser = argparse.ArgumentParser(description="TCP/HTTP-приманка HoneyForge")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--tcp-port", type=int, default=2222)
     parser.add_argument("--http-port", type=int, default=8080)
+    parser.add_argument("--tcp-public-port", type=int)
+    parser.add_argument("--http-public-port", type=int)
     parser.add_argument("--banner", default="SSH-2.0-HoneyForge\r\n")
     parser.add_argument("--http-body", default="Service available\n")
     parser.add_argument("--read-timeout", type=float, default=2.0)
     parser.add_argument("--max-input-bytes", type=int, default=4096)
     parser.add_argument("--max-connections", type=int, default=32)
-    args = parser.parse_args()
+    parser.add_argument("--journal-dir", type=Path)
+    parser.add_argument("--instance-id")
+    parser.add_argument("--deployment-id")
+    parser.add_argument("--profile-revision", type=int)
+    parser.add_argument("--journal-max-bytes", type=int, default=DEFAULT_FILE_BYTES)
+    parser.add_argument("--journal-quota-bytes", type=int, default=DEFAULT_QUOTA_BYTES)
+    parser.add_argument("--journal-fsync", action="store_true")
+    return parser
+
+
+def config_from_args(args: argparse.Namespace) -> LowConfig:
+    """Нормализует терминаторы; параметры журнала не попадают в LowConfig."""
+    values = {name: getattr(args, name) for name in LowConfig.__dataclass_fields__}
+    banner = args.banner
+    values["banner"] = banner if banner.endswith("\r\n") else banner + "\r\n"
+    body = args.http_body
+    values["http_body"] = body if not body or body.endswith("\n") else body + "\n"
+    return LowConfig(**values)
+
+
+def journal_from_args(args: argparse.Namespace) -> JournalSettings | None:
+    """Файловый режим требует полной идентичности назначения и экземпляра."""
+    if args.journal_dir is None:
+        return None
+    if args.instance_id is None or args.deployment_id is None or args.profile_revision is None:
+        raise ValueError("journal-dir требует instance-id, deployment-id и profile-revision")
+    return JournalSettings(
+        args.journal_dir,
+        args.instance_id,
+        args.deployment_id,
+        args.profile_revision,
+        args.journal_max_bytes,
+        args.journal_quota_bytes,
+        args.journal_fsync,
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Проверяет конфигурацию до запуска; ошибки ресурсов выводит без трассировки."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
     try:
-        config = LowConfig(**vars(args))
+        config = config_from_args(args)
+        journal = journal_from_args(args)
     except ValueError as error:
         parser.error(str(error))
     try:
-        asyncio.run(_run(config))
+        asyncio.run(_run(config, journal))
+    except OSError as error:
+        print(f"honeyforge-low: не удалось запустить сервис: {error}", file=sys.stderr)
+        raise SystemExit(1) from error
     except KeyboardInterrupt:
         pass
 

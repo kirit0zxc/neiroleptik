@@ -112,7 +112,7 @@ describe('Replay: Enter атакующего', () => {
   });
 
   it('повторный Enter не теряется и не зависит от разбиения на чанки', () => {
-    // Два Enter отдельными чанками.
+    // Два Enter отдельными чанками (одно направление — ввод).
     const split = new ReplayTape();
     split.append([chunk('in', '\r'), chunk('in', '\r')]);
     split.finish();
@@ -123,6 +123,21 @@ describe('Replay: Enter атакующего', () => {
     together.finish();
     // Оба нажатия сохранены, и разбиение на чанки не влияет на результат.
     expect(textOf(split)).toBe('\n\n');
+    expect(textOf(split)).toBe(textOf(together));
+  });
+
+  it('эхо CRLF в out, разрезанное между чанками, даёт один перевод (как слитное)', () => {
+    // Enter в in, затем эхо центра CRLF, разрезанное на два out-чанка.
+    seq = 0;
+    const split = new ReplayTape();
+    split.append([chunk('in', 'cmd\r'), chunk('out', '\r'), chunk('out', '\nroot')]);
+    split.finish();
+    // То же эхо одним чанком.
+    seq = 0;
+    const together = new ReplayTape();
+    together.append([chunk('in', 'cmd\r'), chunk('out', '\r\nroot')]);
+    together.finish();
+    expect(textOf(split)).toBe('cmd\nroot');
     expect(textOf(split)).toBe(textOf(together));
   });
 });

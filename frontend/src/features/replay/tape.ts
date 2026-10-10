@@ -54,12 +54,16 @@ export class ReplayTape {
   private readonly carry: Record<Direction, string> = { in: '', out: '' };
   private readonly last: Record<Direction, { seq: number; offsetMs: number } | null> = { in: null, out: null };
   /**
-   * Предыдущий показанный фрагмент закончился на CR (Enter атакующего). Флаг
-   * общий для обоих направлений: эхо нажатия приходит в `out` как `\r\n` сразу
-   * за `\r` из `in`, и это один перевод строки. Ведущий `\r?\n?` следующего
-   * фрагмента в этом случае поглощается, чтобы не было лишней пустой строки.
+   * Предыдущий показанный фрагмент закончился на CR (Enter атакующего), и в
+   * каком направлении. Различие важно: эхо нажатия приходит в ДРУГОМ
+   * направлении (`out`) как `\r\n` — это один перевод строки, его ведущий
+   * `\r`/`\n` (в т. ч. разрезанный между чанками) поглощается, чтобы не было
+   * лишней пустой строки. А повторный Enter приходит в ТОМ ЖЕ направлении
+   * (`in`) одиночным `\r` — его терять нельзя, поэтому там поглощаем только
+   * ведущий `\n` (завершение CRLF одного потока), но не одиночный `\r`.
    */
   private skipLf = false;
+  private skipLfDir: Direction | null = null;
   private seen = new Set<number>();
 
   /** Длительность записи — время последнего чанка. */
@@ -86,18 +90,26 @@ export class ReplayTape {
       }
       text = this.carry[c.direction] + text;
       if (this.skipLf && text) {
-        // Поглощаем ровно эхо нажатия Enter: `\r\n` (CRLF) или одиночный `\n`
-        // (CR пришёл прошлым чанком). Одиночный ведущий `\r` НЕ трогаем — это
-        // ещё одно нажатие Enter, его нельзя терять из-за разбиения на чанки.
-        if (text.startsWith('\r\n')) text = text.slice(2);
-        else if (text[0] === '\n') text = text.slice(1);
-        this.skipLf = false;
+        if (c.direction === this.skipLfDir) {
+          // Тот же поток: завершаем CRLF — поглощаем ведущий `\n`. Одиночный
+          // ведущий `\r` — это ещё одно нажатие Enter, его не трогаем.
+          if (text[0] === '\n') text = text.slice(1);
+          this.skipLf = false;
+        } else {
+          // Другое направление — эхо нажатия (`\r\n`, возможно разрезанное между
+          // чанками). Поглощаем ведущий `\r`, затем ведущий `\n`; одинокий `\r`
+          // оставляет ожидание `\n` следующего чанка эха.
+          let consumedCr = false;
+          if (text[0] === '\r') { text = text.slice(1); consumedCr = true; }
+          if (text[0] === '\n') { text = text.slice(1); this.skipLf = false; }
+          else if (!consumedCr || text.length > 0) this.skipLf = false;
+        }
       }
       const cut = this.holdBack(text);
       this.carry[c.direction] = text.slice(cut);
       const shown = text.slice(0, cut);
       // \r показываем сразу (Enter атакующего виден без ожидания следующего чанка).
-      if (shown.endsWith('\r')) this.skipLf = true;
+      if (shown.endsWith('\r')) { this.skipLf = true; this.skipLfDir = c.direction; }
       this.emit(c.direction, c.seq, c.offset_ms, shown, true);
     }
   }

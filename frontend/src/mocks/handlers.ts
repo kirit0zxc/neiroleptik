@@ -3,6 +3,7 @@ import events from '../../../contracts/fixtures/events.draft.json';
 import hosts from '../../../contracts/fixtures/hosts.draft.json';
 import me from '../../../contracts/fixtures/me.draft.json';
 import profilesFixture from '../../../contracts/fixtures/profiles.draft.json';
+import auditFixture from '../../../contracts/fixtures/audit.draft.json';
 import type { HfEvent, InteractionLevel, Profile, ProfileConfigInput, ProfileConfigPublic, Revision } from '../shared/api/types';
 import { currentDeployments, jobHandlers, resetMockJobs } from './jobs';
 import { publishedEvents, resetMockStream, streamHandlers } from './stream';
@@ -13,10 +14,16 @@ import { publishedEvents, resetMockStream, streamHandlers } from './stream';
  */
 // Сессия мока переживает перезагрузку страницы — как cookie настоящего API.
 const SESSION_KEY = 'hf-mock-session';
+// Значение — роль вошедшего: operator (по умолчанию) или admin для демо аудита.
 const session = {
-  get: () => { try { return sessionStorage.getItem(SESSION_KEY) === '1'; } catch { return false; } },
-  set: (on: boolean) => { try { if (on) sessionStorage.setItem(SESSION_KEY, '1'); else sessionStorage.removeItem(SESSION_KEY); } catch { /* нет хранилища */ } },
+  get: () => { try { return sessionStorage.getItem(SESSION_KEY) !== null; } catch { return false; } },
+  role: (): 'admin' | 'operator' => { try { return sessionStorage.getItem(SESSION_KEY) === 'admin' ? 'admin' : 'operator'; } catch { return 'operator'; } },
+  set: (on: boolean, role: 'admin' | 'operator' = 'operator') => { try { if (on) sessionStorage.setItem(SESSION_KEY, role === 'admin' ? 'admin' : '1'); else sessionStorage.removeItem(SESSION_KEY); } catch { /* нет хранилища */ } },
 };
+/** Текущий пользователь мока (AuthRead) по роли сессии. */
+const currentMe = () => (session.role() === 'admin'
+  ? { ...me, user: { id: 'u-admin-1', username: 'admin', role: 'admin' } }
+  : me);
 resetMockStream(events as unknown as HfEvent[]);
 
 let profiles: Profile[] = structuredClone(profilesFixture) as Profile[];
@@ -54,13 +61,18 @@ export const handlers = [
     const body = (await request.json()) as { username?: string; password?: string };
     if (body.username === 'operator' && body.password === 'operator') {
       session.set(true);
-      return HttpResponse.json(me);
+      return HttpResponse.json(currentMe());
+    }
+    // Демо-администратор: только он видит журнал аудита (как в центре).
+    if (body.username === 'admin' && body.password === 'admin') {
+      session.set(true, 'admin');
+      return HttpResponse.json(currentMe());
     }
     return HttpResponse.json({ detail: 'Неверный логин или пароль' }, { status: 401 });
   }),
   http.post('/api/v1/auth/logout', ({ request }) => { const bad = csrfFailure(request); if (bad) return bad; session.set(false); return new HttpResponse(null, { status: 204 }); }),
   http.get('/api/v1/auth/me', () => (session.get()
-    ? HttpResponse.json(me)
+    ? HttpResponse.json(currentMe())
     : HttpResponse.json({ detail: 'Требуется вход' }, { status: 401 }))),
   http.get('/api/v1/hosts', () => HttpResponse.json(hosts)),
   ...jobHandlers(csrfFailure, (id) => profiles.find((p) => p.id === id)?.config.interaction_level as InteractionLevel | undefined),
@@ -98,6 +110,16 @@ export const handlers = [
     return HttpResponse.json({ items, next_cursor: next });
   }),
   ...streamHandlers,
+
+  // Журнал аудита (AuditRead): только admin, новые сверху, limit/offset.
+  http.get('/api/v1/audit', ({ request }) => {
+    if (!session.get()) return HttpResponse.json({ detail: 'Требуется вход' }, { status: 401 });
+    if (session.role() !== 'admin') return HttpResponse.json({ detail: 'Недостаточно прав' }, { status: 403 });
+    const q = new URL(request.url).searchParams;
+    const limit = Number(q.get('limit') ?? 50);
+    const offset = Number(q.get('offset') ?? 0);
+    return HttpResponse.json(auditFixture.slice(offset, offset + limit));
+  }),
 
   // Сводка обзора — по текущему состоянию моков (превью этапа 4).
   http.get('/api/v1/analytics/summary', () => {
@@ -165,8 +187,8 @@ export const handlers = [
 ];
 
 /** Для тестов: начать с открытой или закрытой сессией и исходными данными. */
-export function resetMockSession(open = false) {
-  session.set(open);
+export function resetMockSession(open = false, role: 'admin' | 'operator' = 'operator') {
+  session.set(open, role);
   resetMockStream(events as unknown as HfEvent[]);
   resetMockJobs();
   profiles = structuredClone(profilesFixture) as Profile[];

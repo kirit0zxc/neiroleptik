@@ -4,6 +4,7 @@ import events from '../../../contracts/fixtures/events.draft.json';
 import hosts from '../../../contracts/fixtures/hosts.draft.json';
 import profiles from '../../../contracts/fixtures/profiles.draft.json';
 import me from '../../../contracts/fixtures/me.draft.json';
+import audit from '../../../contracts/fixtures/audit.draft.json';
 
 /**
  * Инварианты фикстур контракта. Полную проверку по JSON-схемам делает backend
@@ -41,6 +42,19 @@ describe('фикстуры контракта', () => {
     for (const h of hosts) {
       expect(['online', 'offline', 'revoked']).toContain(h.status);
       expect(h).toHaveProperty('capabilities');
+    }
+  });
+
+  it('аудит: обязательные поля AuditRead; actor_id/target_id допускают null', () => {
+    for (const e of audit) {
+      expect(e).toMatchObject({ id: expect.any(String), action: expect.any(String), created_at: expect.any(String) });
+      expect(typeof e.details).toBe('object');
+      expect(e.details).not.toBeNull();
+      // actor_id и target_id обязательны в AuditRead, но nullable.
+      expect(Object.hasOwn(e, 'actor_id')).toBe(true);
+      expect(Object.hasOwn(e, 'target_id')).toBe(true);
+      expect(e.actor_id === null || typeof e.actor_id === 'string').toBe(true);
+      expect(e.target_id === null || typeof e.target_id === 'string').toBe(true);
     }
   });
 });

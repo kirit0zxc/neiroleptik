@@ -1,0 +1,10 @@
+[
+  { "id": "a0000000-0000-4000-8000-000000000008", "actor_id": "host-runtime-01", "action": "command.acknowledged", "target_id": "c0000000-0000-4000-8000-000000000002", "details": { "outcome": "succeeded", "generation": 1 }, "created_at": "2026-10-10T09:12:07Z" },
+  { "id": "a0000000-0000-4000-8000-000000000007", "actor_id": "u-operator-1", "action": "command.requested", "target_id": "c0000000-0000-4000-8000-000000000002", "details": { "generation": 1, "command": "start" }, "created_at": "2026-10-10T09:12:03Z" },
+  { "id": "a0000000-0000-4000-8000-000000000006", "actor_id": "u-operator-1", "action": "deployment.planned", "target_id": "decoy-low-01", "details": { "revision": 2 }, "created_at": "2026-10-10T09:11:40Z" },
+  { "id": "a0000000-0000-4000-8000-000000000005", "actor_id": "u-operator-1", "action": "profile.updated", "target_id": "p-web-panel", "details": { "revision": 2 }, "created_at": "2026-10-10T09:10:15Z" },
+  { "id": "a0000000-0000-4000-8000-000000000004", "actor_id": "host-runtime-02", "action": "command.expired", "target_id": "c0000000-0000-4000-8000-000000000001", "details": { "code": "DELIVERY_EXPIRED" }, "created_at": "2026-10-10T09:05:00Z" },
+  { "id": "a0000000-0000-4000-8000-000000000003", "actor_id": null, "action": "auth.login_failed", "target_id": null, "details": { "username": "root" }, "created_at": "2026-10-10T09:01:44Z" },
+  { "id": "a0000000-0000-4000-8000-000000000002", "actor_id": "host-runtime-01", "action": "agent.enrolled", "target_id": "e0000000-0000-4000-8000-000000000001", "details": {}, "created_at": "2026-10-10T08:59:30Z" },
+  { "id": "a0000000-0000-4000-8000-000000000001", "actor_id": "u-admin-1", "action": "auth.login", "target_id": "u-admin-1", "details": {}, "created_at": "2026-10-10T08:58:00Z" }
+]

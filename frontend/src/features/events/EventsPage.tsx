@@ -148,7 +148,7 @@ export function EventsPage() {
           : pages.isError ? (resyncError ? null : <ErrorState message={pages.error.message} onRetry={() => void pages.refetch()} />)
           : !b.events.length ? <Empty>{key ? 'Под фильтры ничего не подходит.' : 'Событий пока нет — ловушки ждут гостей.'}</Empty>
           : (
-            <table className={ui.table}>
+            <div className={s.scroll}><table className={ui.table}>
               <thead><tr><th>Время</th><th>Тип</th><th>Ловушка</th><th>Источник</th><th>Подробности</th><th>Сессия</th></tr></thead>
               <tbody>
                 {b.events.map((e) => (
@@ -160,12 +160,12 @@ export function EventsPage() {
                     {/* Только текст: данные атакующего не превращаются в разметку (S1). */}
                     <td className="mono">{describeEvent(e)}</td>
                     <td>{e.session_id
-                      ? <Link to={`/sessions/${encodeURIComponent(e.session_id)}`} aria-label={`Запись сессии ${e.session_id.slice(0, 8)}`}>Запись</Link>
+                      ? <Link to={`/sessions/${encodeURIComponent(e.session_id)}`} aria-label={`Запись сессии …${e.session_id.slice(-8)}`}>Запись</Link>
                       : '—'}</td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
         {pages.hasNextPage && (
           <p className={s.more}>

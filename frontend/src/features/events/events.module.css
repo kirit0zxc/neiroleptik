@@ -10,3 +10,5 @@
 .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .count { margin-left: auto; color: var(--text-dim); font-size: 13px; }
 .more { text-align: center; margin: 12px 0 0; }
+/* Широкая таблица прокручивается внутри панели, а не вся страница. */
+.scroll { overflow-x: auto; }

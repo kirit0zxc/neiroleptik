@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { App, makeQueryClient } from '../../app/App';
 import { handlers, resetMockSession } from '../../mocks/handlers';
 import { publish } from '../../mocks/stream';
+import { DEMO_SESSION } from '../../mocks/replay';
 import type { HfEvent } from '../../shared/api/types';
 import { ApiError } from '../../shared/api/client';
 import { StreamClient, type StreamSocket } from '../../shared/stream/StreamClient';
@@ -122,14 +123,24 @@ describe('живая лента (F10–F12)', () => {
   });
 
   it('событие с сессией ведёт на её запись, без сессии — ссылки нет', async () => {
-    publish(ev('with-session', { session_id: '00000000-0000-0000-0000-0000005e5510' }));
+    publish(ev('with-session', { session_id: DEMO_SESSION }));
     publish(ev('no-session', { session_id: null }));
     open('/events', controlledStream().create);
     const withRow = (await screen.findByText('cmd-with-session')).closest('tr')!;
-    expect(within(withRow).getByRole('link', { name: 'Запись сессии 00000000' }))
-      .toHaveAttribute('href', '/sessions/00000000-0000-0000-0000-0000005e5510');
+    expect(within(withRow).getByRole('link', { name: `Запись сессии …${DEMO_SESSION.slice(-8)}` }))
+      .toHaveAttribute('href', `/sessions/${DEMO_SESSION}`);
     const noRow = screen.getByText('cmd-no-session').closest('tr')!;
     expect(within(noRow).queryByRole('link')).toBeNull();
+  });
+
+  it('сессии с общим началом UUID (одна минута, UUIDv7) различаются по имени ссылки', async () => {
+    publish(ev('v7-a', { session_id: '0192ab3c-0000-7000-8000-00000000aaaa' }));
+    publish(ev('v7-b', { session_id: '0192ab3c-0000-7000-8000-00000000bbbb' }));
+    open('/events', controlledStream().create);
+    const a = (await screen.findByText('cmd-v7-a')).closest('tr')!;
+    const b = screen.getByText('cmd-v7-b').closest('tr')!;
+    expect(within(a).getByRole('link')).toHaveAccessibleName('Запись сессии …0000aaaa');
+    expect(within(b).getByRole('link')).toHaveAccessibleName('Запись сессии …0000bbbb');
   });
 
   it('«Показать ещё» догружает следующую страницу', async () => {

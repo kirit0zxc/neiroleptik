@@ -148,7 +148,7 @@ export function EventsPage() {
           : pages.isError ? (resyncError ? null : <ErrorState message={pages.error.message} onRetry={() => void pages.refetch()} />)
           : !b.events.length ? <Empty>{key ? 'Под фильтры ничего не подходит.' : 'Событий пока нет — ловушки ждут гостей.'}</Empty>
           : (
-            <div className={s.scroll}><table className={ui.table}>
+            <div className={s.scroll} tabIndex={0} role="region" aria-label="Таблица событий"><table className={ui.table}>
               <thead><tr><th>Время</th><th>Тип</th><th>Ловушка</th><th>Источник</th><th>Подробности</th><th>Сессия</th></tr></thead>
               <tbody>
                 {b.events.map((e) => (

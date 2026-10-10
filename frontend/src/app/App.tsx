@@ -12,6 +12,7 @@ import { ApiError } from '../shared/api/client';
 import { createEventStream, StreamProvider, type EventStream } from '../shared/stream/stream';
 import { Operations, OperationsContext } from '../features/fleet/operations';
 import { AuditPage } from '../features/audit/AuditPage';
+import { SessionPage } from '../features/replay/ReplayPage';
 import { AppShell, NotFound, Planned } from './AppShell';
 
 export function makeQueryClient() {
@@ -44,6 +45,10 @@ function HomePage() {
   return telemetryEnabled() ? <OverviewPage /> : <Navigate to="/fleet" replace />;
 }
 
+function SessionScreen() {
+  return telemetryEnabled() ? <SessionPage /> : <Planned title="Запись сессии" day="D3 — подключение серверной телеметрии" />;
+}
+
 function EventsScreen() {
   return telemetryEnabled() ? <EventsPage /> : <Planned title="События" day="D3 — подключение серверной телеметрии" />;
 }
@@ -60,7 +65,7 @@ export const routes = [
       { path: 'profiles/new', element: <ProfileEditor /> },
       { path: 'profiles/:id', element: <ProfileEditor /> },
       { path: 'events', element: <EventsScreen /> },
-      { path: 'sessions/:id', element: <Planned title="Паспорт атаки" day="D3" /> },
+      { path: 'sessions/:id', element: <SessionScreen /> },
       { path: 'alerts', element: <Planned title="Алерты и экспорт" day="D3" /> },
       { path: 'audit', element: <AuditPage /> },
       { path: '*', element: <NotFound /> },

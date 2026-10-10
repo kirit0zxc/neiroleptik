@@ -1,0 +1,17 @@
+.meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; color: var(--text-dim); margin-bottom: 10px; }
+.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.speed { display: inline-flex; gap: 6px; align-items: center; color: var(--text-dim); }
+.range { flex: 1 1 200px; min-width: 120px; accent-color: var(--accent); }
+.time { font-family: var(--font-mono); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.legend { font-size: 12px; margin-bottom: 6px; display: flex; gap: 12px; }
+.screen {
+  font: 13px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--bg); border: 1px solid var(--line-faint); padding: 10px;
+  height: 420px; overflow-y: auto;
+}
+.in { color: var(--warn); }
+.out { color: var(--text); }
+.gap { color: var(--bad); display: block; }
+.hint { color: var(--text-dim); }
+/* Подпись направления — только для читалок. */
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

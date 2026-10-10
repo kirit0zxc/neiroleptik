@@ -7,6 +7,7 @@ import auditFixture from '../../../contracts/fixtures/audit.draft.json';
 import type { HfEvent, InteractionLevel, Profile, ProfileConfigInput, ProfileConfigPublic, Revision } from '../shared/api/types';
 import { currentDeployments, jobHandlers, resetMockJobs } from './jobs';
 import { publishedEvents, resetMockStream, streamHandlers } from './stream';
+import { replayHandlers } from './replay';
 
 /**
  * Моки API по контракту `openapi.json` и фикстурам из `contracts/`.
@@ -110,6 +111,7 @@ export const handlers = [
     return HttpResponse.json({ items, next_cursor: next });
   }),
   ...streamHandlers,
+  ...replayHandlers,
 
   // Журнал аудита (AuditRead): только admin, новые сверху, limit/offset.
   http.get('/api/v1/audit', ({ request }) => {

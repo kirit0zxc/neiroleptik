@@ -1,5 +1,4 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { DemoNote } from '../../shared/ui/DataSource';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
@@ -9,6 +8,7 @@ import { api, ApiError, setCsrfToken, setUnauthorizedHandler } from '../../share
 import type { Auth, Role } from '../../shared/api/types';
 import { Loading, ui, WindowTitle } from '../../shared/ui';
 import { Terrain } from '../../shared/ui/Terrain';
+import { DemoNote } from '../../shared/ui/DataSource';
 import s from './auth.module.css';
 
 /** Сессия оператора (F1–F3). Источник — `GET /api/v1/auth/me` (AuthRead). */

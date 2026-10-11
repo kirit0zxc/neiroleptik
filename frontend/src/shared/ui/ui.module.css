@@ -36,3 +36,6 @@
 
 /* Пометка демо-режима: заметно, но не тревожно (specs, «Источник данных»). */
 .demoNote { margin: 0 0 12px; padding: 6px 10px; border: 1px dashed var(--warn); color: var(--warn); font-size: 13px; }
+
+/* Только для читалок. */
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

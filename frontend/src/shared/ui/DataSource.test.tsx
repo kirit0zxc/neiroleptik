@@ -10,9 +10,16 @@ describe('источник данных: демо или центр', () => {
     vi.stubEnv('VITE_API_MOCK', '1');
     render(<><DataSourceBadge /><DemoNote logins /></>);
     expect(screen.getByText('демо-данные')).toBeInTheDocument();
-    expect(screen.getByLabelText(/Источник данных: демо-данные/)).toBeInTheDocument();
+    expect(screen.getByText(/Данные вымышленные \(моки\)/, { selector: 'span' })).toBeInTheDocument();
     expect(screen.getByRole('note')).toHaveTextContent('данные вымышленные');
     expect(screen.getByRole('note')).toHaveTextContent('viewer / viewer');
+  });
+
+  it('демо в шапке: строка без демо-входов', () => {
+    vi.stubEnv('VITE_API_MOCK', '1');
+    render(<DemoNote />);
+    expect(screen.getByRole('note')).toHaveTextContent('данные вымышленные');
+    expect(screen.getByRole('note')).not.toHaveTextContent('operator');
   });
 
   it('центр: метка «центр», демо-строки нет', () => {

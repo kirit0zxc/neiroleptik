@@ -160,7 +160,7 @@ describe('приложение на моках (F1, F3, F5, S1, S4)', () => {
     expect(rows).toHaveLength(3);
     expect(screen.getByText('GET /<img src=x onerror=alert(1)>')).toBeInTheDocument();
     expect(document.querySelector('img')).toBeNull();
-    expect(screen.getByText('root / h•••••2 успешно')).toBeInTheDocument();
+    expect(screen.getByText('root / пароль скрыт — успешно')).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('hunter2');
   });
 });

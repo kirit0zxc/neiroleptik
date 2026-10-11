@@ -24,7 +24,7 @@ test('вход, парк, лента событий и выход', async ({ pag
   await expect(page.getByTestId('event-row').nth(2)).toBeVisible();
   await expect(page.getByText('GET /<img src=x onerror=alert(1)>')).toBeVisible();
   await expect(page.locator('main img')).toHaveCount(0);
-  await expect(page.getByText('root / h•••••2 успешно')).toBeVisible();
+  await expect(page.getByText('root / пароль скрыт — успешно')).toBeVisible();
   await expect(page.locator('body')).not.toContainText('hunter2');
 
   await page.getByRole('link', { name: 'Парк' }).click();

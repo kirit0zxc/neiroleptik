@@ -45,6 +45,7 @@ export function sanitizeTerminal(raw: string): string {
  * Маска учётных данных атакующего (S4): видна длина порядка и края,
  * но не значение. Пустое — явно «(пусто)», чтобы не путать с маской.
  */
+// Не для паролей атакующего: по S4 они не показываются вовсе (ни длины, ни краёв).
 export function maskSecret(value: string): string {
   if (!value) return '(пусто)';
   if (value.length <= 2) return '•'.repeat(value.length);

@@ -8,85 +8,145 @@ info:
   title: HoneyForge — расследование (proposal)
   version: 0.1.0-proposal
   x-status: proposal
-  description: |
-    Общие правила (как в specs/frontend-protocol-v1.md):
-
-    * Время — RFC 3339 в UTC (`2026-10-11T09:41:12Z`). Идентификаторы — UUID строкой
-      в нижнем регистре.
-    * Доступ — cookie-сессия `hf_session`, роли admin/operator/viewer читают всё
-      ниже. Все ручки — GET, CSRF не нужен.
-    * Ошибки — `ErrorResponse` (`detail` строка или список `ValidationIssue`,
-      необязательный машинный `code`), как в contracts/openapi.json.
-    * Списки — `{items, next_cursor}`. `limit` 1..200, по умолчанию 50.
-      `next_cursor: null` — страниц больше нет.
-    * Курсор непрозрачный и подписанный; frontend его не разбирает. Он
-      связан с фильтрами, сортировкой и снимком: первая страница фиксирует
-      снимок (границу по ключу сортировки), следующие страницы читают тот же
-      снимок, новые поступления его не сдвигают. Курсор с другими фильтрами
-      или сортировкой, испорченный или устаревший — 422 с
-      `code: INVALID_CURSOR`. Frontend перечитывает с первой страницы один
-      раз; повторный 422 — ошибка на экране.
-    * Порядок внутри страницы стабилен: последним ключом всегда идёт
-      уникальная пара/идентификатор.
-    * Данные атакующего — только строки; frontend выводит их текстом (S1, S2).
-      Пароли не передаются (S4: `data.password_present` вместо `data.password`).
-    * Каждый вывод (алерт, срабатывание токена, артефакт) ссылается на
-      исходные события `event_refs`.
-
-    Открытые вопросы помечены `x-question`.
+  description: "Общие правила (как в specs/frontend-protocol-v1.md):\n\n* Время — RFC 3339 в UTC (`2026-10-11T09:41:12Z`).\
+    \ Идентификаторы — UUID строкой\n  в нижнем регистре.\n* Доступ — cookie-сессия `hf_session`, роли\
+    \ admin/operator/viewer читают всё\n  ниже. Все ручки — GET, CSRF не нужен.\n* Ошибки — `ErrorResponse`\
+    \ (`detail` строка или список `ValidationIssue`,\n  необязательный машинный `code`), как в contracts/openapi.json.\n\
+    * Списки — `{items, next_cursor}`. `limit` 1..200, по умолчанию 50.\n  `next_cursor: null` — страниц\
+    \ больше нет.\n* Курсор непрозрачный и подписанный; frontend его не разбирает. Он\n  связан с фильтрами,\
+    \ сортировкой и снимком: первая страница фиксирует\n  снимок (границу по ключу сортировки), следующие\
+    \ страницы читают тот же\n  снимок, новые поступления его не сдвигают. Курсор с другими фильтрами\n\
+    \  или сортировкой, испорченный или устаревший — 422 с\n  `code: INVALID_CURSOR`. Frontend перечитывает\
+    \ с первой страницы один\n  раз; повторный 422 — ошибка на экране.\n* Порядок внутри страницы стабилен:\
+    \ последним ключом всегда идёт\n  уникальная пара/идентификатор.\n* Данные атакующего — только строки;\
+    \ frontend выводит их текстом (S1, S2).\n  Пароли не передаются (S4: `data.password_present` вместо\
+    \ `data.password`).\n* Каждый вывод (алерт, срабатывание токена, артефакт) ссылается на\n  исходные\
+    \ события `event_refs`.\n\nОткрытые вопросы помечены `x-question`.\n\nДополнения после ревью (до сверки\
+    \ с backend):\n\n* **Коды ошибок.** Формат `^[A-Z][A-Z0-9_]*$`. Новые коды этого черновика:\n  `INVALID_CURSOR`\
+    \ (422), `ARTIFACT_PENDING`, `ARTIFACT_FAILED` (409),\n  `ARTIFACT_EXPIRED` (410). Frontend различает\
+    \ курсорную ошибку и ошибку\n  фильтров по `code`, а не по форме `detail`; без `code` любой 422 на\n\
+    \  странице с курсором считается курсорным (как сейчас в protocol v1).\n* **Пагинация.** Списки control\
+    \ (`/audit`, `/profiles`, ...) остаются на\n  `limit` 1..100 + `offset` и ответе-массиве; телеметрия\
+    \ и расследование —\n  курсор, `limit` 1..200 и конверт `{items, next_cursor}`, как `/events`.\n \
+    \ Различие осознанное: курсор нужен там, где данные растут во время чтения.\n* **Снимок.** Первая\
+    \ страница фиксирует watermark `W` (как у потока); все\n  страницы читают только записи с `received_at\
+    \ <= W` независимо от `sort`.\n  Опоздавшее событие (offline-доставка) не появляется внутри уже прочитанных\n\
+    \  страниц — его покажет живой поток или новый первый запрос. Курсор живёт не\n  дольше 24 ч; старше\
+    \ — 422 `INVALID_CURSOR`.\n* **`x-added`** — поле или параметр, которого нет в согласованном составе\n\
+    \  (specs/frontend-dto-proposal.md); предлагает frontend, решает backend.\n* **Ссылки `event_refs`**\
+    \ могут указывать на событие, удалённое по сроку\n  хранения: frontend показывает «событие больше\
+    \ не хранится», а не ошибку.\n"
+  x-question:
+  - Подтвердить коды ошибок и что 422 курсора несёт code INVALID_CURSOR.
+  - Допустим ли source=null в EventV1 (влияет на SessionRead.source и HoneytokenTrigger.source)?
+  - Снимок по watermark W для /events с sort=occurred_at — подтвердить.
+  - 'Для F17 нужна выборка событий по ссылкам: GET /api/v1/events?event_ref=<agent_id>:<event_id> (до
+    100) или отдельная ручка — какой вариант?'
 servers:
-  - url: /
+- url: /
 security:
-  - APIKeyCookie: []
-
+- APIKeyCookie: []
 paths:
   /api/v1/sessions/{session_id}:
     get:
       operationId: getSession
       summary: Паспорт сессии (F14)
       parameters:
-        - $ref: '#/components/parameters/SessionId'
+      - $ref: '#/components/parameters/SessionId'
       responses:
         '200':
           description: Паспорт сессии.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SessionRead' }
+              schema:
+                $ref: '#/components/schemas/SessionRead'
               examples:
                 ssh:
                   $ref: '#/components/examples/SessionSsh'
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/events:
     get:
       operationId: listEvents
       summary: История событий и timeline сессии (F11, F14)
-      description: |
-        Существующая ручка истории (protocol v1) с двумя новыми параметрами:
+      description: 'Существующая ручка истории (protocol v1) с двумя новыми параметрами:
+
         `session_id` и `sort`. По умолчанию — нынешний порядок истории
+
         `received_at DESC, event_id DESC, agent_id DESC`. Timeline сессии —
+
         `session_id=<id>&sort=occurred_at&order=asc`: порядок
+
         `occurred_at ASC, event_id ASC, agent_id ASC` (время события, а не
+
         приёма — после offline-доставки они расходятся). Курсор связан с
+
         `sort`/`order` и фильтрами.
+
+        Допустимы только две комбинации: `sort=received_at&order=desc` (история) и `sort=occurred_at&order=asc`
+        (timeline); остальные — 422. Для timeline нужен индекс `(session_id, occurred_at, event_id, agent_id)`.
+
+        '
       parameters:
-        - { name: deployment_id, in: query, schema: { type: string, format: uuid } }
-        - { name: session_id, in: query, schema: { type: string, format: uuid }, description: 'Новый фильтр.' }
-        - { name: type, in: query, schema: { type: string } }
-        - { name: source_ip, in: query, schema: { type: string }, description: 'IPv4/IPv6; событие без source не подходит.' }
-        - { name: from, in: query, schema: { type: string, format: date-time }, description: 'Включительно, по occurred_at.' }
-        - { name: to, in: query, schema: { type: string, format: date-time }, description: 'Исключительно; from >= to — 422.' }
-        - name: sort
-          in: query
-          description: Новый параметр. Поле сортировки.
-          schema: { type: string, enum: [received_at, occurred_at], default: received_at }
-        - name: order
-          in: query
-          schema: { type: string, enum: [asc, desc], default: desc }
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
+      - name: deployment_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: session_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+        description: Новый фильтр.
+        x-added: true
+      - name: type
+        in: query
+        schema:
+          type: string
+          description: Тип EventV1 (enum в contracts/event-v1.schema.json).
+      - name: source_ip
+        in: query
+        schema:
+          type: string
+        description: IPv4/IPv6; событие без source не подходит.
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date-time
+        description: Включительно, по occurred_at.
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date-time
+        description: Исключительно; from >= to — 422.
+      - name: sort
+        in: query
+        description: Новый параметр. Поле сортировки.
+        schema:
+          type: string
+          enum:
+          - received_at
+          - occurred_at
+          default: received_at
+        x-added: true
+      - name: order
+        in: query
+        schema:
+          type: string
+          enum:
+          - asc
+          - desc
+          default: desc
+        x-added: true
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
       responses:
         '200':
           description: Страница событий.
@@ -95,28 +155,43 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required:
+                - items
+                - next_cursor
                 properties:
                   items:
                     type: array
-                    items: { $ref: '../contracts/event-v1.schema.json' }
-                  next_cursor: { $ref: '#/components/schemas/NextCursor' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '422': { $ref: '#/components/responses/InvalidCursorOrFilters' }
-
+                    items:
+                      $ref: ../contracts/event-v1.schema.json
+                  next_cursor:
+                    $ref: '#/components/schemas/NextCursor'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/InvalidCursorOrFilters'
   /api/v1/artifacts:
     get:
       operationId: listArtifacts
       summary: Артефакты (F16)
       description: Порядок — `observed_at DESC, id DESC`.
       parameters:
-        - { name: session_id, in: query, schema: { type: string, format: uuid } }
-        - { name: deployment_id, in: query, schema: { type: string, format: uuid } }
-        - name: state
-          in: query
-          schema: { $ref: '#/components/schemas/ArtifactState' }
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
+      - name: session_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: deployment_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: state
+        in: query
+        schema:
+          $ref: '#/components/schemas/ArtifactState'
+        x-added: true
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
       responses:
         '200':
           description: Страница артефактов.
@@ -125,79 +200,159 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required:
+                - items
+                - next_cursor
                 properties:
-                  items: { type: array, items: { $ref: '#/components/schemas/ArtifactRead' } }
-                  next_cursor: { $ref: '#/components/schemas/NextCursor' }
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ArtifactRead'
+                  next_cursor:
+                    $ref: '#/components/schemas/NextCursor'
               examples:
                 page:
                   $ref: '#/components/examples/ArtifactPage'
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '422': { $ref: '#/components/responses/InvalidCursorOrFilters' }
-
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/InvalidCursorOrFilters'
   /api/v1/artifacts/{artifact_id}:
     get:
       operationId: getArtifact
       summary: Артефакт (F16)
       parameters:
-        - $ref: '#/components/parameters/ArtifactId'
+      - $ref: '#/components/parameters/ArtifactId'
       responses:
         '200':
           description: Метаданные артефакта.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ArtifactRead' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
+              schema:
+                $ref: '#/components/schemas/ArtifactRead'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/artifacts/{artifact_id}/content:
     get:
       operationId: downloadArtifact
       summary: Скачивание артефакта (F16, S5)
-      description: |
-        Только `state=available`. Ответ — вложение, frontend не открывает
+      description: 'Только `state=available`. Ответ — вложение, frontend не открывает
+
         содержимое в браузере. 410 здесь — «файл недоступен (истёк)», не
+
         пересинхронизация потока.
+
+
+        Заголовки ответа: `Content-Type: application/octet-stream` всегда (не `mime`
+
+        артефакта), `Content-Length` = `size_bytes`, `ETag: "sha256:<sha256>"`,
+
+        `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
+
+        `Content-Security-Policy: sandbox`, `Accept-Ranges: none` (Range не
+
+        поддерживается). Имя файла формирует сервер: `filename` — ASCII, символы вне
+
+        `[A-Za-z0-9._-]` заменяются на `_`, до 100 символов; плюс
+
+        `filename*=UTF-8''''<percent-encoded исходное имя>`.
+
+        '
       parameters:
-        - $ref: '#/components/parameters/ArtifactId'
+      - $ref: '#/components/parameters/ArtifactId'
       responses:
         '200':
           description: Содержимое файла.
           headers:
             Content-Disposition:
-              schema: { type: string }
-              description: 'attachment; filename="<безопасное имя>"'
-            X-Content-Type-Options:
-              schema: { type: string, enum: [nosniff] }
+              schema:
+                type: string
+              description: attachment; filename="x.sh"; filename*=UTF-8''x.sh
+            Content-Type:
+              schema:
+                type: string
+                enum:
+                - application/octet-stream
             Content-Length:
-              schema: { type: integer }
+              schema:
+                type: integer
+            ETag:
+              schema:
+                type: string
+              description: '"sha256:<sha256>"'
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+            X-Content-Type-Options:
+              schema:
+                type: string
+                enum:
+                - nosniff
+            Content-Security-Policy:
+              schema:
+                type: string
+                enum:
+                - sandbox
+            Accept-Ranges:
+              schema:
+                type: string
+                enum:
+                - none
           content:
             application/octet-stream:
-              schema: { type: string, format: binary }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '409':
           description: Файл ещё не готов (`pending`) или не получен (`failed`).
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
-              example: { detail: 'Файл ещё проверяется', code: ARTIFACT_PENDING }
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                pending:
+                  value:
+                    detail: Файл ещё проверяется
+                    code: ARTIFACT_PENDING
+                failed:
+                  value:
+                    detail: Файл не удалось получить
+                    code: ARTIFACT_FAILED
         '410':
           description: Срок хранения истёк (`expired`).
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
-              example: { detail: 'Файл удалён по сроку хранения', code: ARTIFACT_EXPIRED }
-
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                detail: Файл удалён по сроку хранения
+                code: ARTIFACT_EXPIRED
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      x-question: Может ли viewer скачивать артефакты или только operator/admin (тогда 403)?
   /api/v1/honeytokens:
     get:
       operationId: listHoneytokens
       summary: Медовые токены (F17)
       description: Порядок — `created_at DESC, id DESC`. Секретное значение токена не возвращается.
       parameters:
-        - { name: deployment_id, in: query, schema: { type: string, format: uuid } }
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
+      - name: deployment_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
       responses:
         '200':
           description: Страница токенов.
@@ -206,25 +361,36 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required:
+                - items
+                - next_cursor
                 properties:
-                  items: { type: array, items: { $ref: '#/components/schemas/HoneytokenRead' } }
-                  next_cursor: { $ref: '#/components/schemas/NextCursor' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '422': { $ref: '#/components/responses/InvalidCursorOrFilters' }
-
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HoneytokenRead'
+                  next_cursor:
+                    $ref: '#/components/schemas/NextCursor'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/InvalidCursorOrFilters'
   /api/v1/honeytokens/{honeytoken_id}/triggers:
     get:
       operationId: listHoneytokenTriggers
       summary: Срабатывания токена (F17)
-      description: По событиям `token.triggered`. Порядок — `at DESC`, затем пара события.
+      description: 'По событиям `token.triggered`: одно событие — одно срабатывание, `event_refs` ровно
+        из одного элемента. `at` = `occurred_at` события. Порядок — `at DESC, agent_id DESC, event_id
+        DESC`. Токен есть, срабатываний нет — пустой список; токена нет — 404.'
       parameters:
-        - name: honeytoken_id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
+      - name: honeytoken_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
       responses:
         '200':
           description: Страница срабатываний.
@@ -233,31 +399,52 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required:
+                - items
+                - next_cursor
                 properties:
-                  items: { type: array, items: { $ref: '#/components/schemas/HoneytokenTrigger' } }
-                  next_cursor: { $ref: '#/components/schemas/NextCursor' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/InvalidCursorOrFilters' }
-
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HoneytokenTrigger'
+                  next_cursor:
+                    $ref: '#/components/schemas/NextCursor'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/alerts:
     get:
       operationId: listAlerts
       summary: Алерты (F17), только чтение в MVP
-      description: |
-        Порядок — `created_at DESC, id DESC`. Отдельного WS-сообщения нет:
+      description: 'Порядок — `created_at DESC, id DESC`. Отдельного WS-сообщения нет:
+
         экраны опрашивают список и сводку раз в 15 с. Смена состояния — после MVP.
+
+        Алерт может обновляться на месте (`updated_at`, `count`, `event_refs`): при опросе frontend заменяет
+        элемент по `id`. Снимок страниц — по `created_at` первой страницы; обновления существующих алертов
+        видны при следующем опросе.
+
+        '
       parameters:
-        - name: state
-          in: query
-          schema: { $ref: '#/components/schemas/AlertState' }
-        - name: severity
-          in: query
-          schema: { $ref: '#/components/schemas/Severity' }
-        - { name: deployment_id, in: query, schema: { type: string, format: uuid } }
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
+      - name: state
+        in: query
+        schema:
+          $ref: '#/components/schemas/AlertState'
+      - name: severity
+        in: query
+        schema:
+          $ref: '#/components/schemas/Severity'
+      - name: deployment_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+        x-added: true
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
       responses:
         '200':
           description: Страница алертов.
@@ -266,337 +453,757 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required:
+                - items
+                - next_cursor
                 properties:
-                  items: { type: array, items: { $ref: '#/components/schemas/AlertRead' } }
-                  next_cursor: { $ref: '#/components/schemas/NextCursor' }
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AlertRead'
+                  next_cursor:
+                    $ref: '#/components/schemas/NextCursor'
               examples:
                 bruteforce:
                   $ref: '#/components/examples/AlertPage'
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '422': { $ref: '#/components/responses/InvalidCursorOrFilters' }
-
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/InvalidCursorOrFilters'
   /api/v1/analytics/summary:
     get:
       operationId: getSummary
       summary: Сводка обзора
-      description: |
-        События и топ источников — по опубликованным событиям с `occurred_at`
+      description: 'События и топ источников — по опубликованным событиям с `occurred_at`
+
         в `[as_of − 1 ч, as_of)`. События без source в топ не входят.
+
+        `as_of` — время сервера в момент расчёта. `alerts_open` — только `state=open` (без acknowledged).
+        Равные `count` в топе — по IP как `inet` по возрастанию (IPv4 раньше IPv6).
+
+        '
       responses:
         '200':
           description: Сводка.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SummaryRead' }
+              schema:
+                $ref: '#/components/schemas/SummaryRead'
               example:
                 as_of: '2026-10-11T12:00:00Z'
-                deployments: { total: 4, running: 3, failed: 1 }
-                hosts: { total: 3, online: 2, offline: 1, revoked: 0 }
+                deployments:
+                  total: 4
+                  running: 3
+                  failed: 1
+                hosts:
+                  total: 3
+                  online: 2
+                  offline: 1
+                  revoked: 0
                 events_last_hour: 128
                 alerts_open: 1
-                top_sources: [{ ip: 203.0.113.9, count: 40 }, { ip: 198.51.100.7, count: 12 }]
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
+                top_sources:
+                - ip: 203.0.113.9
+                  count: 40
+                - ip: 198.51.100.7
+                  count: 12
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/iocs.csv:
     get:
       operationId: exportIocs
       summary: Экспорт IoC (F18)
-      description: |
-        Файл формирует сервер. Одна строка на индикатор и событие-основание.
-        Без паролей; значения, начинающиеся с `= + - @` или табуляции,
-        экранируются (защита от формул CSV). Кодировка UTF-8, разделитель `,`,
-        перевод строки CRLF, заголовок первой строкой.
+      description: 'Файл формирует сервер. Одна строка на индикатор и событие-основание.
+
+        `from` включительно, `to` исключительно, по `occurred_at`; диапазон не больше
+
+        31 дня, иначе 422; строк не больше 100 000, иначе 422 с просьбой сузить
+
+        период. Порядок строк — `occurred_at ASC, agent_id ASC, event_id ASC`.
+
+
+        Формат: UTF-8 с BOM (иначе Excel ломает кириллицу), разделитель `,`, перевод
+
+        строки CRLF, заголовок первой строкой. Паролей нет (S4).
+
+
+        Защита от формул: к каждой строковой ячейке, которая начинается с `=`, `+`,
+
+        `-`, `@`, TAB, CR или их полноширинных аналогов (`＝ ＋ － ＠`), спереди
+
+        добавляется `''`. Затем по RFC 4180: поле с `,`, `"`, CR или LF берётся в
+
+        кавычки, `"` внутри удваивается. Правило одинаково для всех ячеек, включая
+
+        IPv6 и отрицательные числа.
+
+
+        `indicator_type`: `ipv4`, `ipv6`, `url`, `sha256`, `username`, `user_agent`.
+
+        Имя файла: `honeyforge-iocs-<YYYYMMDDTHHMMSSZ>.csv` по времени формирования
+
+        (без `:` — допустимо в Windows).
+
+        '
       parameters:
-        - { name: from, in: query, schema: { type: string, format: date-time } }
-        - { name: to, in: query, schema: { type: string, format: date-time } }
-        - { name: deployment_id, in: query, schema: { type: string, format: uuid } }
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: deployment_id
+        in: query
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: CSV.
           headers:
             Content-Disposition:
-              schema: { type: string }
-              description: 'attachment; filename="honeyforge-iocs-<from>-<to>.csv"'
+              schema:
+                type: string
+              description: attachment; filename="honeyforge-iocs-20261011T120000Z.csv"
           content:
             text/csv:
-              schema: { type: string }
-              example: |
-                indicator_type,indicator_value,occurred_at,agent_id,event_id,deployment_id,session_id
-                ipv4,203.0.113.9,2026-10-11T09:41:12Z,7d3b…,1f2e…,9a8c…,5e55…
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-
+              schema:
+                type: string
+              example: "\uFEFFindicator_type,indicator_value,occurred_at,agent_id,event_id,deployment_id,session_id\r\
+                \nipv4,203.0.113.9,2026-10-11T09:41:12Z,7d3b0c1e-0000-4000-8000-000000000002,1f2e3d4c-0000-4000-8000-000000000006,9a8c5f2d-0000-4000-8000-000000000003,5e5510aa-0000-4000-8000-000000000001\r\
+                \nusername,'-root,2026-10-11T09:41:12Z,7d3b0c1e-0000-4000-8000-000000000002,1f2e3d4c-0000-4000-8000-000000000006,9a8c5f2d-0000-4000-8000-000000000003,5e5510aa-0000-4000-8000-000000000001\r\
+                \n"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      x-added: Параметры from/to/deployment_id, пределы, порядок строк и формат имени.
+      x-question: Полный список indicator_type для MVP.
 components:
   securitySchemes:
-    APIKeyCookie: { type: apiKey, in: cookie, name: hf_session }
-
+    APIKeyCookie:
+      type: apiKey
+      in: cookie
+      name: hf_session
   parameters:
     SessionId:
       name: session_id
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema:
+        type: string
+        format: uuid
     ArtifactId:
       name: artifact_id
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema:
+        type: string
+        format: uuid
     Cursor:
       name: cursor
       in: query
       description: Непрозрачный курсор из `next_cursor`; связан с фильтрами, сортировкой и снимком.
-      schema: { type: string, maxLength: 1024 }
+      schema:
+        type: string
+        maxLength: 1024
     Limit:
       name: limit
       in: query
-      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
-
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
   responses:
     Unauthorized:
       description: Нет сессии или она истекла.
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
-          example: { detail: 'Требуется вход' }
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            detail: Требуется вход
     NotFound:
       description: Объекта нет.
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
-          example: { detail: 'Не найдено' }
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            detail: Не найдено
     ValidationError:
       description: Неверные параметры.
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
     InvalidCursorOrFilters:
-      description: |
-        Неверные фильтры (`from >= to`, неверный IP) — `detail` списком;
+      description: 'Неверные фильтры (`from >= to`, неверный IP) — `detail` списком;
+
         несовместимый/устаревший курсор — `code: INVALID_CURSOR`.
+
+        '
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
           examples:
             cursor:
-              value: { detail: 'Курсор не соответствует фильтрам или сортировке', code: INVALID_CURSOR }
+              value:
+                detail: Курсор не соответствует фильтрам или сортировке
+                code: INVALID_CURSOR
             filters:
-              value: { detail: [{ loc: [query, to], type: value_error, msg: 'to должен быть позже from' }] }
-
+              value:
+                detail:
+                - loc:
+                  - query
+                  - to
+                  type: value_error
+                  msg: to должен быть позже from
   schemas:
     ErrorResponse:
       description: Как в contracts/openapi.json.
       type: object
       additionalProperties: false
-      required: [detail]
+      required:
+      - detail
       properties:
         detail:
           anyOf:
-            - { type: string }
-            - { type: array, items: { $ref: '#/components/schemas/ValidationIssue' } }
-        code: { type: [string, 'null'] }
+          - type: string
+          - type: array
+            items:
+              $ref: '#/components/schemas/ValidationIssue'
+        code:
+          type:
+          - string
+          - 'null'
     ValidationIssue:
       type: object
       additionalProperties: false
-      required: [loc, type, msg]
+      required:
+      - loc
+      - type
+      - msg
       properties:
-        loc: { type: array, items: { anyOf: [{ type: string }, { type: integer }] } }
-        type: { type: string }
-        msg: { type: string }
-
+        loc:
+          type: array
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+        type:
+          type: string
+        msg:
+          type: string
     NextCursor:
-      type: [string, 'null']
+      type:
+      - string
+      - 'null'
       description: '`null` — страниц больше нет.'
-
     EventRef:
       description: Пара, по которой событие уникально.
       type: object
       additionalProperties: false
-      required: [agent_id, event_id]
+      required:
+      - agent_id
+      - event_id
       properties:
-        agent_id: { type: string, format: uuid }
-        event_id: { type: string, format: uuid }
+        agent_id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
     EventRefs:
       type: array
       minItems: 1
       maxItems: 100
-      items: { $ref: '#/components/schemas/EventRef' }
-      x-question: 'Предел 100 и усечение: нужен ли флаг event_refs_truncated для длинных серий?'
-
+      items:
+        $ref: '#/components/schemas/EventRef'
+      x-question: Нужен ли флаг event_refs_truncated, когда событий больше 100 (count алерта может быть
+        больше длины event_refs)?
+      x-added: maxItems 100 и minItems 1.
     Endpoint:
       type: object
       additionalProperties: false
-      required: [ip, port]
+      required:
+      - ip
+      - port
       properties:
-        ip: { type: string, description: 'IPv4/IPv6' }
-        port: { type: integer, minimum: 0, maximum: 65535 }
+        ip:
+          type: string
+          description: IPv4/IPv6
+        port:
+          type: integer
+          minimum: 0
+          maximum: 65535
     Service:
       type: object
       additionalProperties: false
-      required: [protocol, port]
+      required:
+      - protocol
+      - port
       properties:
-        protocol: { type: string, enum: [tcp, http, ssh] }
-        port: { type: integer, minimum: 1, maximum: 65535 }
-
+        protocol:
+          type: string
+          enum:
+          - tcp
+          - http
+          - ssh
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
     SessionRead:
       type: object
       additionalProperties: false
-      required: [session_id, agent_id, deployment_id, instance_id, protocol, source, service,
-                 started_at, ended_at, auth, counts, replay, profile_revision]
+      required:
+      - session_id
+      - agent_id
+      - deployment_id
+      - instance_id
+      - protocol
+      - source
+      - service
+      - started_at
+      - ended_at
+      - auth
+      - counts
+      - replay
+      - profile_revision
       properties:
-        session_id: { type: string, format: uuid }
-        agent_id: { type: string, format: uuid }
-        deployment_id: { type: string, format: uuid }
-        instance_id: { type: string, format: uuid }
-        protocol: { type: string, enum: [tcp, http, ssh] }
+        session_id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+          format: uuid
+        deployment_id:
+          type: string
+          format: uuid
+        instance_id:
+          type: string
+          format: uuid
+        protocol:
+          type: string
+          enum:
+          - tcp
+          - http
+          - ssh
         source:
-          description: 'null, если источник неизвестен (см. вопрос о source=null в EventV1).'
-          anyOf: [{ $ref: '#/components/schemas/Endpoint' }, { type: 'null' }]
-        service: { $ref: '#/components/schemas/Service' }
-        started_at: { type: string, format: date-time }
-        ended_at:
-          type: [string, 'null']
+          description: null, если источник неизвестен (см. вопрос о source=null в EventV1).
+          anyOf:
+          - $ref: '#/components/schemas/Endpoint'
+          - type: 'null'
+          x-question: Допустим ли source=null (см. info.x-question)?
+        service:
+          $ref: '#/components/schemas/Service'
+        started_at:
+          type: string
           format: date-time
-          description: 'null — окончание неизвестно (событие закрытия могло не дойти), а не «сессия идёт».'
+          description: 'Та же база времени, что started_at в ответе replay: смещение события = occurred_at
+            − started_at.'
+        ended_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: null — окончание неизвестно (событие закрытия могло не дойти), а не «сессия идёт».
         auth:
           type: object
           additionalProperties: false
-          required: [attempts, succeeded, username]
+          required:
+          - attempts
+          - succeeded
+          - username
           properties:
-            attempts: { type: integer, minimum: 0 }
-            succeeded: { type: boolean }
-            username: { type: [string, 'null'], description: 'Логин успешного входа; паролей нет (S4).' }
+            attempts:
+              type: integer
+              minimum: 0
+            succeeded:
+              type: boolean
+            username:
+              type:
+              - string
+              - 'null'
+              description: Логин успешного входа; паролей нет (S4).
         counts:
           description: По событиям, полученным центром.
           type: object
           additionalProperties: false
-          required: [events, commands, artifacts, tokens_triggered]
+          required:
+          - events
+          - commands
+          - artifacts
+          - tokens_triggered
           properties:
-            events: { type: integer, minimum: 0 }
-            commands: { type: integer, minimum: 0 }
-            artifacts: { type: integer, minimum: 0 }
-            tokens_triggered: { type: integer, minimum: 0 }
+            events:
+              type: integer
+              minimum: 0
+            commands:
+              type: integer
+              minimum: 0
+            artifacts:
+              type: integer
+              minimum: 0
+            tokens_triggered:
+              type: integer
+              minimum: 0
         replay:
           type: object
           additionalProperties: false
-          required: [available, complete]
+          required:
+          - available
+          - complete
           properties:
-            available: { type: boolean, description: 'Есть ли запись (GET /sessions/{id}/replay).' }
-            complete: { type: boolean, description: 'Как complete в ответе replay.' }
-        profile_revision: { type: integer, minimum: 1 }
-
+            available:
+              type: boolean
+              description: Есть ли запись (GET /sessions/{id}/replay).
+            complete:
+              type: boolean
+              description: Как complete в ответе replay.
+        profile_revision:
+          type: integer
+          minimum: 1
+      x-question: counts.*, ended_at и auth считаются из событий на лету (индекс по session_id) или хранятся?
     ArtifactState:
       type: string
-      enum: [pending, available, failed, expired]
+      enum:
+      - pending
+      - available
+      - failed
+      - expired
     ArtifactRead:
       type: object
       additionalProperties: false
-      required: [id, session_id, deployment_id, state, name, source_url, size_bytes, sha256,
-                 mime, observed_at, expires_at, error, event_refs]
+      required:
+      - id
+      - session_id
+      - deployment_id
+      - state
+      - name
+      - source_url
+      - size_bytes
+      - sha256
+      - mime
+      - observed_at
+      - expires_at
+      - error
+      - event_refs
       properties:
-        id: { type: string, format: uuid }
-        session_id: { type: [string, 'null'], format: uuid }
-        deployment_id: { type: string, format: uuid }
-        state: { $ref: '#/components/schemas/ArtifactState' }
-        name: { type: string, maxLength: 255, description: 'Имя из данных атакующего — только текст.' }
-        source_url: { type: [string, 'null'], maxLength: 2048, description: 'Не делается ссылкой (S3).' }
-        size_bytes: { type: [integer, 'null'], minimum: 0, description: 'Обязателен при available.' }
-        sha256: { type: [string, 'null'], pattern: '^[0-9a-f]{64}$', description: 'Обязателен при available.' }
-        mime: { type: [string, 'null'], description: 'Определён сервером, а не заявлен атакующим.' }
-        observed_at: { type: string, format: date-time }
-        expires_at: { type: [string, 'null'], format: date-time }
-        error: { type: [string, 'null'], description: 'Причина failed, для оператора.' }
-        event_refs: { $ref: '#/components/schemas/EventRefs' }
-
+        id:
+          type: string
+          format: uuid
+        session_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        deployment_id:
+          type: string
+          format: uuid
+        state:
+          $ref: '#/components/schemas/ArtifactState'
+        name:
+          type: string
+          maxLength: 255
+          description: Имя из данных атакующего — только текст.
+          x-added: Лимит длины 255.
+        source_url:
+          type:
+          - string
+          - 'null'
+          maxLength: 2048
+          description: Не делается ссылкой (S3).
+          x-added: Лимит длины 2048.
+        size_bytes:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+          description: Обязателен при available.
+        sha256:
+          type:
+          - string
+          - 'null'
+          pattern: ^[0-9a-f]{64}$
+          description: Обязателен при available.
+        mime:
+          type:
+          - string
+          - 'null'
+          description: Определён сервером, а не заявлен атакующим.
+        observed_at:
+          type: string
+          format: date-time
+        expires_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        error:
+          type:
+          - string
+          - 'null'
+          description: Причина failed, для оператора.
+        event_refs:
+          $ref: '#/components/schemas/EventRefs'
+      allOf:
+      - if:
+          properties:
+            state:
+              const: available
+        then:
+          properties:
+            size_bytes:
+              type: integer
+            sha256:
+              type: string
     HoneytokenRead:
       type: object
       additionalProperties: false
-      required: [id, deployment_id, kind, label, created_at, last_triggered_at, trigger_count]
+      required:
+      - id
+      - deployment_id
+      - kind
+      - label
+      - created_at
+      - last_triggered_at
+      - trigger_count
       properties:
-        id: { type: string, format: uuid }
-        deployment_id: { type: string, format: uuid }
-        kind: { type: string, enum: [credential, api_key, url, file], x-question: 'Нужны ли другие виды в MVP (сейчас — URL-токен)?' }
-        label: { type: string, maxLength: 200, description: 'Описание для оператора, без секретного значения.' }
-        created_at: { type: string, format: date-time }
-        last_triggered_at: { type: [string, 'null'], format: date-time }
-        trigger_count: { type: integer, minimum: 0 }
+        id:
+          type: string
+          format: uuid
+        deployment_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+          - credential
+          - api_key
+          - url
+          - file
+          x-question: Нужны ли другие виды в MVP (сейчас — URL-токен)?
+        label:
+          type: string
+          maxLength: 200
+          description: Описание для оператора, без секретного значения.
+          x-added: Лимит длины 200.
+        created_at:
+          type: string
+          format: date-time
+        last_triggered_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        trigger_count:
+          type: integer
+          minimum: 0
     HoneytokenTrigger:
       type: object
       additionalProperties: false
-      required: [at, source, session_id, event_refs]
+      required:
+      - at
+      - source
+      - session_id
+      - event_refs
       properties:
-        at: { type: string, format: date-time }
-        source: { anyOf: [{ $ref: '#/components/schemas/Endpoint' }, { type: 'null' }] }
-        session_id: { type: [string, 'null'], format: uuid, description: 'null: одного совпавшего IP недостаточно для привязки.' }
-        event_refs: { $ref: '#/components/schemas/EventRefs' }
-
-    AlertState: { type: string, enum: [open, acknowledged, resolved] }
-    Severity: { type: string, enum: [low, medium, high, critical] }
+        at:
+          type: string
+          format: date-time
+          description: occurred_at события.
+        source:
+          anyOf:
+          - $ref: '#/components/schemas/Endpoint'
+          - type: 'null'
+          x-added: nullable — как в SessionRead, до ответа о source=null.
+        session_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: 'null: одного совпавшего IP недостаточно для привязки.'
+        event_refs:
+          allOf:
+          - $ref: '#/components/schemas/EventRefs'
+          maxItems: 1
+          description: Ровно одно событие token.triggered.
+    AlertState:
+      type: string
+      enum:
+      - open
+      - acknowledged
+      - resolved
+    Severity:
+      type: string
+      enum:
+      - low
+      - medium
+      - high
+      - critical
     AlertRead:
       type: object
       additionalProperties: false
-      required: [id, rule, rule_version, severity, state, title, window, count, deployment_id,
-                 session_id, source_ip, created_at, updated_at, event_refs]
+      required:
+      - id
+      - rule
+      - rule_version
+      - severity
+      - state
+      - title
+      - window
+      - count
+      - deployment_id
+      - session_id
+      - source_ip
+      - created_at
+      - updated_at
+      - event_refs
       properties:
-        id: { type: string, format: uuid }
-        rule: { type: string, examples: [auth.bruteforce] }
-        rule_version: { type: integer, minimum: 1 }
-        severity: { $ref: '#/components/schemas/Severity' }
-        state: { $ref: '#/components/schemas/AlertState' }
-        title: { type: string, maxLength: 200, description: 'Формирует сервер; frontend показывает текстом.' }
+        id:
+          type: string
+          format: uuid
+        rule:
+          type: string
+          examples:
+          - auth.bruteforce
+        rule_version:
+          type: integer
+          minimum: 1
+        severity:
+          $ref: '#/components/schemas/Severity'
+        state:
+          $ref: '#/components/schemas/AlertState'
+        title:
+          type: string
+          maxLength: 200
+          description: Формирует сервер; frontend показывает текстом.
+          x-added: Лимит длины 200.
         window:
           type: object
           additionalProperties: false
-          required: [from, to]
+          required:
+          - from
+          - to
           properties:
-            from: { type: string, format: date-time }
-            to: { type: string, format: date-time }
-        count: { type: integer, minimum: 1, description: 'Фактическое число событий в окне.' }
-        deployment_id: { type: string, format: uuid }
-        session_id: { type: [string, 'null'], format: uuid }
-        source_ip: { type: [string, 'null'] }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-        event_refs: { $ref: '#/components/schemas/EventRefs' }
-      x-question: 'Область группировки (deployment+source_ip?) и подавление повторов для auth.bruteforce.'
-
+            from:
+              type: string
+              format: date-time
+            to:
+              type: string
+              format: date-time
+          description: Окно правила, полуинтервал [from, to) длиной окна правила (для auth.bruteforce
+            — 60 с).
+        count:
+          type: integer
+          minimum: 1
+          description: Фактическое число событий в окне; может быть больше длины event_refs (не более
+            100).
+        deployment_id:
+          type: string
+          format: uuid
+        session_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        source_ip:
+          type:
+          - string
+          - 'null'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        event_refs:
+          $ref: '#/components/schemas/EventRefs'
+      x-question: Область группировки (deployment+source_ip?) и подавление повторов для auth.bruteforce.
     SummaryRead:
       type: object
       additionalProperties: false
-      required: [as_of, deployments, hosts, events_last_hour, alerts_open, top_sources]
+      required:
+      - as_of
+      - deployments
+      - hosts
+      - events_last_hour
+      - alerts_open
+      - top_sources
       properties:
-        as_of: { type: string, format: date-time }
+        as_of:
+          type: string
+          format: date-time
         deployments:
           type: object
           additionalProperties: false
-          required: [total, running, failed]
+          required:
+          - total
+          - running
+          - failed
           properties:
-            total: { type: integer, minimum: 0 }
-            running: { type: integer, minimum: 0 }
-            failed: { type: integer, minimum: 0 }
+            total:
+              type: integer
+              minimum: 0
+            running:
+              type: integer
+              minimum: 0
+            failed:
+              type: integer
+              minimum: 0
         hosts:
           type: object
           additionalProperties: false
-          required: [total, online, offline, revoked]
+          required:
+          - total
+          - online
+          - offline
+          - revoked
           properties:
-            total: { type: integer, minimum: 0 }
-            online: { type: integer, minimum: 0 }
-            offline: { type: integer, minimum: 0 }
-            revoked: { type: integer, minimum: 0, description: 'Не входит в offline.' }
-        events_last_hour: { type: integer, minimum: 0 }
-        alerts_open: { type: integer, minimum: 0 }
+            total:
+              type: integer
+              minimum: 0
+            online:
+              type: integer
+              minimum: 0
+            offline:
+              type: integer
+              minimum: 0
+            revoked:
+              type: integer
+              minimum: 0
+              description: Не входит в offline.
+        events_last_hour:
+          type: integer
+          minimum: 0
+        alerts_open:
+          type: integer
+          minimum: 0
         top_sources:
           type: array
           maxItems: 5
-          description: 'Убывание count, при равенстве — IP по возрастанию.'
+          description: Убывание count, при равенстве — IP по возрастанию.
           items:
             type: object
             additionalProperties: false
-            required: [ip, count]
+            required:
+            - ip
+            - count
             properties:
-              ip: { type: string }
-              count: { type: integer, minimum: 1 }
-
+              ip:
+                type: string
+              count:
+                type: integer
+                minimum: 1
+          x-added: maxItems 5 (топ-5 согласован, предел — предложение).
   examples:
     SessionSsh:
       value:
@@ -605,59 +1212,80 @@ components:
         deployment_id: 9a8c5f2d-0000-4000-8000-000000000003
         instance_id: c0ffee00-0000-4000-8000-000000000004
         protocol: ssh
-        source: { ip: 203.0.113.9, port: 40112 }
-        service: { protocol: ssh, port: 2222 }
+        source:
+          ip: 203.0.113.9
+          port: 40112
+        service:
+          protocol: ssh
+          port: 2222
         started_at: '2026-10-11T09:41:12Z'
         ended_at: null
-        auth: { attempts: 3, succeeded: true, username: root }
-        counts: { events: 41, commands: 12, artifacts: 1, tokens_triggered: 0 }
-        replay: { available: true, complete: false }
+        auth:
+          attempts: 3
+          succeeded: true
+          username: root
+        counts:
+          events: 41
+          commands: 12
+          artifacts: 1
+          tokens_triggered: 0
+        replay:
+          available: true
+          complete: false
         profile_revision: 4
     ArtifactPage:
       value:
         items:
-          - id: a1a1a1a1-0000-4000-8000-000000000005
-            session_id: 5e5510aa-0000-4000-8000-000000000001
-            deployment_id: 9a8c5f2d-0000-4000-8000-000000000003
-            state: available
-            name: x.sh
-            source_url: http://203.0.113.9/x.sh
-            size_bytes: 1532
-            sha256: 3b4f0c8a9d2e1f00112233445566778899aabbccddeeff001122334455667788
-            mime: text/x-shellscript
-            observed_at: '2026-10-11T09:42:01Z'
-            expires_at: '2026-10-18T09:42:01Z'
-            error: null
-            event_refs: [{ agent_id: 7d3b0c1e-0000-4000-8000-000000000002, event_id: 1f2e3d4c-0000-4000-8000-000000000006 }]
-          - id: a2a2a2a2-0000-4000-8000-000000000007
-            session_id: null
-            deployment_id: 9a8c5f2d-0000-4000-8000-000000000003
-            state: pending
-            name: payload.bin
-            source_url: null
-            size_bytes: null
-            sha256: null
-            mime: null
-            observed_at: '2026-10-11T09:43:30Z'
-            expires_at: null
-            error: null
-            event_refs: [{ agent_id: 7d3b0c1e-0000-4000-8000-000000000002, event_id: 2a3b4c5d-0000-4000-8000-000000000008 }]
+        - id: a1a1a1a1-0000-4000-8000-000000000005
+          session_id: 5e5510aa-0000-4000-8000-000000000001
+          deployment_id: 9a8c5f2d-0000-4000-8000-000000000003
+          state: available
+          name: x.sh
+          source_url: http://203.0.113.9/x.sh
+          size_bytes: 1532
+          sha256: 3b4f0c8a9d2e1f00112233445566778899aabbccddeeff001122334455667788
+          mime: text/x-shellscript
+          observed_at: '2026-10-11T09:42:01Z'
+          expires_at: '2026-10-18T09:42:01Z'
+          error: null
+          event_refs:
+          - agent_id: 7d3b0c1e-0000-4000-8000-000000000002
+            event_id: 1f2e3d4c-0000-4000-8000-000000000006
+        - id: a2a2a2a2-0000-4000-8000-000000000007
+          session_id: null
+          deployment_id: 9a8c5f2d-0000-4000-8000-000000000003
+          state: pending
+          name: payload.bin
+          source_url: null
+          size_bytes: null
+          sha256: null
+          mime: null
+          observed_at: '2026-10-11T09:43:30Z'
+          expires_at: null
+          error: null
+          event_refs:
+          - agent_id: 7d3b0c1e-0000-4000-8000-000000000002
+            event_id: 2a3b4c5d-0000-4000-8000-000000000008
         next_cursor: null
     AlertPage:
       value:
         items:
-          - id: b1b1b1b1-0000-4000-8000-000000000009
-            rule: auth.bruteforce
-            rule_version: 1
-            severity: high
-            state: open
-            title: 7 неудачных входов за 60 с
-            window: { from: '2026-10-11T09:40:00Z', to: '2026-10-11T09:41:00Z' }
-            count: 7
-            deployment_id: 9a8c5f2d-0000-4000-8000-000000000003
-            session_id: null
-            source_ip: 203.0.113.9
-            created_at: '2026-10-11T09:41:00Z'
-            updated_at: '2026-10-11T09:41:00Z'
-            event_refs: [{ agent_id: 7d3b0c1e-0000-4000-8000-000000000002, event_id: 3c4d5e6f-0000-4000-8000-00000000000a }]
-        next_cursor: opaque.v1.eyJ…
+        - id: b1b1b1b1-0000-4000-8000-000000000009
+          rule: auth.bruteforce
+          rule_version: 1
+          severity: high
+          state: open
+          title: 7 неудачных входов за 60 с
+          window:
+            from: '2026-10-11T09:40:00Z'
+            to: '2026-10-11T09:41:00Z'
+          count: 7
+          deployment_id: 9a8c5f2d-0000-4000-8000-000000000003
+          session_id: null
+          source_ip: 203.0.113.9
+          created_at: '2026-10-11T09:41:00Z'
+          updated_at: '2026-10-11T09:41:00Z'
+          event_refs:
+          - agent_id: 7d3b0c1e-0000-4000-8000-000000000002
+            event_id: 3c4d5e6f-0000-4000-8000-00000000000a
+        next_cursor: djEuYWxlcnRzLnNuYXBzaG90LjIwMjYtMTAtMTFUMDk6NDE6MDBa

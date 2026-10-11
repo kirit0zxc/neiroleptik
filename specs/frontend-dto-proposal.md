@@ -30,7 +30,7 @@ frontend моков по разделам 1–4 и 6 не делает; свод
 ```json
 {
   "session_id": "uuid",
-  "agent_id": "string",
+  "agent_id": "uuid",
   "deployment_id": "uuid",
   "instance_id": "uuid",
   "protocol": "ssh | http | tcp",

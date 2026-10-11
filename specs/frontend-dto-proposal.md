@@ -7,7 +7,7 @@
 frontend моков по разделам 1–4 и 6 не делает; сводка (раздел 5) уже в моке
 в согласованном виде.
 
-**Обновление 11.10:** разделы 2–4 и 6, выборка событий по ссылкам и
+**Обновление 11.10 (действует после слияния PR #35):** разделы 2–4 и 6, выборка событий по ссылкам и
 timeline реализованы участником 4 (PR #35): точные типы — в
 `contracts/openapi.json`, семантика — `specs/investigation-handoff.md`; ниже
 они остаются как история согласования. Паспорт сессии (раздел 1) и сводка
@@ -60,7 +60,7 @@ timeline реализованы участником 4 (PR #35): точные т
 Курсор связан с фильтрами и сортировкой. Клик по событию переводит replay к
 моменту `occurred_at − started_at`.
 
-## 2. Артефакты (F16) — ок
+## 2. Артефакты (F16) — ок — история, см. contracts/openapi.json
 
 `GET /api/v1/artifacts?session_id=&deployment_id=&cursor=&limit=50` и
 `GET /api/v1/artifacts/{id}` → `ArtifactRead`:
@@ -90,7 +90,7 @@ timeline реализованы участником 4 (PR #35): точные т
   409, `expired` — 410. Этот 410 — «файл недоступен», не пересинхронизация
   потока. Frontend не открывает содержимое в браузере.
 
-## 3. Медовые токены (F17) — ок
+## 3. Медовые токены (F17) — ок — история, см. contracts/openapi.json
 
 `GET /api/v1/honeytokens?deployment_id=&cursor=&limit=50` → `HoneytokenRead`:
 `{id, deployment_id, kind, label, created_at, last_triggered_at | null,
@@ -101,7 +101,7 @@ trigger_count}`. Секретное значение токена API не во�
 `token.triggered`. `session_id` может быть null: одного совпавшего IP для
 привязки к сессии недостаточно.
 
-## 4. Алерты (F17) — чтение в MVP
+## 4. Алерты (F17) — чтение в MVP — история, см. contracts/openapi.json
 
 `GET /api/v1/alerts?state=&severity=&cursor=&limit=50` → `AlertRead`:
 
@@ -150,7 +150,7 @@ trigger_count}`. Секретное значение токена API не во�
 - События и топ-5 источников — по опубликованным событиям с `occurred_at`
   в `[as_of − 1 ч, as_of)`; равные счётчики — стабильный порядок по IP.
 
-## 6. CSV IoC (F18) — серверный файл
+## 6. CSV IoC (F18) — серверный файл — история, см. contracts/openapi.json
 
 Одна строка на индикатор и событие-основание:
 

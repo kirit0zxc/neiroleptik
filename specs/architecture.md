@@ -1,5 +1,22 @@
 # Архитектура HoneyForge
 
+Независимые стенды следующего этапа: `agent/telemetry/benchmark.py` измеряет
+существующие spool/sender с синтетическим ACK-получателем, а `tty_fixture.py`
+читает собственный тестовый двоичный формат. `scripts/telemetry_acceptance.ps1`
+запускает сетевую PostgreSQL-приёмку под существующей эксклюзивной блокировкой.
+Они не подключают production Low, replay, runtime lifecycle или cleanup.
+
+## Внутренняя конверсия и тестовая интеграция (11.10.2026)
+
+`agent/telemetry/low_journal/conversion.py` связывает сохранённый raw с существующим
+SpoolRepository через чистый внедряемый RawEventMapper. Одна транзакция spool
+фиксирует pending и ledger, raw repository продолжает отвечать за своё сырьё.
+Ledger переживает ACK/карантин; production mapping и runtime wiring отсутствуют.
+`backend/tests/telemetry/integration_app.py` — только тестовая сборка реальных
+storage/publisher/read/history/stream/transport сервисов с HTTP ingress. Routes
+рабочего приложения и production миграции не меняются. Тесты используют агентский
+пакет как dev-зависимость, а не второй sender или копию Event/ACK-контракта.
+
 ## Согласованное решение 09.10.2026
 
 Владелец проекта подтвердил использование существующего neiroleptik, FastAPI

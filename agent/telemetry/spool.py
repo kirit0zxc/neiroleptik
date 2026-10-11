@@ -55,6 +55,17 @@ class SpoolRepository:
                 CREATE TABLE IF NOT EXISTS batch_snapshots (
                     batch_id TEXT PRIMARY KEY, payload BLOB NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS low_conversion_ledger (
+                    source_key TEXT NOT NULL, journal_id TEXT NOT NULL,
+                    offset INTEGER NOT NULL, next_offset INTEGER NOT NULL,
+                    kind TEXT NOT NULL, raw_digest BLOB NOT NULL,
+                    mapper_version TEXT NOT NULL, result TEXT NOT NULL,
+                    event_id TEXT UNIQUE, canonical_payload TEXT,
+                    PRIMARY KEY(source_key,journal_id,offset),
+                    CHECK ((result='service' AND event_id IS NULL AND canonical_payload IS NULL)
+                        OR (result='event' AND event_id IS NOT NULL
+                            AND canonical_payload IS NOT NULL))
+                );
             """)
             with self.db:
                 self.db.execute(
@@ -92,24 +103,37 @@ class SpoolRepository:
             or record.next_offset <= record.offset
         ):
             raise ValueError("Некорректные границы записи")
-        # Повторная валидация защищает от изменения вложенного data после создания модели.
-        event = Event.model_validate_json(record.event.canonical_json())
-        # Проверяем полный одиночный конверт до записи: иначе голова блокирует очередь.
-        Batch(events=[event])
-        payload = event.canonical_json()
+        payload = self.validated_payload(record.event)
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
             if self.checkpoint(record.source_id) != record.offset:
                 raise OffsetConflict("Начало записи не равно сохранённому checkpoint")
-            self.db.execute(
-                "INSERT INTO pending(event_id,payload) VALUES (?,?)",
-                (str(record.event.event_id), payload),
-            )
+            self.insert_pending(record.event.event_id, payload)
             self.db.execute(
                 "INSERT INTO checkpoints(source_id,next_offset) VALUES (?,?) "
                 "ON CONFLICT(source_id) DO UPDATE SET next_offset=excluded.next_offset",
                 (record.source_id, record.next_offset),
             )
+
+    def validated_payload(self, event: Event) -> str:
+        """Повторная проверка вложенных данных и одиночного конверта до транзакции."""
+        checked = Event.model_validate(event.model_dump(mode="python", warnings=False))
+        if checked.agent_id != self.agent_id:
+            raise ValueError("Событие принадлежит другому агенту")
+        Batch(events=[checked])
+        return checked.canonical_json()
+
+    def insert_pending(self, event_id: UUID, payload: str) -> None:
+        """Внутренний INSERT без commit; вызывающий владеет общей транзакцией.
+
+        Payload должен пройти validated_payload. Интерфейс позволяет конверсии
+        добавить ledger до того же commit, сохраняя прежний контракт append.
+        """
+        if not self.db.in_transaction:
+            raise RuntimeError("INSERT требует транзакцию владельца")
+        self.db.execute(
+            "INSERT INTO pending(event_id,payload) VALUES (?,?)", (str(event_id), payload)
+        )
 
     def count(self) -> int:
         return int(self.db.execute("SELECT COUNT(*) FROM pending").fetchone()[0])

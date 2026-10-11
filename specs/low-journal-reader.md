@@ -1,5 +1,23 @@
 # Читатель Low JSONL: внутренняя спецификация
 
+## Независимая конверсия сохранённого raw
+
+`low_journal/conversion.py` добавляет внедряемый LowRawConverter, не меняя reader,
+collector, raw bytes/checkpoint или runtime. Ledger расположен в той же SQLite
+spool; его схема, транзакционные границы и критерии описаны в specs/events.md.
+Для повторного вычисления mapper получает неизменяемую JournalRecord и доверенную
+JournalBinding; production Low→Event ещё не определён. None обозначает только
+служебную строку, исключение не означает пропуск. Повтор после ACK/рестарта
+сравнивает сохранённое доказательство и не создаёт pending заново.
+
+Ответ runtime 11.10.2026 13:25 подтверждает: новый процесс прежнего instance
+продолжает journal_seq, но previous_journal_id=null и исходный seq начинается
+заново. Это не доверенное разрешение collector переходить через разрыв:
+MISSING_PREDECESSOR/OPEN_PREDECESSOR сохраняются. Внутренняя конверсия разных
+сохранённых journal_id при равных offset/seq не склеивает позиции и не сбрасывает
+старый checkpoint. Протокол границы процесса, cleanup receipt и replay после
+удаления predecessor ещё совместно определяются; см. low-telemetry-handoff.md.
+
 Дата: 11.10.2026. База: `1a99647780b38dbb5ac925699ec4a8a2ad08f44d`.
 Статус: внутренний контракт независимого читателя. Python 3.12.
 Это внутренний интерфейс нашей телеметрии, не изменение runtime/Event/API.

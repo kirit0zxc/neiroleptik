@@ -182,6 +182,8 @@ jobs:
           uv run --frozen ruff check agent tests/telemetry
           uv run --frozen ruff format --check agent tests/telemetry
           uv run --frozen mypy
+          # Win32 API проверяем отдельно, даже когда CI выполняется на Linux.
+          uv run --frozen mypy --platform win32
           uv run --frozen pytest
           uv run --frozen python -m agent.telemetry.export_contracts --check
           uv run --frozen python -m agent.telemetry.demo

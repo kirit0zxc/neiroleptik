@@ -255,3 +255,15 @@ WS telemetry использует внутренний DBOperations: учтён�
 серверный SQL deadline и обязательная асинхронная очистка при отмене. Hook
 SQLAlchemy не изменяет операции вне контекста WS. Общие модели, миграции и
 production FastAPI не подключаются к этому прототипу.
+
+## Независимый читатель файлового журнала Low
+
+`agent/telemetry/low_journal/` — локальный read-only компонент по
+[low-journal-reader.md](low-journal-reader.md). `models.py` задаёт неизменяемые
+binding/record/summary и безопасную ошибку; `validation.py` проверяет JSON и
+исходные записи, `source.py` открывает обычный файл без следования конечной
+ссылке, `reader.py` читает ограниченный снимок и проверяет порядок записей.
+Компонент использует только stdlib, не импортирует Event, adapter или spool.
+Header/footer выдаются с исходными bytes и физическими позициями; checkpoint,
+Event mapping, HTTP-разбор, sender, backend и UI остаются следующими этапами.
+Статус low-journal-v1 как интеграционного предложения сохраняется.

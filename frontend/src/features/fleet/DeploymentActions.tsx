@@ -113,9 +113,13 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
   );
 }
 
-/** Модальное подтверждение на нативном <dialog>: фокус и Esc — из коробки. */
-function ConfirmDialog({ title, text, onCancel, onConfirm }: {
-  title: string; text: string; onCancel: () => void; onConfirm: () => void;
+/**
+ * Модальное подтверждение на нативном <dialog>: фокус и Esc — из коробки.
+ * `error` — сбой действия внутри окна (повтор — снова «Подтвердить»);
+ * `busy` — запрос идёт, кнопки заблокированы.
+ */
+export function ConfirmDialog({ title, text, onCancel, onConfirm, error, busy = false }: {
+  title: string; text: string; onCancel: () => void; onConfirm: () => void; error?: string | null; busy?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -127,12 +131,13 @@ function ConfirmDialog({ title, text, onCancel, onConfirm }: {
     else d.setAttribute('open', '');
   }, []);
   return (
-    <dialog ref={ref} className={`win ${s.dialog}`} aria-labelledby="confirm-title" onCancel={(e) => { e.preventDefault(); onCancel(); }}>
+    <dialog ref={ref} className={`win ${s.dialog}`} aria-labelledby="confirm-title" onCancel={(e) => { e.preventDefault(); if (!busy) onCancel(); }}>
       <WindowTitle title={title} id="confirm-title" />
       <p>{text}</p>
+      {error && <p role="alert" className={s.dialogError}>{error}</p>}
       <div className={s.dialogActions}>
-        <button className={ui.button} onClick={onCancel} autoFocus>Отмена</button>
-        <button className={`${ui.button} ${s.danger}`} onClick={onConfirm}>Подтвердить</button>
+        <button className={ui.button} onClick={onCancel} disabled={busy} autoFocus>Отмена</button>
+        <button className={`${ui.button} ${s.danger}`} onClick={onConfirm} disabled={busy}>{busy ? 'Выполняем…' : error ? 'Повторить' : 'Подтвердить'}</button>
       </div>
     </dialog>
   );

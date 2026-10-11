@@ -38,8 +38,12 @@ for (const file of DATA) {
 }
 
 // 1б. Фон окна Юми — «комната с экранами» (specs/frontend.md, 6a).
-copyFileSync(from('public/mascot/bg/room.webp'), to('public/mascot/bg/room.webp'));
-console.log('фон: public/mascot/bg/room.webp');
+if (existsSync(from('public/mascot/bg/room.webp'))) {
+  copyFileSync(from('public/mascot/bg/room.webp'), to('public/mascot/bg/room.webp'));
+  console.log('фон: public/mascot/bg/room.webp');
+} else {
+  console.warn('предупреждение: в студии нет public/mascot/bg/room.webp — фон окна Юми не обновлён');
+}
 
 // 2. Какие клипы нужны: действия встроенных состояний, пресетов и цепочек.
 const used = new Set();

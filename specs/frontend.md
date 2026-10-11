@@ -675,7 +675,14 @@ frontend опирается на HTTP-статус, а не на текст: 401
 |---|---|---|
 | Unit | Vitest | `StreamClient` (разрыв, дубли, порядок, курсор), фильтр терминала, маска кредов, время, схемы форм |
 | Компоненты | Testing Library + MSW | форма профиля, парк и drift, лента и фильтры, replay, роль viewer |
-| E2E | Playwright | вход → профиль → ловушка → событие → паспорт → replay → reset; reconnect; XSS-строка видна текстом; viewer не меняет данные |
+| E2E | Playwright | вход → профиль → ловушка → событие → паспорт → replay → reset; reconnect; XSS-строка видна текстом; viewer не меняет данные; лента → «Запись» → replay без управляющих последовательностей и ссылок; admin выдаёт токен регистрации и отзывает хост |
+
+E2E идут на моках. Демо-входы мока: `operator`/`operator`, `admin`/`admin`,
+`viewer`/`viewer`. Как центр (`Operator`/`Administrator`), мок отвечает
+viewer на любой изменяющий запрос API, кроме ровно `/api/v1/auth/login` и
+`/api/v1/auth/logout`, в порядке центра: вход → CSRF → роль (403
+«Требуется роль operator или admin»). Проверка «viewer не меняет данные»
+не держится только на скрытых кнопках.
 
 CI frontend: `npm ci` → `lint` → `typecheck` → `test:ci` → `build`;
 E2E — отдельная обязательная задача CI: Linux, Chromium версии из lock-файла,

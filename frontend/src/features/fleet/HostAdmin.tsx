@@ -126,7 +126,7 @@ function EnrollmentDialog({ initialRequest, onClose }: { initialRequest: Promise
             На хосте передайте токен через переменную окружения <code>HF_ENROLLMENT_TOKEN</code> и выполните
             команду; <code>--token-file</code> — куда агент сохранит свой постоянный токен, не этот.
           </p>
-          <pre className={s.cmd}>{ENROLL_COMMAND}</pre>
+          <pre className={s.cmd} aria-label="Команда регистрации агента">{ENROLL_COMMAND}</pre>
           <p className={s.note}>
             Токен одноразовый: если ответ регистрации потерян, повтор с ним не сработает — выдайте новый.
             Новый токен не отменяет прежние: они действуют до своего срока.

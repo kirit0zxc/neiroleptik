@@ -1,10 +1,10 @@
 import { http, HttpResponse } from 'msw';
 import events from '../../../contracts/fixtures/events.draft.json';
-import hosts from '../../../contracts/fixtures/hosts.draft.json';
+import hostsFixture from '../../../contracts/fixtures/hosts.draft.json';
 import me from '../../../contracts/fixtures/me.draft.json';
 import profilesFixture from '../../../contracts/fixtures/profiles.draft.json';
 import auditFixture from '../../../contracts/fixtures/audit.draft.json';
-import type { HfEvent, InteractionLevel, Profile, ProfileConfigInput, ProfileConfigPublic, Revision } from '../shared/api/types';
+import type { HfEvent, Host, InteractionLevel, Profile, ProfileConfigInput, ProfileConfigPublic, Revision } from '../shared/api/types';
 import { currentDeployments, jobHandlers, resetMockJobs } from './jobs';
 import { publishedEvents, resetMockStream, streamHandlers } from './stream';
 import { replayHandlers } from './replay';
@@ -57,6 +57,18 @@ function csrfFailure(request: Request) {
     : HttpResponse.json({ detail: 'CSRF-токен отсутствует или неверен' }, { status: 403 });
 }
 
+/** Хосты меняются отзывом; сброс — в resetMockSession. */
+let hosts: Host[] = structuredClone(hostsFixture) as Host[];
+let enrollmentId = 0;
+
+/** Как `Administrator` центра: сначала вход (401), затем CSRF, затем роль (403). */
+function adminFailure(request: Request) {
+  if (!session.get()) return HttpResponse.json({ detail: 'Требуется вход' }, { status: 401 });
+  const csrf = csrfFailure(request); if (csrf) return csrf;
+  if (session.role() !== 'admin') return HttpResponse.json({ detail: 'Недостаточно прав' }, { status: 403 });
+  return null;
+}
+
 export const handlers = [
   http.post('/api/v1/auth/login', async ({ request }) => {
     const body = (await request.json()) as { username?: string; password?: string };
@@ -76,6 +88,23 @@ export const handlers = [
     ? HttpResponse.json(currentMe())
     : HttpResponse.json({ detail: 'Требуется вход' }, { status: 401 }))),
   http.get('/api/v1/hosts', () => HttpResponse.json(hosts)),
+  // Регистрационный токен: одноразовый, 15 минут (как RegistryService.issue).
+  http.post('/api/v1/enrollments', ({ request }) => {
+    const bad = adminFailure(request); if (bad) return bad;
+    enrollmentId++;
+    return HttpResponse.json({
+      id: `00000000-0000-4000-8000-${String(enrollmentId).padStart(12, '0')}`,
+      enrollment_token: `hf_enroll_mock${crypto.randomUUID().replaceAll('-', '')}`,
+      expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+    }, { status: 201 });
+  }),
+  http.post('/api/v1/hosts/:id/revoke', ({ request, params }) => {
+    const bad = adminFailure(request); if (bad) return bad;
+    const i = hosts.findIndex((h) => h.id === params.id);
+    if (i < 0) return HttpResponse.json({ detail: 'Хост не найден' }, { status: 404 });
+    hosts[i] = { ...hosts[i]!, status: 'revoked' };
+    return HttpResponse.json(hosts[i]);
+  }),
   ...jobHandlers(csrfFailure, (id) => profiles.find((p) => p.id === id)?.config.interaction_level as InteractionLevel | undefined),
   // Снимок не меняется при публикации live; cursor относится только к /events.
   http.get('/api/v1/events', ({ request }) => {
@@ -206,6 +235,8 @@ export function resetMockSession(open = false, role: 'admin' | 'operator' = 'ope
   resetMockStream(events as unknown as HfEvent[]);
   resetMockJobs();
   profiles = structuredClone(profilesFixture) as Profile[];
+  hosts = structuredClone(hostsFixture) as Host[];
+  enrollmentId = 0;
   seedRevisions();
   nextId = 1;
   snapshots.clear();

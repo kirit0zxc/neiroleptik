@@ -8,6 +8,7 @@ import { api, ApiError, setCsrfToken, setUnauthorizedHandler } from '../../share
 import type { Auth, Role } from '../../shared/api/types';
 import { Loading, ui, WindowTitle } from '../../shared/ui';
 import { Terrain } from '../../shared/ui/Terrain';
+import { DemoNote } from '../../shared/ui/DataSource';
 import s from './auth.module.css';
 
 /** Сессия оператора (F1–F3). Источник — `GET /api/v1/auth/me` (AuthRead). */
@@ -83,6 +84,7 @@ export function LoginPage() {
         <div className={s.inner}>
         <h1>HoneyForge</h1>
         <p className={s.sub}>Пульт оператора ловушек</p>
+        <DemoNote logins />
         {/* Ошибка — вне label: иначе она становится частью названия поля. */}
         <div className={s.field}>
           <label htmlFor="login">Логин</label>

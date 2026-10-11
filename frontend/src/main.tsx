@@ -8,6 +8,8 @@ async function start() {
   if (import.meta.env.VITE_API_MOCK === '1') {
     const { worker, startDemoAttacks } = await import('./mocks/browser');
     await worker.start({ onUnhandledRequest: 'bypass' });
+    // Скриншоты демо не перепутать с центром (specs, «Источник данных»).
+    document.title = `[демо] ${document.title}`;
     startDemoAttacks();
   }
   createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);

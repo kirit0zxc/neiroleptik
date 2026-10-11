@@ -2,6 +2,19 @@ import { expect, test } from '@playwright/test';
 
 /** Команды ловушки (F6): остановить Low с подтверждением → «остановлена» → запустить → «работает». */
 test('остановка и запуск ловушки с ходом задания', async ({ page }) => {
+  // Успешный сценарий не должен скрывать обрыв опроса за повторным запросом.
+  const failedJobRequests: string[] = [];
+  const sentCommands: string[] = [];
+  page.on('requestfailed', (request) => {
+    if (new URL(request.url()).pathname.startsWith('/api/v1/jobs/')) {
+      failedJobRequests.push(request.failure()?.errorText ?? request.url());
+    }
+  });
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/commands')) {
+      sentCommands.push((request.postDataJSON() as { command: string }).command);
+    }
+  });
   await page.goto('/fleet');
   await page.getByLabel('Логин').fill('operator');
   await page.getByLabel('Пароль').fill('operator');
@@ -23,4 +36,6 @@ test('остановка и запуск ловушки с ходом задан
   await low.getByRole('button', { name: 'Запустить' }).click();
   await expect(low.getByRole('status')).toContainText('Запустить: успешно', { timeout: 10_000 });
   await expect(low.getByText('работает')).toBeVisible();
+  expect(failedJobRequests).toEqual([]);
+  expect(sentCommands).toEqual(['stop', 'start']);
 });

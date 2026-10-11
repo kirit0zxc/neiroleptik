@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
+import { sourceLabel } from '../../shared/format/source';
 import { api, ApiError } from '../../shared/api/client';
 import { EVENT_TYPES, eventKey, type Deployment, type HfEvent } from '../../shared/api/types';
 import { formatTime } from '../../shared/format/time';
@@ -156,7 +157,7 @@ export function EventsPage() {
                     <td>{formatTime(e.occurred_at)}</td>
                     <td>{eventLabel(e.type)}</td>
                     <td className="mono">{e.deployment_id}</td>
-                    <td className="mono">{e.source.ip}:{e.source.port}</td>
+                    <td className="mono">{sourceLabel(e)}</td>
                     {/* Только текст: данные атакующего не превращаются в разметку (S1). */}
                     <td className="mono">{describeEvent(e)}</td>
                     <td>{e.session_id

@@ -114,6 +114,11 @@ function ReplayPlayer({ id, fetch }: { id: string; fetch: FetchReplay }) {
       <div className={s.meta}>
         <span>Начало: {formatTime(state.startedAt)}</span>
         {!state.complete && <StatusBadge tone="warn">запись продолжается</StatusBadge>}
+        {/* Только для загруженной целиком записи: пока она идёт, вывод может прийти позже. */}
+        {state.complete && state.tape.isEmpty && <StatusBadge tone="idle">Запись пуста</StatusBadge>}
+        {state.complete && state.tape.inputWithoutOutput && (
+          <StatusBadge tone="warn">Ответы ловушки в записи отсутствуют</StatusBadge>
+        )}
       </div>
       {state.error !== null && <ErrorState message="Часть записи не загрузилась." onRetry={() => loader.retry()} />}
       <div className={s.controls}>

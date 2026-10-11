@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -71,5 +72,16 @@ describe('экран записи сессии (F15)', () => {
     Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = v; } });
     await userEvent.click(screen.getByRole('button', { name: 'В конец' }));
     expect(top).toBe(el.scrollHeight);
+  });
+
+  it.each([
+    ['ввод без вывода', [{ seq: 0, offset_ms: 0, direction: 'in', data_base64: btoa('GET /'), truncated: false }], 'Ответы ловушки в записи отсутствуют'],
+    ['без чанков', [], 'Запись пуста'],
+  ])('неполная запись (%s) — честная пометка', async (_name, chunks, note) => {
+    server.use(http.get('/api/v1/sessions/:id/replay', () => HttpResponse.json({
+      session_id: DEMO_SESSION, started_at: '2026-10-11T09:00:00Z', chunks, next_cursor: null, tail_cursor: null, complete: true,
+    })));
+    open(DEMO_SESSION);
+    expect(await screen.findByText(note)).toBeInTheDocument();
   });
 });

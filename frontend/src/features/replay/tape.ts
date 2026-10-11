@@ -65,6 +65,13 @@ export class ReplayTape {
   private skipLf = false;
   private skipLfDir: Direction | null = null;
   private seen = new Set<number>();
+  /** Направления, по которым пришёл хотя бы один чанк. */
+  private readonly directions = new Set<Direction>();
+
+  /** Чанков не было совсем. */
+  get isEmpty() { return this.seen.size === 0; }
+  /** Есть ввод атакующего, но нет ни одного чанка вывода ловушки. */
+  get inputWithoutOutput() { return this.directions.has('in') && !this.directions.has('out'); }
 
   /** Длительность записи — время последнего чанка. */
   durationMs = 0;
@@ -74,6 +81,7 @@ export class ReplayTape {
     for (const c of chunks) {
       if (this.seen.has(c.seq)) continue;
       this.seen.add(c.seq);
+      this.directions.add(c.direction);
       this.durationMs = Math.max(this.durationMs, c.offset_ms);
       this.last[c.direction] = { seq: c.seq, offsetMs: c.offset_ms };
       const decoder = this.decoders[c.direction];

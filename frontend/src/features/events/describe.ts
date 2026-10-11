@@ -1,4 +1,5 @@
 import type { HfEvent } from '../../shared/api/types';
+import { serviceLabel } from '../../shared/format/source';
 import { maskSecret, sanitizeTerminal } from '../../shared/security/terminal';
 
 const TYPE_LABEL: Record<string, string> = {
@@ -22,7 +23,7 @@ const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : JSON.s
  * очищаются от управляющих символов (S2), пароли маскируются (S4).
  * Результат выводится как текстовый узел, без разметки.
  */
-export function describeEvent(e: Pick<HfEvent, 'type' | 'data'>): string {
+export function describeEvent(e: Pick<HfEvent, 'type' | 'data'> & { service?: unknown }): string {
   const d = e.data;
   const trunc = d.truncated === true ? ' [обрезано]' : '';
   switch (e.type) {
@@ -35,6 +36,10 @@ export function describeEvent(e: Pick<HfEvent, 'type' | 'data'>): string {
       return sanitizeTerminal(str(d.input ?? d.output)) + trunc;
     case 'http.request':
       return sanitizeTerminal(`${str(d.method)} ${str(d.path)}`) + trunc;
+    case 'connection.opened':
+    case 'session.closed':
+      // Полезных данных обычно нет — показываем сервис: «tcp :2222».
+      return sanitizeTerminal(serviceLabel(e.service));
     case 'token.triggered':
       // URL приманки не делаем ссылкой и не открываем (S3).
       return sanitizeTerminal(`приманка ${str(d.token_id)}`);

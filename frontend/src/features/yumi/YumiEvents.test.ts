@@ -60,4 +60,9 @@ describe('Юми: сквозной путь события до реплики',
   it('вывод ловушки за команду не принимается', () => {
     expect(reply(ev('session.output', { output: 'root' }))).toBeNull();
   });
+
+  it('нет источника — «неизвестного адреса», без падения', () => {
+    const e = { ...ev('connection.opened', {}), source: null } as unknown as Ev;
+    expect(reply(e)).toBe('Новое подключение с неизвестного адреса по ssh.');
+  });
 });

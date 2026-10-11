@@ -98,7 +98,8 @@ export function investigationHandlers(opts: {
       if (a.state === 'expired') return err(410, 'Файл удалён по сроку хранения', 'ARTIFACT_EXPIRED');
       return new HttpResponse('#!/bin/sh\necho demo artifact\n', {
         headers: {
-          'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${a.name}"`,
+          'Content-Type': 'application/octet-stream', // Имя — как у центра: не из данных атакующего.
+          'Content-Disposition': `attachment; filename="honeyforge-artifact-${a.id}.bin"`,
           'X-Content-Type-Options': 'nosniff',
         },
       });

@@ -108,7 +108,8 @@ export async function downloadFile(path: string, fallbackName: string): Promise<
     a.click();
     a.remove();
   } finally {
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    // Не сразу: ранний revoke в Firefox/Safari обрывает скачивание.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
   return name;
 }

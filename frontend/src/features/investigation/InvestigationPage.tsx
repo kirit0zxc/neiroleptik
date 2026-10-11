@@ -7,7 +7,7 @@ import { sourceLabel } from '../../shared/format/source';
 import { Empty, ErrorState, Loading, Panel, StatusBadge, ui, type Tone } from '../../shared/ui';
 import { canEdit, useMe } from '../auth/auth';
 import { describeEvent, eventLabel } from '../events/describe';
-import { artifactErrorMessage, downloadFile, formatBytes, IocPeriod, toLocalInput } from './logic';
+import { artifactErrorMessage, downloadFile, formatBytes, IOC_MAX_DAYS, IocPeriod, toLocalInput } from './logic';
 import s from './investigation.module.css';
 
 const TIME = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -30,22 +30,25 @@ function usePaged<T>(key: readonly unknown[], path: string) {
   });
   const more = async () => {
     const r = await q.fetchNextPage();
-    if (r.error instanceof ApiError && r.error.code === 'INVALID_CURSOR') {
-      qc.removeQueries({ queryKey: key, exact: true });
-      void q.refetch();
-    }
+    // Курсор не принят — список с первой страницы (только первая, не вся цепочка).
+    if (r.error instanceof ApiError && r.error.code === 'INVALID_CURSOR') await qc.resetQueries({ queryKey: key, exact: true });
   };
   return { q, items: q.data?.pages.flatMap((p) => p.items) ?? [], more };
 }
 
-function MoreButton({ q, more }: { q: { hasNextPage: boolean; isFetchingNextPage: boolean }; more: () => Promise<void> }) {
+function MoreButton({ q, more }: {
+  q: { hasNextPage: boolean; isFetchingNextPage: boolean; isFetchNextPageError: boolean; error: Error | null };
+  more: () => Promise<void>;
+}) {
   if (!q.hasNextPage) return null;
   return (
-    <p className={s.more}>
+    <div className={s.more}>
+      {/* Сбой подгрузки виден: загруженное остаётся, кнопка повторяет запрос. */}
+      {q.isFetchNextPageError && <p role="alert" className={s.error}>Не удалось загрузить ещё: {q.error?.message ?? 'ошибка'}</p>}
       <button className={ui.button} disabled={q.isFetchingNextPage} onClick={() => void more()}>
-        {q.isFetchingNextPage ? 'Загружаем…' : 'Показать ещё'}
+        {q.isFetchingNextPage ? 'Загружаем…' : q.isFetchNextPageError ? 'Повторить' : 'Показать ещё'}
       </button>
-    </p>
+    </div>
   );
 }
 
@@ -77,18 +80,27 @@ export function InvestigationPage() {
  * Недоступные ссылки — «событие недоступно»; при усечении — «первые N из M».
  */
 function Basis({ refs, truncated, total }: { refs: EventRef[]; truncated: boolean; total?: number }) {
-  const unique = refs.filter((r, i) => refs.findIndex((x) => x.agent_id === r.agent_id && x.event_id === r.event_id) === i).slice(0, 100);
+  // UUID сравниваются без учёта регистра — как на сервере (иначе 422 «не уникальны»).
+  const same = (a: EventRef, b: EventRef) => a.agent_id.toLowerCase() === b.agent_id.toLowerCase()
+    && a.event_id.toLowerCase() === b.event_id.toLowerCase();
+  const unique = refs.filter((r, i) => refs.findIndex((x) => same(x, r)) === i).slice(0, 100);
   const q = useQuery({
     queryKey: ['lookup', unique],
     queryFn: () => api<LookupRead>('/api/v1/events/lookup', { method: 'POST', body: JSON.stringify({ refs: unique }) }),
     enabled: unique.length > 0,
   });
-  if (!unique.length) return <p className={s.note}>Ссылок на события нет.</p>;
+  const truncation = truncated && (
+    <p className={s.note}>
+      {/* Без склонений: «показано ссылок — N, событий всего — M». */}
+      Список неполный: показано ссылок — {unique.length}{total !== undefined && <>, событий всего — {total}</>}.
+    </p>
+  );
+  if (!unique.length) return <>{truncation}<p className={s.note}>Ссылок на события нет.</p></>;
   if (q.isPending) return <Loading what="основание" />;
   if (q.isError) return <ErrorState message={q.error.message} onRetry={() => void q.refetch()} />;
   return (
     <div className={s.basis}>
-      {truncated && <p className={s.note}>Показаны первые {unique.length} из {total ?? 'многих'} событий.</p>}
+      {truncation}
       <ul className={s.events}>
         {q.data.items.map((e) => (
           <li key={`${e.agent_id}:${e.event_id}`}>
@@ -178,11 +190,11 @@ function Triggers({ tokenId }: { tokenId: string }) {
   return (
     <ListState q={q} items={items} what="срабатывания" empty="Срабатываний нет.">
       <ul className={s.cards}>
-        {items.map((t) => (
-          <li key={`${t.event_refs[0]?.agent_id}:${t.event_refs[0]?.event_id}`} className={s.card}>
+        {items.map((t, i) => (
+          <li key={`${t.at}:${t.event_refs[0]?.event_id ?? ''}:${i}`} className={s.card}>
             <p className={s.meta}>
               {formatTime(t.at)} · <span className="mono">{sourceLabel(t)}</span>
-              {t.session_id ? ' · привязано к сессии' : ' · без сессии'}
+              {' · '}{t.session_id ? <>сессия <span className="mono">…{t.session_id.slice(-8)}</span></> : 'без сессии'}
             </p>
             <Toggle label="Основание"><Basis refs={t.event_refs} truncated={false} /></Toggle>
           </li>
@@ -285,7 +297,7 @@ function IocExport() {
 
   return (
     <Panel title="Экспорт IoC">
-      <p className={s.note}>CSV с индикаторами (IPv4, IPv6, URL, SHA-256) за период до {31} дней. Время — локальное.</p>
+      <p className={s.note}>CSV с индикаторами (IPv4, IPv6, URL, SHA-256) за период до {IOC_MAX_DAYS} дня. Время — локальное.</p>
       <div className={s.form}>
         <label>С <input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} required /></label>
         <label>По <input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} required /></label>

@@ -17,7 +17,9 @@ afterAll(() => server.close());
 
 function conforms(item: Record<string, unknown>, name: string) {
   const s = schemas[name]!;
+  // Ровно поля схемы: обязательные и все свойства (лишних нет, пропущенных нет).
   expect(Object.keys(item).sort(), name).toEqual([...(s.required ?? [])].sort());
+  expect(Object.keys(item).sort(), name).toEqual(Object.keys(s.properties ?? {}).sort());
   for (const [key, prop] of Object.entries(s.properties ?? {})) {
     if (prop.enum) expect(prop.enum, `${name}.${key}`).toContain(item[key]);
     if ('const' in prop) expect(item[key], `${name}.${key}`).toBe(prop.const);

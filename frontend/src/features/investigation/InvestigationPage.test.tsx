@@ -28,7 +28,7 @@ describe('экран «Расследование» (F16–F18)', () => {
     const alerts = await panel('Алерты');
     expect(await within(alerts).findByText('7 неудачных входов за 60 с с 192.0.2.23')).toBeInTheDocument();
     await user.click(within(alerts).getByRole('button', { name: 'Основание' }));
-    expect(await within(alerts).findByText('Показаны первые 2 из 7 событий.')).toBeInTheDocument();
+    expect(await within(alerts).findByText('Список неполный: показано ссылок — 2, событий всего — 7.')).toBeInTheDocument();
     expect(await within(alerts).findByText('Попытка входа')).toBeInTheDocument();
     expect(within(alerts).getByText('событие недоступно')).toBeInTheDocument();
     // Пароль не выводится ни в каком виде (S4).
@@ -66,14 +66,22 @@ describe('экран «Расследование» (F16–F18)', () => {
 
   it('скачивание: файл сохраняется; 409 — понятное сообщение', async () => {
     const user = userEvent.setup();
-    const createUrl = vi.fn(() => 'blob:mock');
-    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: createUrl, revokeObjectURL: vi.fn() }));
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    let blob: Blob | null = null;
+    const createUrl = vi.spyOn(URL, 'createObjectURL').mockImplementation((b) => { blob = b as Blob; return 'blob:mock'; });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    let saved: { download: string; href: string } | null = null;
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      saved = { download: this.download, href: this.href };
+    });
     open('admin');
     const art = await panel('Артефакты');
     await user.click(await within(art).findByRole('button', { name: 'Скачать x.sh' }));
-    await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(saved).not.toBeNull());
     expect(createUrl).toHaveBeenCalledTimes(1);
+    // Имя — от центра, не от атакующего; тип — octet-stream: сохранить, не открыть (S5).
+    expect(saved!.download).toMatch(/^honeyforge-artifact-[0-9a-f-]+\.bin$/);
+    expect(saved!.href).toBe('blob:mock');
+    expect((blob as Blob | null)?.type).toBe('application/octet-stream');
 
     server.use(http.get('/api/v1/artifacts/:id/content', () =>
       HttpResponse.json({ detail: 'Файл ещё проверяется', code: 'ARTIFACT_PENDING' }, { status: 409 })));
@@ -83,7 +91,8 @@ describe('экран «Расследование» (F16–F18)', () => {
 
   it('экспорт IoC: по умолчанию 24 часа, обе даты в запросе; неверный период — кнопка недоступна', async () => {
     const user = userEvent.setup();
-    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() }));
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:x');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     let query: URLSearchParams | null = null;
     server.use(http.get('/api/v1/iocs.csv', ({ request }) => { query = new URL(request.url).searchParams; return undefined; }));
@@ -130,4 +139,28 @@ describe('экран «Расследование» (F16–F18)', () => {
     open();
     return screen.findByText(/Экран в работе/).then((el) => expect(el).toBeInTheDocument());
   });
+
+  it('сбой «Показать ещё» виден, загруженное остаётся, «Повторить» догружает', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({
+      id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`, deployment_id: '00000000-0000-0000-0000-0000000000d1',
+      kind: 'url', label: `t-${i}`, created_at: '2026-10-10T00:00:00Z', last_triggered_at: null, trigger_count: 0,
+    }));
+    let fail = true;
+    server.use(http.get('/api/v1/honeytokens', ({ request }) => {
+      if (!new URL(request.url).searchParams.get('cursor')) return HttpResponse.json({ items: many.slice(0, 50), next_cursor: 'c50' });
+      if (fail) return HttpResponse.json({ detail: 'Центр недоступен' }, { status: 503 });
+      return HttpResponse.json({ items: many.slice(50), next_cursor: null });
+    }));
+    const user = userEvent.setup();
+    open();
+    const tokens = await panel('Медовые токены');
+    await within(tokens).findByText('t-0');
+    await user.click(within(tokens).getByRole('button', { name: 'Показать ещё' }));
+    // 5xx приложение повторяет само (2 раза с паузой) — ждём дольше.
+    expect(await within(tokens).findByRole('alert', {}, { timeout: 8000 })).toHaveTextContent('Не удалось загрузить ещё: Центр недоступен');
+    expect(within(tokens).getByText('t-0')).toBeInTheDocument();
+    fail = false;
+    await user.click(within(tokens).getByRole('button', { name: 'Повторить' }));
+    expect(await within(tokens).findByText('t-59')).toBeInTheDocument();
+  }, 20000);
 });

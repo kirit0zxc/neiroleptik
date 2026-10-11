@@ -72,6 +72,11 @@ class JournalStream(Iterator[JournalRecord]):
         self._close()
 
     @property
+    def bytes_read(self) -> int:
+        """Фактические bytes снимка, включая упреждающее чтение и неполный хвост."""
+        return self._read_offset
+
+    @property
     def summary(self) -> JournalSummary:
         if self._summary is None:
             raise RuntimeError("Итог доступен только после успешного исчерпания потока")

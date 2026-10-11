@@ -18,6 +18,27 @@ export function eventLabel(type: string) { return TYPE_LABEL[type] ?? `Неиз�
 const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v));
 
 /**
+ * Пароль попытки входа (S4). Маскирует сервер: вместо `data.password` —
+ * boolean `data.password_present` (true — «пароль скрыт», false — «пароль
+ * не записан»; нет флага — неизвестно, null, показываем только логин).
+ * Пришедший `data.password` — ошибка сервера: не показываем (без флага —
+ * своя маска) и предупреждаем в консоли.
+ */
+let passwordWarned = false;
+
+export function passwordView(d: Record<string, unknown>): string | null {
+  // Один раз за сессию: демо-фикстуры содержат исходные пароли — не засоряем консоль.
+  if (d.password !== undefined && !passwordWarned) {
+    passwordWarned = true;
+    console.warn('HoneyForge: сервер передал data.password — пароль должен маскироваться на сервере (S4)');
+  }
+  if (d.password_present === true) return 'пароль скрыт';
+  if (d.password_present === false) return 'пароль не записан';
+  if (typeof d.password === 'string') return maskSecret(d.password);
+  return null;
+}
+
+/**
  * Краткое описание события — только текст (S1). Данные атакующего
  * очищаются от управляющих символов (S2), пароли маскируются (S4).
  * Результат выводится как текстовый узел, без разметки.
@@ -28,7 +49,8 @@ export function describeEvent(e: Pick<HfEvent, 'type' | 'data'>): string {
   switch (e.type) {
     case 'auth.attempt': {
       const ok = d.success === true ? 'успешно' : d.success === false ? 'отказ' : '';
-      return sanitizeTerminal(`${str(d.username)} / ${maskSecret(str(d.password))} ${ok}`.trim());
+      const pass = passwordView(d);
+      return sanitizeTerminal([str(d.username), pass === null ? null : `/ ${pass}`, ok].filter(Boolean).join(' '));
     }
     case 'session.command':
     case 'session.output':

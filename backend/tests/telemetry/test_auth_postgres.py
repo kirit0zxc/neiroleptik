@@ -66,7 +66,7 @@ def pg_client() -> Iterator[tuple[TestClient, sessionmaker[Session], str]]:
                 )
             )
             session.commit()
-        app = create_app(settings)
+        app = create_app(settings, telemetry=False)
         app.state.engine.dispose()
         app.state.engine = scoped
         reader, history, catchup = services([record(1)])

@@ -1,12 +1,14 @@
 # Ответ frontend: контракт интеграции v1
 
-Уточнение владельца backend от 09.10.2026. Control OpenAPI генерируется из реализации.
-События/stream/replay описаны здесь для согласования с участником 4; endpoints
-телеметрии этим PR НЕ реализуются и не считаются готовыми. До их подключения — MSW.
+Уточнение владельца backend от 09.10.2026, дополнено согласованным MVP
+расследования 11.10.2026: [investigation-mvp.md](investigation-mvp.md).
+Общий OpenAPI генерируется из рабочего приложения. События/stream/lookup и
+маршруты расследования подключены в этом этапе; replay и паспорт сессии
+по-прежнему не реализованы. Точная памятка клиенту: [investigation-handoff.md](investigation-handoff.md).
 
 ## Файлы для генерации
 
-- contracts/openapi.json: control, auth и регистрация агента.
+- contracts/openapi.json: control, auth, агенты, события и расследование.
 - contracts/event-v1.schema.json: нормализованное событие для UI, не входной batch агента.
 - contracts/replay-chunk-v1.schema.json: текстовый replay v1.
 
@@ -80,9 +82,16 @@ GET /api/v1/events?deployment_id=UUID&from=RFC3339&to=RFC3339&source_ip=IP&type=
 Ответ {items:[EventV1],next_cursor:null|OPAQUE}. limit 1..200, default=50.
 from включительно, to исключительно; фильтр по occurred_at, при from>=to — 422.
 Порядок received_at DESC, event_id DESC, agent_id DESC; cursor непрозрачный,
-содержит стабильную границу страницы/снимка и связан с фильтрами. При изменении
-фильтра курсор сбрасывается; несовместимый cursor — 422. Новые события приходят
+содержит watermark stream_seq<=W и отдельную границу страницы, связан с фильтрами.
+При изменении фильтра клиент начинает первую страницу. Несовместимый cursor —
+422 INVALID_CURSOR; ошибки фильтров не вызывают автоматического сброса. Новые события приходят
 по WS, а пагинация текущего снимка не сдвигается при новых вставках.
+
+source — обязательный endpoint прежнего формата или null. Timeline использует
+session_id и sort=occurred_at&order=asc, границу occurred_at/event_id/agent_id ASC;
+история — sort=received_at&order=desc. Другие комбинации 422. Поздние вставки
+не входят в снимок. Эта гарантия не применяется к изменяемым алертам/токенам/
+артефактам. Их keyset пагинация слабая; TTL курсора 24ч не утверждён.
 
 ## Ошибки
 

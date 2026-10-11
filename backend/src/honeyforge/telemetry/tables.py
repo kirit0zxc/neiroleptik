@@ -1,4 +1,4 @@
-"""Отдельная метаинформация прототипа без регистрации в общей Alembic Base."""
+"""Метаинформация committed телеметрии для Alembic и изолированных тестов."""
 
 import re
 
@@ -8,6 +8,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     MetaData,
@@ -19,11 +20,11 @@ from sqlalchemy import (
 
 
 class TelemetryTables:
-    """Все обращения явно квалифицируются схемой; DDL выполняет только тест."""
+    """DDL выполняет Alembic; тестовые схемы требуют уникального имени."""
 
-    def __init__(self, schema: str) -> None:
-        if not re.fullmatch(r"telemetry_test_[a-f0-9]{32}", schema):
-            raise ValueError("Прототип допускает только изолированную тестовую схему")
+    def __init__(self, schema: str = "hf_telemetry") -> None:
+        if schema != "hf_telemetry" and not re.fullmatch(r"telemetry_test_[a-f0-9]{32}", schema):
+            raise ValueError("Допускается рабочая hf_telemetry или изолированная тестовая схема")
         self.metadata = MetaData(schema=schema)
         self.events = Table(
             "events",
@@ -39,9 +40,23 @@ class TelemetryTables:
             Column("digest", LargeBinary, nullable=False),
             Column("received_at", DateTime(timezone=True), nullable=False),
             Column("occurred_at", DateTime(timezone=True), nullable=False),
-            Column("source_ip", String(45), nullable=False),
+            Column("source_ip", String(45), nullable=True),
+            Column("session_id", Uuid, nullable=True),
             Column("event_type", String(64), nullable=False),
             UniqueConstraint("agent_id", "event_id", name="uq_event_identity"),
+        )
+        Index(
+            "ix_event_timeline",
+            self.events.c.session_id,
+            self.events.c.occurred_at,
+            self.events.c.event_id,
+            self.events.c.agent_id,
+        )
+        Index(
+            "ix_event_history",
+            self.events.c.received_at,
+            self.events.c.event_id,
+            self.events.c.agent_id,
         )
         self.outbox = Table(
             "outbox",

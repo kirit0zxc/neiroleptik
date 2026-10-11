@@ -90,4 +90,4 @@ class CursorCodec:
                 str(UUID(last[2])),
             )
         except (ValueError, TypeError, KeyError, OverflowError, DomainError):
-            raise DomainError(422, "Некорректный курсор истории") from None
+            raise DomainError(422, "Некорректный курсор истории", "INVALID_CURSOR") from None

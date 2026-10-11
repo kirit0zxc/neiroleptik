@@ -3,6 +3,9 @@
 # сверяем с backend перед публикацией. Основа — specs/frontend-dto-proposal.md
 # (состав согласован 10–11.10.2026). Моков по этому файлу frontend не делает,
 # пока схемы не утверждены.
+# Согласованные уточнения MVP и рабочие маршруты: investigation-mvp.md и
+# investigation-handoff.md; общий источник истины — contracts/openapi.json.
+# Остальные x-added и отсутствующие backend маршруты сохраняют статус proposal.
 openapi: 3.1.0
 info:
   title: HoneyForge — расследование (proposal)
@@ -1059,11 +1062,8 @@ components:
         kind:
           type: string
           enum:
-          - credential
-          - api_key
           - url
-          - file
-          x-question: Нужны ли другие виды в MVP (сейчас — URL-токен)?
+          description: В согласованном MVP поддерживается только URL-токен.
         label:
           type: string
           maxLength: 200
@@ -1368,5 +1368,5 @@ components:
           event_refs:
           - agent_id: 7d3b0c1e-0000-4000-8000-000000000002
             event_id: 3c4d5e6f-0000-4000-8000-00000000000a
-          event_refs_truncated: false
+          event_refs_truncated: true
         next_cursor: djEuYWxlcnRzLnNuYXBzaG90LjIwMjYtMTAtMTFUMDk6NDE6MDBa

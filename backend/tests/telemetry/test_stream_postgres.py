@@ -232,7 +232,7 @@ def test_sql_router_real_auth_all_channels_and_session_end(engine, tables, setti
         )
         session.commit()
     adapter, history, catchup = sql_services(engine, tables)
-    app = create_app(settings)
+    app = create_app(settings, telemetry=False)
     app.include_router(
         create_router(
             history,

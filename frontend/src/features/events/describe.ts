@@ -1,5 +1,5 @@
 import type { HfEvent } from '../../shared/api/types';
-import { maskSecret, sanitizeTerminal } from '../../shared/security/terminal';
+import { sanitizeTerminal } from '../../shared/security/terminal';
 
 const TYPE_LABEL: Record<string, string> = {
   'connection.opened': 'Подключение',
@@ -21,20 +21,27 @@ const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : JSON.s
  * Пароль попытки входа (S4). Маскирует сервер: вместо `data.password` —
  * boolean `data.password_present` (true — «пароль скрыт», false — «пароль
  * не записан»; нет флага — неизвестно, null, показываем только логин).
- * Пришедший `data.password` — ошибка сервера: не показываем (без флага —
- * своя маска) и предупреждаем в консоли.
+ * Пришедший `data.password` — ошибка сервера: значение не показываем вовсе
+ * («пароль скрыт») и предупреждаем в консоли.
  */
 let passwordWarned = false;
+/** Один раз за сессию: демо-фикстуры содержат исходные пароли — не засоряем консоль. Значение не пишем. */
+function warnSecret() {
+  if (passwordWarned) return;
+  passwordWarned = true;
+  console.warn('HoneyForge: сервер передал пароль или секрет в data — он должен маскироваться на сервере (S4)');
+}
+/** Только для тестов: снова разрешить предупреждение. */
+export function resetSecretWarning() { passwordWarned = false; }
+/** Ключи данных, которые не выводятся никогда (S4). */
+const SECRET_KEY = /pass(word|wd)?|secret|credential/i;
 
 export function passwordView(d: Record<string, unknown>): string | null {
-  // Один раз за сессию: демо-фикстуры содержат исходные пароли — не засоряем консоль.
-  if (d.password !== undefined && !passwordWarned) {
-    passwordWarned = true;
-    console.warn('HoneyForge: сервер передал data.password — пароль должен маскироваться на сервере (S4)');
-  }
+  if (d.password !== undefined) warnSecret();
   if (d.password_present === true) return 'пароль скрыт';
   if (d.password_present === false) return 'пароль не записан';
-  if (typeof d.password === 'string') return maskSecret(d.password);
+  // Пришедший пароль — тоже «скрыт»: ни длины, ни крайних символов (как у сервера).
+  if (d.password !== undefined) return 'пароль скрыт';
   return null;
 }
 
@@ -50,7 +57,9 @@ export function describeEvent(e: Pick<HfEvent, 'type' | 'data'>): string {
     case 'auth.attempt': {
       const ok = d.success === true ? 'успешно' : d.success === false ? 'отказ' : '';
       const pass = passwordView(d);
-      return sanitizeTerminal([str(d.username), pass === null ? null : `/ ${pass}`, ok].filter(Boolean).join(' '));
+      // Исход входа — через «—», чтобы не читался как часть фразы о пароле.
+      const who = [str(d.username) || '(без логина)', pass === null ? null : `/ ${pass}`].filter(Boolean).join(' ');
+      return sanitizeTerminal(ok ? `${who} — ${ok}` : who);
     }
     case 'session.command':
     case 'session.output':
@@ -60,7 +69,12 @@ export function describeEvent(e: Pick<HfEvent, 'type' | 'data'>): string {
     case 'token.triggered':
       // URL приманки не делаем ссылкой и не открываем (S3).
       return sanitizeTerminal(`приманка ${str(d.token_id)}`);
-    default:
-      return sanitizeTerminal(Object.keys(d).length ? JSON.stringify(d) : '');
+    default: {
+      // Неизвестный тип — данные текстом, но без секретов: пароль в нём — ошибка сервера (S4).
+      const entries = Object.entries(d);
+      if (entries.some(([k]) => SECRET_KEY.test(k))) warnSecret();
+      const safe = Object.fromEntries(entries.filter(([k]) => !SECRET_KEY.test(k)));
+      return sanitizeTerminal(Object.keys(safe).length ? JSON.stringify(safe) : '');
+    }
   }
 }

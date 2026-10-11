@@ -38,29 +38,39 @@ info:
     Дополнения после ревью (до сверки с backend):
 
     * **Коды ошибок.** Формат `^[A-Z][A-Z0-9_]*$`. Новые коды этого черновика:
-      `INVALID_CURSOR` (422), `ARTIFACT_PENDING`, `ARTIFACT_FAILED` (409),
-      `ARTIFACT_EXPIRED` (410). Frontend различает курсорную ошибку и ошибку
-      фильтров по `code`, а не по форме `detail`; без `code` любой 422 на
-      странице с курсором считается курсорным (как сейчас в protocol v1).
+      `INVALID_CURSOR` (422, закрепить — согласовано с участником 4 12.10;
+      сервер пока отвечает курсорным 422 без кода), `ARTIFACT_PENDING`,
+      `ARTIFACT_FAILED` (409), `ARTIFACT_EXPIRED` (410). Сброс курсора и
+      перечитывание с первой страницы — только при `code: INVALID_CURSOR`;
+      ошибки фильтров сброс не запускают. До появления кода на сервере frontend
+      сохраняет нынешнее поведение: фильтры проверяются до запроса, а 422 на
+      следующей странице (фильтры те же, что у успешной первой) считается
+      курсорным.
     * **Пагинация.** Списки control (`/audit`, `/profiles`, ...) остаются на
       `limit` 1..100 + `offset` и ответе-массиве; телеметрия и расследование —
       курсор, `limit` 1..200 и конверт `{items, next_cursor}`, как `/events`.
       Различие осознанное: курсор нужен там, где данные растут во время чтения.
-    * **Снимок.** Первая страница фиксирует watermark `W` (как у потока); все
-      страницы читают только записи с `received_at <= W` независимо от `sort`.
+    * **Снимок.** Первая страница фиксирует watermark `W` — номер последнего
+      опубликованного события (`stream_seq`, как у потока), а не время; все
+      страницы читают только записи с `stream_seq <= W` независимо от `sort`, в
+      том числе timeline по `occurred_at` (согласовано с участником 4 12.10).
       Опоздавшее событие (offline-доставка) не появляется внутри уже прочитанных
-      страниц — его покажет живой поток или новый первый запрос. Курсор живёт не
-      дольше 24 ч; старше — 422 `INVALID_CURSOR`.
+      страниц — его покажет живой поток или новый первый запрос. Срок жизни курсора
+      24 ч — новое требование (`x-added`), сейчас на сервере его нет; старше —
+      422 `INVALID_CURSOR`.
     * **`x-added`** — поле или параметр, которого нет в согласованном составе
       (specs/frontend-dto-proposal.md); предлагает frontend, решает backend.
-    * **Ссылки `event_refs`** могут указывать на событие, удалённое по сроку
-      хранения: frontend показывает «событие больше не хранится», а не ошибку.
+    * **Ссылки `event_refs`** могут указывать на недоступное событие (не всегда
+      из-за срока хранения): frontend пишет «событие недоступно», а не ошибку.
+      Исходные события по ссылкам читаются отдельной выборкой
+      `POST /api/v1/events/lookup` (до 100 пар), не пагинацией истории.
+    * **Усечение ссылок.** Где `event_refs` ограничен 100, рядом обязательный
+      `event_refs_truncated`: по одному `count` полноту списка не определить.
   x-question:
-  - Подтвердить коды ошибок и что 422 курсора несёт code INVALID_CURSOR.
-  - Допустим ли source=null в EventV1 (влияет на SessionRead.source и HoneytokenTrigger.source)?
-  - Снимок по watermark W для /events с sort=occurred_at — подтвердить.
-  - 'Для F17 нужна выборка событий по ссылкам: GET /api/v1/events?event_ref=<agent_id>:<event_id> (до
-    100) или отдельная ручка — какой вариант?'
+  - 'source=null: направление поддержано участником 4, но схема EventV1 требует объект — нужно согласованно
+    обновить агентский и публичный контракты, backend и тесты. До этого — proposal.'
+  - Точный маршрут и ответ выборки событий по ссылкам (POST /api/v1/events/lookup) — согласовать с backend.
+  - Срок жизни курсора 24 ч — принимаем ли как требование?
 servers:
 - url: /
 security:
@@ -339,7 +349,8 @@ paths:
                 code: ARTIFACT_EXPIRED
         '422':
           $ref: '#/components/responses/ValidationError'
-      x-question: Может ли viewer скачивать артефакты или только operator/admin (тогда 403)?
+      x-question: 'Доступ viewer к скачиванию не утверждён: решение владельца/backend; после решения фиксируем
+        403 для неразрешённых ролей.'
   /api/v1/honeytokens:
     get:
       operationId: listHoneytokens
@@ -422,7 +433,10 @@ paths:
       description: |
         Порядок — `created_at DESC, id DESC`. Отдельного WS-сообщения нет:
         экраны опрашивают список и сводку раз в 15 с. Смена состояния — после MVP.
-        Алерт может обновляться на месте (`updated_at`, `count`, `event_refs`): при опросе frontend заменяет элемент по `id`. Снимок страниц — по `created_at` первой страницы; обновления существующих алертов видны при следующем опросе.
+        Алерт может обновляться на месте (`updated_at`, `count`, `event_refs`): при опросе frontend заменяет элемент по `id`. Гарантия пагинации слабее, чем у событий: снимок фиксирует только набор
+        алертов (созданных до первой страницы), но не их изменяемые поля — `count`,
+        `state`, `event_refs` на следующих страницах могут быть новее, чем на первой.
+        Frontend не сравнивает страницы между собой и при опросе заменяет алерт по `id`.
       parameters:
       - name: state
         in: query
@@ -465,6 +479,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '422':
           $ref: '#/components/responses/InvalidCursorOrFilters'
+      x-question: Достаточно ли слабой гарантии или нужно версионирование алертов (version/updated_at
+        в курсоре)?
   /api/v1/analytics/summary:
     get:
       operationId: getSummary
@@ -560,6 +576,55 @@ paths:
           $ref: '#/components/responses/ValidationError'
       x-added: Параметры from/to/deployment_id, пределы, порядок строк и формат имени.
       x-question: Полный список indicator_type для MVP.
+  /api/v1/events/lookup:
+    post:
+      operationId: lookupEvents
+      summary: Исходные события по ссылкам (F17)
+      x-added: true
+      x-question: Маршрут, метод и формат — предложение; согласовать с backend.
+      description: |
+        Отдельно от пагинации истории. До 100 уникальных пар `{agent_id, event_id}`. Изменяющий метод не нужен по смыслу, но список не помещается в query — POST без побочных эффектов, с CSRF как у остальных POST. Порядок `items` — как в запросе; недоступные ссылки перечислены явно, причина не раскрывается.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - refs
+              properties:
+                refs:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/EventRef'
+      responses:
+        '200':
+          description: Найденные и недоступные события.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - items
+                - unavailable
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: ../contracts/event-v1.schema.json
+                  unavailable:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventRef'
+                    description: Frontend пишет «событие недоступно».
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
 components:
   securitySchemes:
     APIKeyCookie:
@@ -701,9 +766,8 @@ components:
       maxItems: 100
       items:
         $ref: '#/components/schemas/EventRef'
-      x-question: Нужен ли флаг event_refs_truncated, когда событий больше 100 (count алерта может быть
-        больше длины event_refs)?
       x-added: maxItems 100 и minItems 1.
+      description: До 100 ссылок; полноту показывает event_refs_truncated рядом.
     Endpoint:
       type: object
       additionalProperties: false
@@ -846,7 +910,9 @@ components:
         profile_revision:
           type: integer
           minimum: 1
-      x-question: counts.*, ended_at и auth считаются из событий на лету (индекс по session_id) или хранятся?
+      x-question: 'Способ расчёта (на лету или хранение) — внутреннее дело backend. Для frontend важны
+        правила: counts — по событиям сессии, полученным центром на момент ответа; auth и ended_at — из
+        тех же событий; ответ согласован внутри себя.'
     ArtifactState:
       type: string
       enum:
@@ -871,6 +937,7 @@ components:
       - expires_at
       - error
       - event_refs
+      - event_refs_truncated
       properties:
         id:
           type: string
@@ -929,6 +996,9 @@ components:
           description: Причина failed, для оператора.
         event_refs:
           $ref: '#/components/schemas/EventRefs'
+        event_refs_truncated:
+          type: boolean
+          description: true — событий больше, чем ссылок в event_refs.
       allOf:
       - if:
           properties:
@@ -1042,6 +1112,7 @@ components:
       - created_at
       - updated_at
       - event_refs
+      - event_refs_truncated
       properties:
         id:
           type: string
@@ -1102,6 +1173,9 @@ components:
           format: date-time
         event_refs:
           $ref: '#/components/schemas/EventRefs'
+        event_refs_truncated:
+          type: boolean
+          description: true — событий больше, чем ссылок в event_refs.
       x-question: Область группировки (deployment+source_ip?) и подавление повторов для auth.bruteforce.
     SummaryRead:
       type: object
@@ -1226,6 +1300,7 @@ components:
           event_refs:
           - agent_id: 7d3b0c1e-0000-4000-8000-000000000002
             event_id: 1f2e3d4c-0000-4000-8000-000000000006
+          event_refs_truncated: false
         - id: a2a2a2a2-0000-4000-8000-000000000007
           session_id: null
           deployment_id: 9a8c5f2d-0000-4000-8000-000000000003
@@ -1241,6 +1316,7 @@ components:
           event_refs:
           - agent_id: 7d3b0c1e-0000-4000-8000-000000000002
             event_id: 2a3b4c5d-0000-4000-8000-000000000008
+          event_refs_truncated: false
         next_cursor: null
     AlertPage:
       value:
@@ -1263,4 +1339,5 @@ components:
           event_refs:
           - agent_id: 7d3b0c1e-0000-4000-8000-000000000002
             event_id: 3c4d5e6f-0000-4000-8000-00000000000a
+          event_refs_truncated: false
         next_cursor: djEuYWxlcnRzLnNuYXBzaG90LjIwMjYtMTAtMTFUMDk6NDE6MDBa

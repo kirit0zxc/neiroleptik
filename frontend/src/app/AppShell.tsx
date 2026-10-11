@@ -15,7 +15,7 @@ const NAV = [
   { to: '/fleet', label: 'Парк' },
   { to: '/profiles', label: 'Профили' },
   { to: '/events', label: 'События' },
-  { to: '/alerts', label: 'Алерты' },
+  { to: '/alerts', label: 'Расследование' },
   { to: '/audit', label: 'Аудит' },
 ];
 

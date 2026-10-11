@@ -10,4 +10,5 @@ interface ImportMetaEnv {
   readonly VITE_ANALYTICS_ENABLED?: string;
   /** 1 — запись сессии (replay) готова на сервере. */
   readonly VITE_REPLAY_ENABLED?: string;
+  readonly VITE_INVESTIGATION_ENABLED?: string;
 }

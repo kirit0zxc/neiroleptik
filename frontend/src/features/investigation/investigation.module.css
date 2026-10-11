@@ -1,0 +1,19 @@
+.note { color: var(--text-dim); font-size: 13px; margin: 0 0 10px; }
+.error { color: var(--bad); font-size: 13px; margin: 6px 0 0; }
+.meta { color: var(--text-dim); font-size: 13px; margin: 4px 0; overflow-wrap: anywhere; }
+.more { margin: 10px 0 0; }
+.cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.card { border: 1px dashed var(--line-faint); padding: 10px; }
+.cardHead { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; overflow-wrap: anywhere; }
+.small { padding: 2px 8px; font-size: 12px; margin-top: 6px; }
+.expand { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--line-faint); }
+.basis { font-size: 13px; }
+.events { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.events li { overflow-wrap: anywhere; }
+.time { color: var(--text-dim); }
+.unavailable { color: var(--text-dim); font-style: italic; }
+.scroll { overflow-x: auto; }
+.hash { max-width: 220px; overflow-wrap: anywhere; font-size: 12px; }
+.form { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+.form label { display: grid; gap: 4px; color: var(--text-dim); font-size: 13px; }
+.form input { background: var(--bg); color: var(--text); border: 1px solid var(--line); padding: 6px 8px; font: inherit; }

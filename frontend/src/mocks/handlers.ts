@@ -8,6 +8,7 @@ import type { HfEvent, Host, InteractionLevel, Profile, ProfileConfigInput, Prof
 import { currentDeployments, jobHandlers, resetMockJobs } from './jobs';
 import { publishedEvents, resetMockStream, streamHandlers } from './stream';
 import { replayHandlers } from './replay';
+import { investigationHandlers } from './investigation';
 
 /**
  * Моки API по контракту `openapi.json` и фикстурам из `contracts/`.
@@ -81,7 +82,9 @@ export const handlers = [
   // Вход и выход доступны всем; остальное проходит к обработчикам ниже.
   http.all('/api/v1/*', ({ request }) => {
     const path = new URL(request.url).pathname;
-    if (!MUTATING.has(request.method) || path === '/api/v1/auth/login' || path === '/api/v1/auth/logout') return undefined;
+    // lookup — POST, но только чтение: viewer он доступен (specs/investigation-handoff.md).
+    const readOnlyPost = path === '/api/v1/events/lookup';
+    if (!MUTATING.has(request.method) || readOnlyPost || path === '/api/v1/auth/login' || path === '/api/v1/auth/logout') return undefined;
     if (!session.get() || session.role() !== 'viewer') return undefined;
     // Порядок центра: вход → CSRF → роль.
     return csrfFailure(request) ?? HttpResponse.json({ detail: 'Требуется роль operator или admin' }, { status: 403 });
@@ -165,6 +168,7 @@ export const handlers = [
   }),
   ...streamHandlers,
   ...replayHandlers,
+  ...investigationHandlers({ authed: session.get, role: session.role, csrfFailure, events: publishedEvents }),
 
   // Журнал аудита (AuditRead): только admin, новые сверху, limit/offset.
   http.get('/api/v1/audit', ({ request }) => {

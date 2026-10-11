@@ -4,7 +4,7 @@ import { ApiError } from '../../shared/api/client';
 import type { Host } from '../../shared/api/types';
 import { ui, WindowTitle } from '../../shared/ui';
 import { ConfirmDialog } from './DeploymentActions';
-import { canRevoke, ENROLL_COMMAND, EnrollmentTicket, issueEnrollment, minutesLabel, revokeHost } from './hosts';
+import { canRevoke, ENROLL_COMMAND, EnrollmentTicket, issueEnrollment, minutesLabel, revokeHost, type EnrollmentRead } from './hosts';
 import s from './fleet.module.css';
 
 const HOUR_MINUTE = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
@@ -18,15 +18,16 @@ const message = (err: unknown) => (err instanceof Error && err.message ? err.mes
  * живёт только в состоянии окна; после закрытия список хостов перечитывается.
  */
 export function AddHostButton() {
-  const [open, setOpen] = useState(false);
+  const [initialRequest, setInitialRequest] = useState<Promise<EnrollmentRead> | null>(null);
   const opener = useRef<HTMLButtonElement>(null);
   const qc = useQueryClient();
   return (
     <>
-      <button ref={opener} className={ui.button} onClick={() => setOpen(true)}>+ Добавить хост</button>
-      {open && (
-        <EnrollmentDialog onClose={() => {
-          setOpen(false);
+      {/* POST запускается пользовательским действием, а не повторяемым эффектом StrictMode. */}
+      <button ref={opener} className={ui.button} onClick={() => setInitialRequest(issueEnrollment())}>+ Добавить хост</button>
+      {initialRequest && (
+        <EnrollmentDialog initialRequest={initialRequest} onClose={() => {
+          setInitialRequest(null);
           // Агент мог успеть зарегистрироваться, пока окно было открыто.
           void qc.invalidateQueries({ queryKey: ['hosts'] });
           opener.current?.focus();
@@ -36,7 +37,7 @@ export function AddHostButton() {
   );
 }
 
-function EnrollmentDialog({ onClose }: { onClose: () => void }) {
+function EnrollmentDialog({ initialRequest, onClose }: { initialRequest: Promise<EnrollmentRead>; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [ticket, setTicket] = useState<EnrollmentTicket | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,11 +48,11 @@ function EnrollmentDialog({ onClose }: { onClose: () => void }) {
   /** Номер запроса: ответ на прежний запрос после закрытия или повтора не показывается. */
   const request = useRef(0);
 
-  const issue = async () => {
+  const issue = async (response = issueEnrollment()) => {
     const n = ++request.current;
     setBusy(true); setError(null); setCopied(null); setTicket(null);
     try {
-      const read = await issueEnrollment();
+      const read = await response;
       if (n !== request.current) return;
       setTicket(new EnrollmentTicket(read)); setNow(Date.now());
     } catch (err) {
@@ -67,11 +68,12 @@ function EnrollmentDialog({ onClose }: { onClose: () => void }) {
       if (typeof d.showModal === 'function') d.showModal();
       else d.setAttribute('open', '');
     }
-    void issue();
+    // Повтор эффекта подписывается на тот же ответ и не выпускает второй токен.
+    void issue(initialRequest);
     // Закрытие окна делает поздний ответ недействительным.
     return () => { request.current++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialRequest]);
 
   // Обратный отсчёт: раз в 15 с для минут и точно в момент истечения.
   useEffect(() => {
@@ -83,10 +85,14 @@ function EnrollmentDialog({ onClose }: { onClose: () => void }) {
 
   const copy = async () => {
     if (!ticket) return;
+    const generation = request.current;
     try {
       await navigator.clipboard.writeText(ticket.token);
+      if (generation !== request.current) return;
       setCopied('ok');
     } catch {
+      // Старое копирование не меняет сообщение и выделение нового токена.
+      if (generation !== request.current) return;
       // Буфер обмена недоступен (нет прав, не HTTPS) — выделяем для ручного копирования.
       tokenInput.current?.select();
       setCopied('fail');

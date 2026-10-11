@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
@@ -20,6 +21,50 @@ function open(role: 'admin' | 'operator') {
 const hostRow = async (name: string) => (await screen.findByText(name)).closest('tr')!;
 
 describe('регистрация агента и отзыв хоста (F4)', () => {
+  it('StrictMode: одно открытие — один POST, повторное открытие выдаёт новый токен', async () => {
+    const user = userEvent.setup();
+    let calls = 0;
+    server.use(http.post('/api/v1/enrollments', () => {
+      calls++;
+      return HttpResponse.json({ id: String(calls), enrollment_token: `strict-${calls}`, expires_at: new Date(Date.now() + 900_000).toISOString() }, { status: 201 });
+    }));
+    resetMockSession(true, 'admin');
+    window.history.pushState({}, '', '/fleet');
+    render(<StrictMode><App client={makeQueryClient()} /></StrictMode>);
+    for (const expected of [1, 2]) {
+      await user.click(await screen.findByRole('button', { name: '+ Добавить хост' }));
+      expect(await screen.findByDisplayValue(`strict-${expected}`)).toBeInTheDocument();
+      expect(calls).toBe(expected);
+      await user.click(screen.getByRole('button', { name: 'Закрыть' }));
+    }
+  });
+
+  it.each(['resolve', 'reject'] as const)('старое копирование (%s) не меняет состояние нового токена', async (outcome) => {
+    const user = userEvent.setup();
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const pending = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
+    const writeText = vi.fn(() => pending);
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    open('admin');
+    await user.click(await screen.findByRole('button', { name: '+ Добавить хост' }));
+    const input = await screen.findByRole('textbox', { name: 'Токен регистрации' }) as HTMLInputElement;
+    const old = input.value;
+    await user.click(screen.getByRole('button', { name: 'Скопировать' }));
+    expect(writeText).toHaveBeenCalledWith(old);
+    await user.click(screen.getByRole('button', { name: 'Выдать новый токен' }));
+    const current = await screen.findByRole('textbox', { name: 'Токен регистрации' }) as HTMLInputElement;
+    expect(current.value).not.toBe(old);
+    current.setSelectionRange(0, 0);
+    await act(async () => {
+      if (outcome === 'resolve') resolve();
+      else reject(new Error('denied'));
+      await pending.catch(() => {});
+    });
+    expect(screen.queryByText(/Скопировано|скопируйте вручную/)).toBeNull();
+    expect(current.selectionEnd).toBe(0);
+  });
+
   it('оператор не видит «Добавить хост» и «Отозвать»', async () => {
     open('operator');
     await hostRow('runtime-01');

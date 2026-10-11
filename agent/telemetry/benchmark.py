@@ -75,7 +75,15 @@ class SyntheticReceiver:
             return HttpResponse(503, b"")
         batch = Batch.model_validate_json(payload)
         limit = min(len(batch.events), max(1, int(self.config.receive_rate)))
-        self.sleep(limit / self.config.receive_rate)
+        remaining = self.start + self.config.max_seconds - self.clock()
+        duration = limit / self.config.receive_rate
+        if duration >= remaining:
+            # Не подтверждаем пакет, который не успевает обработаться до deadline.
+            self.sleep(max(0.0, remaining))
+            raise TransportError("Исчерпан временной бюджет стенда")
+        self.sleep(duration)
+        if self.clock() >= self.start + self.config.max_seconds:
+            raise TransportError("Исчерпан временной бюджет стенда")
         accepted, rejected = [], []
         for index, event in enumerate(batch.events):
             if index >= limit:
@@ -187,8 +195,21 @@ class SQLiteBenchmark:
                 measure()
                 if produced == self.config.count and spool.count() == 0:
                     break
-                self.sleep(min(0.001, 1 / self.config.ingress_rate))
-            if produced != self.config.count or spool.count():
+                self.sleep(
+                    max(
+                        0.0,
+                        min(
+                            0.001,
+                            1 / self.config.ingress_rate,
+                            start + self.config.max_seconds - self.clock(),
+                        ),
+                    )
+                )
+            if (
+                self.clock() - start >= self.config.max_seconds
+                or produced != self.config.count
+                or spool.count()
+            ):
                 code = "DEADLINE"
             elif expected != receiver.originals:
                 code = "PAYLOAD_MISMATCH"

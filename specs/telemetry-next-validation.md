@@ -166,7 +166,73 @@ session/capture/полная проекция с Дианой; cleanup receipt+r
 disk-pressure admission/recovery; внешний TLS endpoint. Production wiring/Alembic/
 авторизацию/worker делает backend. Оборванный конец runtime ответа не достроен.
 
-Результат локальный, push/новый PR не выполнялись. Цикл трёх субагентов требуется
-перед push по AGENTS.md и пока не выполнялся; это не отказ из-за недоступности.
+На момент первоначального отчёта результат был локальным, push/новый PR и цикл
+трёх субагентов ещё не выполнялись. Подготовка к отправке описана ниже.
 Для слияния также нужны итоговый CI и явное независимое человеческое одобрение
 актуальной версии. ИИ не выставляет Approve и не выполняет merge.
+
+## Сверка с вопросами frontend и runtime (11.10.2026)
+
+Удалённый main повторно проверен через git ls-remote: SHA остаётся
+`fc473ff02ac71d5c3e86ae38f20ee92584258360`. Удалённой ветки
+`codex/telemetry-next` нет. В low-journal-v1.md исправлены устаревшие описания
+previous_journal_id, области seq, попытки start, удаления read-only сборщиком
+и фильтрации health probe. Формат журнала и поведение кода не менялись;
+формулировки приведены к уже полученному ответу runtime и действующему коду.
+
+Повторный запуск conversion/benchmark/tty, durable reader и Low journal:
+398 passed, 1 skipped (POSIX), 4 failed в sandbox. Эти четыре теста требуют
+loopback или Windows junction; отдельный повтор с соответствующими правами дал
+4 passed. Это два запуска, а не новый полный прогон проекта.
+Повтор backend HTTP/PostgreSQL/WS матрицы дал 15 setup errors из-за отсутствия
+HF_TEST_DATABASE_URL и локального .env: сценарии не выполнялись. Прежний
+ingress-process.xml действительно содержит 15 passed, но не заменяет текущий
+прогон после восстановления конфигурации стенда.
+
+Production create_app и OpenAPI по-прежнему содержат auth/control/agent,
+без events/stream/replay/analytics/investigation/ingest routes. Reader поддерживает
+honeyforge-low-journal/1 как внутренний Python API; production mapper и отдельный
+collector CLI/worker отсутствуют. Маска стенда и hf-test-tty/1 не являются готовыми
+production проекцией и Cowrie replay. Новые согласования и сроки не утверждались.
+
+## Проверки перед отправкой 11.10.2026
+
+База повторно получена через fetch: `fc473ff02ac71d5c3e86ae38f20ee92584258360`.
+Итоговый SHA ветки и результаты заключительного цикла ревью фиксируются в PR.
+Внешние API, production-маршруты и миграции этим изменением не добавляются.
+
+Два независимых рецензента воспроизвели ошибку benchmark: при count=1,
+outage_seconds=0, receive_rate=1 и max_seconds=0.01 виртуальное время доходило
+до 1 секунды, но возвращался passed. Ожидание теперь ограничено остатком времени,
+а итог проверяет deadline. Регрессия сохраняет pending и возвращает DEADLINE.
+Синхронные операции SQLite/файловой системы не прерываются принудительно;
+превышение времени не считается успешным замером. Также актуализирован ответ
+frontend в исходном пакете задания.
+
+| Текущая проверка | Результат |
+| --- | --- |
+| uv 0.11.28 sync --frozen, root/backend | Успех |
+| Полный root pytest после исправления | 1358 passed, 7 skipped, 37 subtests; artifacts/push-agent-final.xml; 100.78 s |
+| Полный backend pytest под общей блокировкой PostgreSQL | 236 passed, 16 warnings; artifacts/push-backend.xml; 146.62 s |
+| Точечная регрессия benchmark | 9 passed; третий рецензент также выполнил 51 conversion/benchmark/TTY тест |
+| Ruff check/format agent и backend/scripts | Успех |
+| Mypy root, root --platform win32, backend | Успех: 49/49/44 модулей |
+| Event/Batch/ACK и OpenAPI --check | Контракты не изменились |
+| Agent/backend wheel | Обе сборки успешны; artifacts/push-wheels |
+| Изолированный backend uv sync --frozen --no-dev | Успех; вне корня проекта agent/websockets отсутствуют |
+| telemetry_acceptance.ps1 | passed: 25 пар, event/outbox/publication=25/25/25, pending=0, duplicate publications=0 |
+| SQLite benchmark, 200 Event, lose_once | passed; artifacts/push-benchmark.json |
+| git diff --check | Успех |
+
+Для backend использована существующая отдельная honeyforge_test на loopback:55439;
+URL передавался через окружение из прежнего игнорируемого .env, без публикации.
+Первый запуск wrapper неверно передал массив аргументов pytest и не выполнил
+тесты; таблица отражает исправленный полный запуск. Первая проверка отсутствия
+agent выполнялась из корня репозитория и видела исходники; повтор из изолированного
+каталога подтвердил отсутствие dev-пакетов. Это ошибки запуска, не дефекты кода.
+
+Семь skips относятся к POSIX на Windows. Предупреждения backend — deprecation
+FastAPI/Starlette/websockets. Docker и Linux проверки ожидаются в CI. Реальный
+ENOSPC, внешний TLS, Cowrie и production Low→браузер остаются за рамками этой
+внутренней реализации. Готовность к слиянию требует успешного итогового CI и
+независимого человеческого одобрения актуальной версии PR; агент не выполняет merge.

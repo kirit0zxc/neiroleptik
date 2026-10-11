@@ -44,6 +44,19 @@ def test_deadline_is_failure_with_preserved_pending(tmp_path):
     assert report["pending"] == 3
 
 
+def test_slow_receiver_respects_deadline_and_preserves_pending(tmp_path):
+    clock = VirtualClock()
+    report = SQLiteBenchmark(
+        BenchmarkConfig(count=1, outage_seconds=0, receive_rate=1, max_seconds=0.01),
+        tmp_path,
+        clock.clock,
+        clock.sleep,
+    ).run()
+    assert report["status"] == "failed" and report["code"] == "DEADLINE"
+    assert report["elapsed_seconds"] == pytest.approx(0.01)
+    assert report["pending"] == 1 and report["unique_received"] == 0
+
+
 @pytest.mark.parametrize(
     "parameters",
     [

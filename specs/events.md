@@ -1,5 +1,93 @@
 # Телеметрия D1: Event v1 и локальная очередь
 
+## Внутренний следующий этап (11.10.2026)
+
+После независимой реализации получены ответы backend 13:19/runtime 13:25.
+Подтверждённые требования и предложения разделены в low-telemetry-handoff.md.
+Event v1, внешние схемы и старый LowAdapter в этом изменении не расширяются.
+Backend сохраняет source_seq=byte offset и историческую принадлежность instances;
+runtime уточняет сброс Low seq при новом процессе того же instance. Low seq
+не используется как глобальная уникальность или единственный порядок instance.
+
+`LowRawConverter` использует SpoolRepository и тот же SQLite-файл, что
+RawJournalRepository. Production Low mapping отсутствует: внедряется чистый
+RawEventMapper с явной непустой версией. `convert(binding, record)` принимает
+только точно совпадающую сохранённую строку. Event повторно валидируется,
+проверяется в одиночном Batch и против доверенных agent/deployment/instance/revision.
+None разрешён только header/footer. Исключения не содержат raw или SQL.
+
+`low_conversion_ledger`: PRIMARY KEY (source_key, journal_id, offset), где source_key
+содержит agent/deployment/instance/revision в формате raw repository; next_offset,
+kind, SHA-256 исходных bytes, mapper_version, result (event/service), event_id
+(UNIQUE, nullable), canonical_payload (nullable). Pending и ledger создаются под
+BEGIN IMMEDIATE на одном соединении spool, одним commit. Checkpoints/raw и
+файлы источника не изменяются. Ledger не удаляется после ACK/карантина.
+Повтор вычисляет и сравнивает результат: совпадение возвращает repeated,
+изменение bytes/результата/версии даёт конфликт без записи. Смена версии mapper
+не разрешает повторную отправку. Занятый Event ID (ledger, pending, quarantine,
+сохранённый batch snapshot) даёт конфликт, оригинал сохраняется.
+
+`step(binding, limits)` выбирает необработанные позиции в порядке сохранения;
+лимиты — положительные max_records/max_bytes. BLOB читается после проверки длины
+против остатка бюджета. Итог содержит состояние, число записей/bytes и безопасный
+code; ошибка прекращает шаг, прежние commit сохраняются. Writer-lock возвращает
+retry; ошибка записи/commit не оставляет ложного ledger. Cleanup не добавляется.
+Приёмка: атомарность, реальные SQLite trigger/commit fault injection, аварийные
+процессы до/после commit, конкуренция, повторы после ACK и карантина, совместимость.
+
+Тестовый HTTP ingress находится только в backend/tests/telemetry: отдельное
+приложение соединяет EventStorage, OutboxPublisher, PublicationReader,
+CommittedReadAdapter, HistoryService, CatchUpService, PublicEventPresenter,
+LiveStreamService и существующий SessionAccess/router. POST /test/ingest — тестовый
+маршрут с фиксированной таблицей token→agent/deployment/instance/revision;
+production create_app не меняется, production auth не утверждается.
+Batch ограничен 100/256 КиБ и абсолютными 2 МиБ; элементы проверяются отдельно,
+индексы ACK исходные. ACK выдаётся после возврата store (после commit);
+SQL/commit failure → 503. Потеря ответа после commit оставляет spool для повтора.
+Тестовая маска скрывает password, canonical оригинал неизменен. Прогон использует
+loopback HTTP, отдельную telemetry_test_<uuid> схему PostgreSQL, существующие
+cookie/Origin/revoke и общий lock-wrapper. Проверяются точные пары agent_id/event_id,
+payload, outbox/publication, REST snapshot и WS reconnect/catch-up, stream_seq >2^53.
+Production миграции/ingest/Low→UI, TLS и браузер требуют отдельной приёмки.
+
+## Ограниченные независимые стенды
+
+`python -m agent.telemetry.benchmark` принимает count, payload_bytes, ingress_rate,
+outage_seconds, receive_rate, receiver_mode, max_seconds, seed и report. Все
+параметры ограничены: не больше 10000 Event, 64 МиБ ожидаемого payload и 120 секунд.
+Стенд использует существующие SQLite spool и TelemetrySender; получатель явно
+синтетический, измеряет ACK/dedup в памяти, PostgreSQL проверяется отдельно.
+Измеряются максимум backlog, append→локальное применение ACK, ingress/drain rate,
+время очистки pending после восстановления, DB/WAL/SHM и свободное место, объём
+Event TEXT/raw BLOB/snapshot BLOB. В JSON записаны параметры, seed, версии,
+границы метрик и фактический успех сверки точных ID/payload; нет обещаний p95.
+Незавершённая очередь/ошибка дают ненулевой выход и безопасный code. SQLITE_FULL
+проверяется настоящим max_page_count, ENOSPC системного диска не вызывается.
+Потери запросов до долговечного append и runtime admission не измеряются.
+
+`agent/telemetry/tty_fixture.py` читает только наш тестовый формат hf-test-tty/1:
+magic `HF-TTY/1\n`, затем сетевой big-endian header QBI (13 bytes): timestamp_us
+uint64 от начала записи, direction=1 input/2 output, payload_length uint32,
+UTF-8 payload. Это не Cowrie. Поток BinaryIO читается ограниченными порциями;
+лимиты max_bytes/max_frames/max_payload положительные. Порядок физический,
+равные timestamps сохраняются, обратные завершают обработку с ошибкой.
+По каждому направлению используется отдельный incremental UTF-8 decoder:
+символ может пересекать payload и transport chunks. Строгая ошибка кодировки,
+незавершённый UTF-8 при EOF, header/payload EOF, неизвестный тип, oversized и
+превышение бюджета дают явный incomplete/code, без фиктивного полного replay.
+Внутренние фрагменты содержат timestamp_us/direction/text. C0/DEL кроме LF/TAB
+отображаются как литералы `\\xNN`, терминальные последовательности не исполняются;
+HTML остаётся текстом и требует экранирования при будущей UI-интеграции.
+
+Автоматическая приёмка запускается `scripts/telemetry_acceptance.ps1` с явным
+Python и общим LockPath. Она вызывает детерминированный pytest сценарий тестового
+приложения: outage → накопление → restart → потеря ответа → восстановление →
+PostgreSQL → publisher → REST/WS → повторы. Сверяются точные пары и canonical
+оригиналы, маска, publication и pending, сохраняются JSON/JUnit и длительности.
+Повтор запуска получает новую схему/порт/spool. Ошибка БД/порта/cleanup даёт
+ненулевой выход; отсутствие JSON успеха не трактуется как успех. Без браузера,
+production Low mapper, production auth, миграций или runtime wiring.
+
 Основание: `HoneyForge-plan.html` и `HoneyForge-4-Telemetry.html`, 09.10.2026.
 Статус: локальная реализация первого шага D1. Схема Event следует общему плану;
 формат исходного Low JSONL ниже — предложение участнику 3, ещё не подтверждённое

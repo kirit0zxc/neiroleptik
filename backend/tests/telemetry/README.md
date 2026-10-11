@@ -1,7 +1,21 @@
 # Проверки внутреннего PostgreSQL-ядра
 
-Приложение, общая Alembic Base, production routes и worker не подключены.
-Синтетические события уже подготовлены: это не проверка внешнего JSON/Bearer.
+## Добавленный сетевой тестовый стенд
+
+`integration_app.py` явно собирает существующие storage/publisher/history/catch-up/
+presenter/stream/router и тестовый POST /test/ingest. `test_ingress_end_to_end.py`
+использует установленный honeyforge-agent (dev), настоящий loopback HTTP sender,
+PostgreSQL, REST и сетевой WS, реальные cookie/Origin/revoke и синтетическую маску.
+Это тестовая identity-таблица и тестовые Event, не production authorization/Low→UI.
+Команды, проверенная база, матрица C/P/L/T/E и результаты приведены в
+`specs/telemetry-next-validation.md` (от корня). Все SQL-прогоны используют прежний
+общий lock-wrapper. Автоматический сценарий — scripts/telemetry_acceptance.ps1.
+Без HF_TEST_DATABASE_URL=…/honeyforge_test прогон завершается ошибкой, а не успехом.
+
+## Исходное ядро и ранее выполненные проверки
+
+Рабочее приложение, общая Alembic Base, production routes и worker не подключены.
+События исходного SQL-набора уже подготовлены: этот набор не проверяет JSON/Bearer.
 Нужны HF_TEST_DATABASE_URL с database=honeyforge_test и общий эксклюзивный
 POSTGRES_TEST.lock из исходного work/telemetry-two-branches/BRANCH_HANDOFF.md.
 

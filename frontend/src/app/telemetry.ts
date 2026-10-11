@@ -6,7 +6,8 @@
  *
  *   - VITE_EVENTS_ENABLED    — лента событий (`/events`) и живой поток (`/stream`);
  *   - VITE_ANALYTICS_ENABLED — сводка обзора (`/analytics/summary`);
- *   - VITE_REPLAY_ENABLED    — запись сессии (replay).
+ *   - VITE_REPLAY_ENABLED    — запись сессии (replay);
+ *   - VITE_INVESTIGATION_ENABLED — расследование (алерты, токены, артефакты, IoC).
  *
  * VITE_TELEMETRY_ENABLED — общий выключатель (все три сразу), моки
  * (VITE_API_MOCK=1) включают всё. Доступ к import.meta.env — только по явным
@@ -27,4 +28,8 @@ export function analyticsEnabled() {
 /** Запись сессии (replay) готова на сервере (или моки/umbrella). */
 export function replayEnabled() {
   return onMocks() || telemetryAll() || flagOn(import.meta.env.VITE_REPLAY_ENABLED);
+}
+/** Расследование (алерты, токены, артефакты, IoC) готово на сервере (или моки/umbrella). */
+export function investigationEnabled() {
+  return onMocks() || telemetryAll() || flagOn(import.meta.env.VITE_INVESTIGATION_ENABLED);
 }

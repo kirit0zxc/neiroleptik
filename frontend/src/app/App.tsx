@@ -15,7 +15,8 @@ import { AuditPage } from '../features/audit/AuditPage';
 import { SessionPage } from '../features/replay/ReplayPage';
 import { MascotCore } from '../mascot/core/MascotCore';
 import { Yumi, YumiContext } from '../features/yumi/yumi';
-import { analyticsEnabled, eventsEnabled, replayEnabled } from './telemetry';
+import { analyticsEnabled, eventsEnabled, investigationEnabled, replayEnabled } from './telemetry';
+import { InvestigationPage } from '../features/investigation/InvestigationPage';
 import { AppShell, NotFound, Planned } from './AppShell';
 
 export function makeQueryClient() {
@@ -49,6 +50,10 @@ function SessionScreen() {
   return replayEnabled() ? <SessionPage /> : <Planned title="Запись сессии" day="D3 — подключение серверной телеметрии" />;
 }
 
+function InvestigationScreen() {
+  return investigationEnabled() ? <InvestigationPage /> : <Planned title="Расследование" day="D3 — подключение серверных ручек расследования" />;
+}
+
 function EventsScreen() {
   return eventsEnabled() ? <EventsPage /> : <Planned title="События" day="D3 — подключение серверной телеметрии" />;
 }
@@ -66,7 +71,7 @@ export const routes = [
       { path: 'profiles/:id', element: <ProfileEditor /> },
       { path: 'events', element: <EventsScreen /> },
       { path: 'sessions/:id', element: <SessionScreen /> },
-      { path: 'alerts', element: <Planned title="Алерты и экспорт" day="D3" /> },
+      { path: 'alerts', element: <InvestigationScreen /> },
       { path: 'audit', element: <AuditPage /> },
       { path: '*', element: <NotFound /> },
     ],

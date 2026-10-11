@@ -7,6 +7,10 @@
 frontend моков по разделам 1–4 и 6 не делает; сводка (раздел 5) уже в моке
 в согласованном виде.
 
+Точные схемы (имена, nullable, фильтры, сортировка, курсоры, ошибки,
+примеры) — черновик `specs/frontend-openapi-proposal.yaml` (статус proposal,
+сверяется с backend до публикации; `contracts/openapi.json` не меняется).
+
 Общие правила — как в протоколе v1: время RFC 3339 UTC; id — UUID строкой;
 ошибки — `{"detail": ...}`; списки — `{items, next_cursor}` с непрозрачным
 курсором, связанным с фильтрами и сортировкой (несовместимый курсор — 422);
@@ -26,7 +30,7 @@ frontend моков по разделам 1–4 и 6 не делает; свод
 ```json
 {
   "session_id": "uuid",
-  "agent_id": "string",
+  "agent_id": "uuid",
   "deployment_id": "uuid",
   "instance_id": "uuid",
   "protocol": "ssh | http | tcp",

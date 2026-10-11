@@ -15,16 +15,21 @@ import { replayHandlers } from './replay';
  */
 // Сессия мока переживает перезагрузку страницы — как cookie настоящего API.
 const SESSION_KEY = 'hf-mock-session';
-// Значение — роль вошедшего: operator (по умолчанию) или admin для демо аудита.
+// Значение — роль вошедшего: operator ('1', по умолчанию), admin (демо аудита) или viewer.
+type MockRole = 'admin' | 'operator' | 'viewer';
 const session = {
   get: () => { try { return sessionStorage.getItem(SESSION_KEY) !== null; } catch { return false; } },
-  role: (): 'admin' | 'operator' => { try { return sessionStorage.getItem(SESSION_KEY) === 'admin' ? 'admin' : 'operator'; } catch { return 'operator'; } },
-  set: (on: boolean, role: 'admin' | 'operator' = 'operator') => { try { if (on) sessionStorage.setItem(SESSION_KEY, role === 'admin' ? 'admin' : '1'); else sessionStorage.removeItem(SESSION_KEY); } catch { /* нет хранилища */ } },
+  role: (): MockRole => {
+    try { const v = sessionStorage.getItem(SESSION_KEY); return v === 'admin' || v === 'viewer' ? v : 'operator'; } catch { return 'operator'; }
+  },
+  set: (on: boolean, role: MockRole = 'operator') => { try { if (on) sessionStorage.setItem(SESSION_KEY, role === 'operator' ? '1' : role); else sessionStorage.removeItem(SESSION_KEY); } catch { /* нет хранилища */ } },
 };
 /** Текущий пользователь мока (AuthRead) по роли сессии. */
 const currentMe = () => (session.role() === 'admin'
   ? { ...me, user: { id: 'u-admin-1', username: 'admin', role: 'admin' } }
-  : me);
+  : session.role() === 'viewer'
+    ? { ...me, user: { id: 'u-viewer-1', username: 'viewer', role: 'viewer' } }
+    : me);
 resetMockStream(events as unknown as HfEvent[]);
 
 let profiles: Profile[] = structuredClone(profilesFixture) as Profile[];
@@ -69,7 +74,17 @@ function adminFailure(request: Request) {
   return null;
 }
 
+const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
 export const handlers = [
+  // viewer ничего не меняет — как Operator/Administrator центра (specs/frontend.md, E2E).
+  // Вход и выход доступны всем; остальное проходит к обработчикам ниже.
+  http.all('/api/v1/*', ({ request }) => {
+    const path = new URL(request.url).pathname;
+    if (!MUTATING.has(request.method) || path.startsWith('/api/v1/auth/')) return undefined;
+    if (session.get() && session.role() === 'viewer') return HttpResponse.json({ detail: 'Недостаточно прав' }, { status: 403 });
+    return undefined;
+  }),
   http.post('/api/v1/auth/login', async ({ request }) => {
     const body = (await request.json()) as { username?: string; password?: string };
     if (body.username === 'operator' && body.password === 'operator') {
@@ -79,6 +94,11 @@ export const handlers = [
     // Демо-администратор: только он видит журнал аудита (как в центре).
     if (body.username === 'admin' && body.password === 'admin') {
       session.set(true, 'admin');
+      return HttpResponse.json(currentMe());
+    }
+    // Демо-наблюдатель: только чтение (F2).
+    if (body.username === 'viewer' && body.password === 'viewer') {
+      session.set(true, 'viewer');
       return HttpResponse.json(currentMe());
     }
     return HttpResponse.json({ detail: 'Неверный логин или пароль' }, { status: 401 });
@@ -230,7 +250,7 @@ export const handlers = [
 ];
 
 /** Для тестов: начать с открытой или закрытой сессией и исходными данными. */
-export function resetMockSession(open = false, role: 'admin' | 'operator' = 'operator') {
+export function resetMockSession(open = false, role: MockRole = 'operator') {
   session.set(open, role);
   resetMockStream(events as unknown as HfEvent[]);
   resetMockJobs();

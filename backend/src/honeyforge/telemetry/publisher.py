@@ -4,6 +4,7 @@ from sqlalchemy import Engine, insert, select, update
 from sqlalchemy.orm import Session
 
 from honeyforge.common import utcnow
+from honeyforge.investigation.projector import InvestigationProjector
 from honeyforge.telemetry.tables import TelemetryTables
 from honeyforge.telemetry.types import BIGINT_MAX
 
@@ -11,9 +12,15 @@ from honeyforge.telemetry.types import BIGINT_MAX
 class OutboxPublisher:
     """Состояние → outbox → publication; lock удерживается до commit счётчика."""
 
-    def __init__(self, engine: Engine, tables: TelemetryTables) -> None:
+    def __init__(
+        self,
+        engine: Engine,
+        tables: TelemetryTables,
+        projector: InvestigationProjector | None = None,
+    ) -> None:
         self.engine = engine
         self.tables = tables
+        self.projector = projector
 
     def _checkpoint(self, stage: str, session: Session) -> None:
         """Точная граница управляемого отказа/ожидания в тестах."""
@@ -42,6 +49,8 @@ class OutboxPublisher:
                 raise OverflowError("Исчерпан диапазон stream_seq")
             now = utcnow()
             for position, event_pk in enumerate(pending, 1):
+                if self.projector is not None:
+                    self.projector.apply(session, event_pk, now)
                 session.execute(
                     insert(t.publications).values(
                         stream_seq=last_seq + position,

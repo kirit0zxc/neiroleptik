@@ -203,7 +203,7 @@ def build_test_app(
     storage: EventStorage | None = None,
 ) -> IntegratedServices:
     """Routes добавляются только здесь; read/auth зависимости берутся из рабочего кода."""
-    app = create_app(settings)
+    app = create_app(settings, telemetry=False)
     app.state.engine = engine
     reader = PublicationReader(engine, tables)
     adapter = CommittedReadAdapter(reader)

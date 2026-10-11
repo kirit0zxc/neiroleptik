@@ -76,6 +76,8 @@ class EventFilters:
     to_time: datetime | None = None
     source_ip: str | None = None
     event_type: str | None = None
+    session_id: UUID | None = None
+    timeline: bool = False
 
 
 @dataclass(frozen=True)

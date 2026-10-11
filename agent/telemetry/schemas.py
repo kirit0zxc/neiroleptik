@@ -84,7 +84,7 @@ class Event(ContractModel):
     source_seq: Annotated[StrictInt, Field(ge=0, le=9007199254740991)]
     occurred_at: AwareDatetime
     type: EventType
-    source: Source
+    source: Source | None
     service: Service
     data: dict[str, JsonValue]
     artifact_ids: list[UUID]
@@ -115,7 +115,14 @@ class Event(ContractModel):
     @field_validator("occurred_at")
     @classmethod
     def normalize_time(cls, value: datetime) -> datetime:
-        return value.astimezone(UTC)
+        try:
+            normalized = value.astimezone(UTC)
+        except OverflowError:
+            raise ValueError("Время выходит за диапазон UTC") from None
+        # Конец фиксированного минутного окна тоже должен помещаться в datetime.
+        if normalized >= datetime(9999, 12, 31, 23, 59, tzinfo=UTC):
+            raise ValueError("Время не допускает представимый конец минутного окна")
+        return normalized
 
     @field_validator("data")
     @classmethod

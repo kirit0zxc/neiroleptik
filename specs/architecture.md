@@ -11,6 +11,11 @@ hf_telemetry — рабочая схема с отдельной Alembic миг�
 investigation/tables.py хранит alert группы/основания, URL token/срабатывания
 и артефакты. projector.py работает в транзакции publisher под DB блокировкой
 журнала; service.py формирует публичные DTO, lookup и согласованный snapshot CSV.
+Проекция имени артефакта заменяет NUL, а оригинал остаётся в canonical_bytes
+события-основания. Метаданные читаются без content, список использует SQL keyset
+observed_at/id DESC с limit+1; срок доступности вычисляется одним методом для
+списка, карточки и скачивания. Ingress проверяет вместимость нормализованного
+source.ip до записи, чтобы одно событие не откатывало пачку.
 iocs.py ограничивает поля/URL и формирует безопасный файл до HTTP ответа.
 api/investigation.py применяет общие Reader/Operator роли, схемы — в
 api/investigation_schemas.py. masking.py задаёт одну политику REST/WS/lookup.

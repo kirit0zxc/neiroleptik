@@ -12,6 +12,7 @@ import pytest
 from agent.telemetry.schemas import Event
 from conftest import login, profile_payload, register_host
 from fastapi.testclient import TestClient
+from sqlalchemy import event as sql_event
 from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 
@@ -160,6 +161,121 @@ def test_artifact_states(investigation, engine, state, status):
     response = ctx[0].get(f"/api/v1/artifacts/{artifact}/content")
     assert response.status_code == status
     assert response.json()["code"] == "ARTIFACT_" + state.upper()
+
+
+def test_artifact_nul_name_does_not_block_publication(investigation, engine):
+    ctx = investigation
+    artifact = uuid4()
+    original = document(
+        ctx, type="artifact.observed", artifact_ids=[str(artifact)], data={"name": "a\x00b.txt"}
+    )
+    store(ctx, [original, document(ctx)])
+    assert ctx[1].publisher.publish_once(500) == 0
+    assert len(ctx[0].get("/api/v1/events").json()["items"]) == 2
+    assert ctx[0].get(f"/api/v1/artifacts/{artifact}").json()["name"] == "a\ufffdb.txt"
+    with engine.connect() as db:
+        raw = db.scalar(
+            select(ctx[1].tables.events.c.canonical_bytes).where(
+                ctx[1].tables.events.c.event_id == UUID(original["event_id"])
+            )
+        )
+    assert json.loads(bytes(raw))["data"]["name"] == "a\x00b.txt"
+
+
+@pytest.mark.parametrize("stored_state", ["available", "pending", "failed", "expired"])
+@pytest.mark.parametrize("offset", [-1, 0, 1, None])
+def test_artifact_expiration_consistent(investigation, engine, monkeypatch, stored_state, offset):
+    ctx = investigation
+    artifact = uuid4()
+    store(ctx, [document(ctx, type="artifact.observed", artifact_ids=[str(artifact)])])
+    now = datetime(2026, 10, 11, 12, 30, tzinfo=UTC)
+    monkeypatch.setattr("honeyforge.investigation.service.utcnow", lambda: now)
+    with engine.begin() as db:
+        db.execute(
+            update(ctx[1].investigation.artifacts).values(
+                state=stored_state,
+                content=b"proof",
+                sha256="a" * 64,
+                size_bytes=5,
+                expires_at=None if offset is None else now + timedelta(seconds=offset),
+            )
+        )
+    expected = "expired" if offset is not None and offset <= 0 else stored_state
+    client = ctx[0]
+    assert client.get("/api/v1/artifacts").json()["items"][0]["state"] == expected
+    assert client.get(f"/api/v1/artifacts/{artifact}").json()["state"] == expected
+    download = client.get(f"/api/v1/artifacts/{artifact}/content")
+    assert download.status_code == (
+        200 if expected == "available" else 410 if expected == "expired" else 409
+    )
+    if expected != "available":
+        assert download.json()["code"] == "ARTIFACT_" + expected.upper()
+
+
+def test_artifact_metadata_sql_keyset(investigation, engine):
+    ctx = investigation
+    identities = [UUID(int=n) for n in (1, 2, 3, 4)]
+    session_id = str(uuid4())
+    store(
+        ctx,
+        [
+            document(ctx, type="artifact.observed", session_id=session_id, artifact_ids=[str(v)])
+            for v in identities
+        ]
+        + [document(ctx, type="artifact.observed", artifact_ids=[str(uuid4())])],
+    )
+    with engine.begin() as db:
+        db.execute(update(ctx[1].investigation.artifacts).values(content=b"x" * 100_000))
+    statements = []
+
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().startswith("SELECT") and "hf_telemetry.artifacts" in statement:
+            statements.append((statement, parameters))
+
+    sql_event.listen(engine, "before_cursor_execute", capture)
+    try:
+        read = service(ctx, engine)
+        page = read.artifacts(UUID(session_id), UUID(ctx[3]["id"]), None, 1)
+        seen = []
+        while True:
+            seen.extend(v["id"] for v in page["items"])
+            if page["next_cursor"] is None:
+                break
+            page = read.artifacts(UUID(session_id), UUID(ctx[3]["id"]), page["next_cursor"], 1)
+        assert seen == list(reversed(identities))
+        assert read.artifact(identities[0])["id"] == identities[0]
+    finally:
+        sql_event.remove(engine, "before_cursor_execute", capture)
+    assert len(statements) == 5
+    for statement, _parameters in statements:
+        assert "content" not in statement
+    for statement, parameters in statements[:4]:
+        assert "ORDER BY" in statement and "LIMIT" in statement
+        assert 2 in parameters.values()
+    assert "observed_at, hf_telemetry.artifacts.id) <" in statements[1][0]
+    first = read.artifacts(UUID(session_id), None, None, 1)
+    with pytest.raises(DomainError) as error:
+        read.artifacts(None, None, first["next_cursor"], 1)
+    assert error.value.code == "INVALID_CURSOR"
+
+
+@pytest.mark.parametrize("scope_size,valid", [(37, True), (38, False), (200, False)])
+def test_scoped_ipv6_rejection_is_per_event(investigation, scope_size, valid):
+    ctx = investigation
+    scoped = document(ctx, source={"ip": "fe80::1%" + "a" * scope_size, "port": 1})
+    good = document(ctx)
+    response = post(ctx, [scoped, good])
+    assert response.status_code == 200, response.text
+    ack = response.json()
+    assert good["event_id"] in ack["accepted_ids"]
+    if valid:
+        assert scoped["event_id"] in ack["accepted_ids"]
+        assert ack["rejected"] == []
+    else:
+        assert scoped["event_id"] not in ack["accepted_ids"]
+        assert len(ack["rejected"]) == 1
+        assert ack["rejected"][0]["code"] == "INVALID_EVENT"
+    assert ctx[1].publisher.publish_once(500) == (2 if valid else 1)
 
 
 def test_null_source_ingest_db_rest_ws_lookup_timeline(investigation, engine, settings):

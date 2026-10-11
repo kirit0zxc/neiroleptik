@@ -71,7 +71,11 @@ class IngressService:
         if len(event["artifact_ids"]) != len(set(event["artifact_ids"])):
             raise ValueError("artifact_ids содержит повторы")
         if event["source"] is not None:
-            event["source"] = dict(event["source"]) | {"ip": str(ip_address(event["source"]["ip"]))}
+            address = str(ip_address(event["source"]["ip"]))
+            # Scope IPv6 тоже входит в varchar(45); ошибка относится лишь к этому событию.
+            if len(address) > 45 or "\x00" in address:
+                raise ValueError("IP не помещается в поле хранилища")
+            event["source"] = dict(event["source"]) | {"ip": address}
 
         def compact(value: object) -> str:
             return json.dumps(

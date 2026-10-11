@@ -4,11 +4,11 @@ import base64
 import hashlib
 import hmac
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, func, literal, select, tuple_
 
 from honeyforge.common import DomainError, utcnow
 from honeyforge.investigation.iocs import IocExporter
@@ -32,12 +32,9 @@ class InvestigationService:
         self.engine, self.telemetry, self.tables = engine, telemetry, tables
         self.presenter, self.key = presenter, key
 
-    def page(
-        self, values: list[dict[str, Any]], scope: str, cursor: str | None, limit: int
-    ) -> dict[str, Any]:
-        if not 1 <= limit <= 200:
-            raise DomainError(422, "Некорректный размер страницы")
-        if cursor:
+    def _cursor(self, scope: str, cursor: str | None) -> tuple[Any, ...] | None:
+        """Один формат подписи для страниц в памяти и SQL keyset."""
+        if cursor is not None:
             try:
                 if len(cursor) > 4096:
                     raise ValueError
@@ -49,10 +46,19 @@ class InvestigationService:
                 data = json.loads(raw[32:])
                 if data["scope"] != scope:
                     raise ValueError
-                before = tuple(data["last"])
-                values = [v for v in values if tuple(v["_key"]) < before]
+                return tuple(data["last"])
             except (ValueError, KeyError, TypeError):
                 raise DomainError(422, "Некорректный курсор", "INVALID_CURSOR") from None
+        return None
+
+    def page(
+        self, values: list[dict[str, Any]], scope: str, cursor: str | None, limit: int
+    ) -> dict[str, Any]:
+        if not 1 <= limit <= 200:
+            raise DomainError(422, "Некорректный размер страницы")
+        before = self._cursor(scope, cursor)
+        if before is not None:
+            values = [v for v in values if tuple(v["_key"]) < before]
         values.sort(key=lambda v: tuple(v["_key"]), reverse=True)
         visible = values[:limit]
         next_cursor = None
@@ -126,18 +132,44 @@ class InvestigationService:
         self, session_id: UUID | None, deployment: UUID | None, cursor: str | None, limit: int
     ) -> dict[str, Any]:
         t = self.tables.artifacts
-        statement = select(t)
+        if not 1 <= limit <= 200:
+            raise DomainError(422, "Некорректный размер страницы")
+        scope = f"artifacts:{session_id}:{deployment}"
+        before = self._cursor(scope, cursor)
+        # Бинарное содержимое не входит даже в SQL SELECT метаданных.
+        statement = select(*(column for column in t.c if column.name != "content"))
         if session_id:
             statement = statement.where(t.c.session_id == session_id)
         if deployment:
             statement = statement.where(t.c.deployment_id == deployment)
+        if before is not None:
+            try:
+                if len(before) != 2:
+                    raise ValueError
+                stamp, identity = datetime.fromisoformat(before[0]), UUID(before[1])
+                if stamp.tzinfo is None:
+                    raise ValueError
+            except (ValueError, TypeError, AttributeError):
+                raise DomainError(422, "Некорректный курсор", "INVALID_CURSOR") from None
+            statement = statement.where(
+                tuple_(t.c.observed_at, t.c.id) < tuple_(literal(stamp), literal(identity))
+            )
+        statement = statement.order_by(t.c.observed_at.desc(), t.c.id.desc()).limit(limit + 1)
         with self.engine.connect() as db:
             values = [dict(row) for row in db.execute(statement).mappings()]
+        now = utcnow()
         for value in values:
-            value.pop("content")
+            value["state"] = self._artifact_state(value, now)
             value["source_url"] = IocExporter.safe_url(value["source_url"])
-            value["_key"] = [value["observed_at"].isoformat(), str(value["id"])]
-        return self.page(values, f"artifacts:{session_id}:{deployment}", cursor, limit)
+            value["_key"] = [value["observed_at"].astimezone(UTC).isoformat(), str(value["id"])]
+        return self.page(values, scope, None, limit)
+
+    @staticmethod
+    def _artifact_state(row: Any, now: datetime) -> str:
+        """Срок имеет одинаковый приоритет в метаданных и скачивании."""
+        if row["expires_at"] is not None and row["expires_at"] <= now:
+            return "expired"
+        return str(row["state"])
 
     def download(self, identity: UUID) -> bytes:
         t = self.tables.artifacts
@@ -145,9 +177,7 @@ class InvestigationService:
             row = db.execute(select(t).where(t.c.id == identity)).mappings().first()
         if row is None:
             raise DomainError(404, "Артефакт не найден")
-        state = row["state"]
-        if row["expires_at"] is not None and row["expires_at"] <= utcnow():
-            state = "expired"
+        state = self._artifact_state(row, utcnow())
         if state != "available":
             raise DomainError(
                 410 if state == "expired" else 409,
@@ -159,17 +189,21 @@ class InvestigationService:
         return bytes(row["content"])
 
     def artifact(self, identity: UUID) -> dict[str, Any]:
+        t = self.tables.artifacts
         with self.engine.connect() as db:
             row = (
                 db.execute(
-                    select(self.tables.artifacts).where(self.tables.artifacts.c.id == identity)
+                    select(*(column for column in t.c if column.name != "content")).where(
+                        t.c.id == identity
+                    )
                 )
                 .mappings()
                 .first()
             )
         if row is None:
             raise DomainError(404, "Артефакт не найден")
-        result = {k: v for k, v in row.items() if k != "content"}
+        result = dict(row)
+        result["state"] = self._artifact_state(result, utcnow())
         result["source_url"] = IocExporter.safe_url(result["source_url"])
         return result
 

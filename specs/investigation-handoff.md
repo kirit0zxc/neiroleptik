@@ -40,6 +40,10 @@ nullable отмечены ниже; время RFC3339. Названия path п
   state enum pending/available/failed/expired. Содержимое доступно только available;
   pending/failed →409 ARTIFACT_PENDING/ARTIFACT_FAILED; expired →410 ARTIFACT_EXPIRED.
   Без содержимого даже available возвращает 409 ARTIFACT_PENDING. UI не делает preview.
+  При expires_at <= текущего UTC все три маршрута считают state=expired.
+  Имя в метаданных заменяет NUL на U+FFFD; оригинал сохранён в событии-основании.
+  Список выполняет keyset observed_at/id DESC и limit+1 в SQL без content;
+  карточка тоже не загружает content. Формат ответа и курсора сохранён.
 - HoneytokenRead: id, deployment_id, kind="url", label, created_at,
   last_triggered_at:null|date-time, trigger_count:integer>=0. Label наблюдаемого
   токена — его id; никакого секретного значения или рабочего URL. Trigger:

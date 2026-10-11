@@ -167,7 +167,8 @@ class InvestigationProjector:
                     deployment_id=event["deployment_id"],
                     session_id=event.get("session_id"),
                     state="pending",
-                    name=name if isinstance(name, str) else str(identity),
+                    # PostgreSQL text не хранит NUL; оригинал остаётся в canonical_bytes.
+                    name=name.replace("\x00", "\ufffd") if isinstance(name, str) else str(identity),
                     source_url=IocExporter.safe_url(event["data"].get("source_url")),
                     observed_at=datetime.fromisoformat(event["occurred_at"]),
                     event_refs=[ref],

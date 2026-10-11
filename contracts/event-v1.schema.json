@@ -66,22 +66,29 @@
       ]
     },
     "source": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "ip": {
-          "type": "string",
-          "description": "IPv4 или IPv6 исходного клиента"
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ip": {
+              "type": "string",
+              "description": "IPv4 или IPv6 исходного клиента"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65535
+            }
+          },
+          "required": [
+            "ip",
+            "port"
+          ]
         },
-        "port": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 65535
+        {
+          "type": "null"
         }
-      },
-      "required": [
-        "ip",
-        "port"
       ]
     },
     "service": {

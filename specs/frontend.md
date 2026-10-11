@@ -1,5 +1,14 @@
 # Спецификация: frontend HoneyForge
 
+Согласованный backend MVP расследования уточняет этот черновик:
+[investigation-mvp.md](investigation-mvp.md), [памятка интеграции](investigation-handoff.md).
+Клиент ведётся отдельно. Требуется nullable source в типах/рендере/моках,
+сброс только по INVALID_CURSOR, скрытая кнопка download для viewer, kind=url,
+open/high для алерта, обязательный event_refs_truncated у артефакта и алерта.
+CSV запрашивается с явными from/to; UI предлагает 24ч. Подробная совместимость
+и границы готовых маршрутов описаны в памятке; прежние моки не доказывают
+готовность отсутствующих session/replay/analytics API.
+
 | | |
 |---|---|
 | Статус | **черновик** — до согласования контрактов в D1 |

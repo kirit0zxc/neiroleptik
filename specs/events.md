@@ -1,5 +1,18 @@
 # Телеметрия D1: Event v1 и локальная очередь
 
+## Согласованный MVP расследования (11.10.2026)
+
+Актуальные требования: [investigation-mvp.md](investigation-mvp.md). Source
+обязателен и допускает null; старый endpoint сохраняется. Рабочая factory теперь
+подключает /agent/v1/events, историю, timeline, REST/WS, lookup и расследование.
+Дальнейшие разделы про отсутствие production wiring описывают предыдущие этапы.
+Сервер использует экспортированную агентскую схему (включена в wheel), общую
+Bearer авторизацию и исторический RuntimeInstance, а не фиктивную test identity.
+Оригинал, outbox и публикация сохраняют прежнюю семантику. URL token и
+auth.bruteforce проецируются атомарно с publication. PublicPolicy едина для
+REST/WS/lookup, пароль заменяется password_present. Терминальный текст остаётся
+недоверенным; он не анализируется на IoC.
+
 ## Внутренний следующий этап (11.10.2026)
 
 После независимой реализации получены ответы backend 13:19/runtime 13:25.
@@ -107,7 +120,7 @@ PostgreSQL ingest, outbox и WS следуют следующим шагом. Г
 
 Обязательные поля: `schema_version=1`, UUID `event_id`, UUID `agent_id`,
 `deployment_id`, `instance_id`, `source_seq` в пределах 0..9007199254740991, `occurred_at` с часовым поясом,
-`type`, `source={ip,port}`, `service={protocol,port}`, `data`, `artifact_ids`,
+`type`, `source={ip,port}|null` (поле обязательно), `service={protocol,port}`, `data`, `artifact_ids`,
 `profile_revision>=1`. `session_id` — UUID или null, поле необязательно на входе. Время нормализуется в UTC.
 `received_at` и `stream_seq` назначает центр, агент их присылать не должен.
 Неизвестные поля запрещены. Boolean не считается integer. NaN/Infinity запрещены.

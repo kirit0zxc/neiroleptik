@@ -12,6 +12,9 @@ class HistoryFilters:
     event_type: str | None = None
     start: datetime | None = None
     end: datetime | None = None
+    session_id: str | None = None
+    sort: str = "received_at"
+    order: str = "desc"
 
     def normalized(self) -> dict[str, str | None]:
         return {
@@ -20,6 +23,9 @@ class HistoryFilters:
             "type": self.event_type,
             "from": self.start.isoformat() if self.start else None,
             "to": self.end.isoformat() if self.end else None,
+            "session_id": self.session_id,
+            "sort": self.sort,
+            "order": self.order,
         }
 
 

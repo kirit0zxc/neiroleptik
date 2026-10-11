@@ -277,7 +277,8 @@ def test_mixed_conflicting_hidden_original_and_invalid_neighbors(lab, tables):
         == original.canonical_json().encode()
     )
     bad = json.loads(Batch(events=[synthetic(4), synthetic(5), synthetic(6)]).to_bytes())
-    bad["events"][1]["source"] = None
+    # Явный null теперь валиден; пустой объект по-прежнему нарушает endpoint контракт.
+    bad["events"][1]["source"] = {}
     response = client.post(
         "/test/ingest", json=bad, headers={"Authorization": "Bearer " + TEST_TOKEN}
     )

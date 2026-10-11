@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from honeyforge.api.dependencies import Reader
+from honeyforge.api.investigation_schemas import CatchUpPage, EventPage
 from honeyforge.auth.service import AuthService
 from honeyforge.common import DomainError
 from honeyforge.config import Settings
@@ -35,7 +36,7 @@ def create_router(
     """Используется только явно собранным приложением после внедрения зависимостей."""
     router = APIRouter(prefix="/api/v1", tags=["telemetry"])
 
-    @router.get("/events")
+    @router.get("/events", response_model=EventPage)
     def events(
         user: Reader,
         deployment_id: str | None = None,
@@ -45,11 +46,16 @@ def create_router(
         end: str | None = Query(None, alias="to"),
         cursor: str | None = None,
         limit: int = 50,
+        session_id: str | None = None,
+        sort: str = "received_at",
+        order: str = "desc",
     ) -> dict[str, Any]:
-        filters = history.filters(deployment_id, source_ip, type, start, end)
+        filters = history.filters(
+            deployment_id, source_ip, type, start, end, session_id, sort, order
+        )
         return history.page(filters, cursor, limit)
 
-    @router.get("/stream-events")
+    @router.get("/stream-events", response_model=CatchUpPage)
     def stream_events(
         user: Reader, after: str = "0", until: str | None = None, limit: int = 100
     ) -> dict[str, Any]:

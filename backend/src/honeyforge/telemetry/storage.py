@@ -56,7 +56,8 @@ class EventStorage:
                         digest=self.digest(event.canonical_bytes),
                         received_at=utcnow(),
                         occurred_at=event.occurred_at,
-                        source_ip=original["source"]["ip"],
+                        source_ip=original["source"]["ip"] if original["source"] else None,
+                        session_id=original.get("session_id"),
                         event_type=original["type"],
                     )
                     .on_conflict_do_nothing(constraint="uq_event_identity")

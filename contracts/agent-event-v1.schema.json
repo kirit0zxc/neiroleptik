@@ -119,7 +119,14 @@
       "type": "string"
     },
     "source": {
-      "$ref": "#/$defs/Source"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Source"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "service": {
       "$ref": "#/$defs/Service"

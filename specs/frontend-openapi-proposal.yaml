@@ -2,15 +2,14 @@
 # Статус: PROPOSAL — только то, чего ещё нет в общем OpenAPI.
 # Реализованное (PR #35, специфика — specs/investigation-handoff.md) берётся
 # из contracts/openapi.json и contracts/event-v1.schema.json, здесь не дублируется.
-# Действует после слияния PR #35 (codex/investigation-mvp): до него в main
-# этих ручек в contracts/openapi.json нет. Вливать эту правку после #35.
+# PR #35 уже включён в main; реализованные ручки описаны в общем контракте.
 openapi: 3.1.0
 info:
   title: HoneyForge — расследование (proposal, остаток)
   version: 0.2.0-proposal
   x-status: proposal
   description: |
-    Действует после слияния PR #35 (до него в main этих ручек нет).
+    Синхронизировано с main после слияния PR #35.
 
     Что перенесено в общий контракт (PR #35, участник 4, 11.10.2026):
     `GET /api/v1/events` (session_id, sort/order: история received_at desc и

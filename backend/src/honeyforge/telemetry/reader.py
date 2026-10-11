@@ -58,6 +58,7 @@ class PublicationReader:
         if filters.from_time and filters.to_time and filters.from_time >= filters.to_time:
             raise ValueError("from должен быть меньше to")
         t = self.tables
+        time_column = t.events.c.occurred_at if filters.timeline else t.events.c.received_at
         statement = (
             select(t.events, t.publications.c.stream_seq)
             .join(t.publications, t.events.c.id == t.publications.c.event_pk)
@@ -65,7 +66,16 @@ class PublicationReader:
         )
         if before:
             statement = statement.where(
-                tuple_(t.events.c.received_at, t.events.c.event_id, t.events.c.agent_id)
+                (
+                    tuple_(time_column, t.events.c.event_id, t.events.c.agent_id)
+                    > tuple_(
+                        literal(before.received_at, type_=DateTime(timezone=True)),
+                        literal(before.event_id, type_=Uuid()),
+                        literal(before.agent_id, type_=Uuid()),
+                    )
+                )
+                if filters.timeline
+                else tuple_(time_column, t.events.c.event_id, t.events.c.agent_id)
                 < tuple_(
                     literal(before.received_at, type_=DateTime(timezone=True)),
                     literal(before.event_id, type_=Uuid()),
@@ -76,6 +86,7 @@ class PublicationReader:
             (t.events.c.deployment_id, filters.deployment_id),
             (t.events.c.source_ip, filters.source_ip),
             (t.events.c.event_type, filters.event_type),
+            (t.events.c.session_id, filters.session_id),
         ):
             if value is not None:
                 statement = statement.where(column == value)
@@ -83,8 +94,9 @@ class PublicationReader:
             statement = statement.where(t.events.c.occurred_at >= filters.from_time)
         if filters.to_time is not None:
             statement = statement.where(t.events.c.occurred_at < filters.to_time)
+        columns = (time_column, t.events.c.event_id, t.events.c.agent_id)
         statement = statement.order_by(
-            t.events.c.received_at.desc(), t.events.c.event_id.desc(), t.events.c.agent_id.desc()
+            *(c.asc() if filters.timeline else c.desc() for c in columns)
         ).limit(limit)
         with self.engine.connect() as connection:
             return [self._record(row) for row in connection.execute(statement).mappings()]

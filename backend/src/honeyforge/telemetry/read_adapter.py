@@ -37,6 +37,8 @@ class CommittedReadAdapter:
             filters.end,
             filters.source_ip,
             filters.event_type,
+            UUID(filters.session_id) if filters.session_id is not None else None,
+            filters.sort == "occurred_at",
         )
         key = HistoryKey(before[0], UUID(before[1]), UUID(before[2])) if before else None
         return [self.convert(row) for row in self.reader.history(watermark, limit, key, normalized)]

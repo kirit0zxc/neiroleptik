@@ -21,7 +21,7 @@ def application():
         environment="test",
         cookie_secure=False,
     )
-    app = create_app(settings)
+    app = create_app(settings, telemetry=False)
     reader, history, catchup = services([])
     router = create_router(
         history,

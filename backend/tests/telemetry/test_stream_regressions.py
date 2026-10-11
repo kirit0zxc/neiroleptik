@@ -184,7 +184,7 @@ def test_cancel_waits_for_sql_and_connection_before_unlock(locked_db, operation,
 
 
 def test_transport_disconnect_waits_for_blocked_read(locked_db, settings):
-    app = create_app(settings)
+    app = create_app(settings, telemetry=False)
     app.state.engine.dispose()
     app.state.engine = locked_db.reads
     app.include_router(
@@ -242,7 +242,7 @@ def test_valid_dates_still_normalize_to_utc():
 @pytest.mark.parametrize("operation", ["read", "auth"])
 def test_transport_shutdown_and_repeated_cancel_wait_for_sql(locked_db, settings, operation):
     async def scenario():
-        app = create_app(settings)
+        app = create_app(settings, telemetry=False)
         app.state.engine.dispose()
         app.state.engine = locked_db.reads
         app.include_router(

@@ -38,6 +38,9 @@ class HistoryService:
         event_type: str | None = None,
         start: str | None = None,
         end: str | None = None,
+        session_id: str | None = None,
+        sort: str = "received_at",
+        order: str = "desc",
     ) -> HistoryFilters:
         def stamp(value: str | None) -> datetime | None:
             if value is None:
@@ -55,12 +58,17 @@ class HistoryService:
                 raise ValueError
             if event_type is not None and event_type not in EVENT_TYPES:
                 raise ValueError
+            if (sort, order) not in {("received_at", "desc"), ("occurred_at", "asc")}:
+                raise ValueError
             return HistoryFilters(
                 str(UUID(deployment_id)) if deployment_id is not None else None,
                 str(ip_address(source_ip)) if source_ip is not None else None,
                 event_type,
                 begin,
                 finish,
+                str(UUID(session_id)) if session_id is not None else None,
+                sort,
+                order,
             )
         except (ValueError, TypeError, OverflowError):
             raise DomainError(422, "Некорректные фильтры истории") from None
@@ -76,12 +84,22 @@ class HistoryService:
             else (self.reader.watermark(), None)
         )
         if watermark > self.reader.watermark():
-            raise DomainError(422, "Некорректный курсор истории")
+            raise DomainError(422, "Некорректный курсор истории", "INVALID_CURSOR")
         rows = self.reader.history(filters, watermark, before, limit + 1)
         visible = rows[:limit]
         return {
             "items": [self.presenter.present(row) for row in visible],
-            "next_cursor": self.codec.encode(watermark, visible[-1].key, filters)
+            "next_cursor": self.codec.encode(
+                watermark,
+                (
+                    datetime.fromisoformat(visible[-1].event["occurred_at"]),
+                    visible[-1].event["event_id"],
+                    visible[-1].event["agent_id"],
+                )
+                if filters.sort == "occurred_at"
+                else visible[-1].key,
+                filters,
+            )
             if len(rows) > limit
             else None,
         }

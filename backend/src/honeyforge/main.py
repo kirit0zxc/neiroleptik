@@ -1,5 +1,6 @@
 """Сборка HTTP-приложения; миграции запускаются отдельно перед запуском."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -17,6 +18,8 @@ from honeyforge.api import agent, auth, control
 from honeyforge.api.schemas import ErrorResponse
 from honeyforge.common import DomainError
 from honeyforge.config import Settings, get_settings
+from honeyforge.telemetry.openapi import add_agent_schema
+from honeyforge.telemetry.runtime import TelemetryRuntime
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -30,7 +33,19 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+class HoneyForgeAPI(FastAPI):
+    """Общий OpenAPI включает ту же входную схему, которую проверяет сервер."""
+
+    telemetry_contract: bool = False
+
+    def openapi(self) -> dict[str, Any]:
+        document = super().openapi()
+        if self.telemetry_contract:
+            add_agent_schema(document)
+        return document
+
+
+def create_app(settings: Settings | None = None, *, telemetry: bool = True) -> FastAPI:
     """Factory позволяет тестировать приложение с явной конфигурацией."""
     configuration = settings or get_settings()
     engine = create_engine(
@@ -39,12 +54,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         connect_args={"connect_timeout": 5},
     )
 
+    runtime = TelemetryRuntime(engine, configuration) if telemetry else None
+
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        yield
-        engine.dispose()
+        task = asyncio.create_task(runtime.run()) if runtime is not None else None
+        try:
+            yield
+        finally:
+            if task is not None and runtime is not None:
+                await runtime.stop(task)
+            engine.dispose()
 
-    app = FastAPI(
+    app = HoneyForgeAPI(
         title="HoneyForge Control API",
         version="0.1.0",
         lifespan=lifespan,
@@ -99,4 +121,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.router, responses=errors)
     app.include_router(control.router, responses=errors)
     app.include_router(agent.router, responses=errors)
+    if runtime is not None:
+        runtime.install(app, errors)
+        app.state.telemetry = runtime
+        app.telemetry_contract = True
     return app

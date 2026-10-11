@@ -205,13 +205,17 @@ uv run --frozen pytest
 uv run --frozen ruff check agent honeypots infra tests
 uv run --frozen ruff format --check agent honeypots infra tests
 uv run --frozen mypy
+uv run --frozen mypy --platform linux
+uv run --frozen mypy --platform win32
 uv run --frozen python -m agent.telemetry.export_contracts --check
 uv build --wheel
 git diff --check
 ```
 
 Дополнительно проверить импорт `agent.telemetry.low_journal` из установленного
-wheel вне checkout. PostgreSQL, Docker, Event mapping, durable checkpoint и UI
+wheel вне checkout. Проверки типов для обеих платформ не заменяют исполнение
+платформенных тестов; Linux CI дополнительно проверяет типы Win32-ветки.
+PostgreSQL, Docker, Event mapping, durable checkpoint и UI
 не входят в приёмку независимого читателя и не считаются проверенными этой матрицей.
 
 Следующий этап требует решений об event_id/source_seq/session_id, TCP type,

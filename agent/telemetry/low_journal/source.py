@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import os
 import stat
+import sys
 from pathlib import Path
 
 from .models import JournalReadError
@@ -47,6 +48,10 @@ class JournalSource:
     @staticmethod
     def _open_windows(path: Path) -> int:
         """Win32 открывает сам reparse point; атрибуты проверяются до чтения bytes."""
+        if sys.platform != "win32":
+            # Явная граница платформы также исключает Win32 API из POSIX-проверки типов.
+            raise JournalReadError("UNSAFE_PATH", None)
+
         import ctypes
         import msvcrt
         from ctypes import wintypes

@@ -283,6 +283,11 @@ if os.name == "nt":
 
 else:
 
+    def test_windows_opener_rejected_on_posix(tmp_path: Path) -> None:
+        # Чужая платформенная ветка отказывает до импорта и вызова Win32 API.
+        with pytest.raises(JournalReadError, match="UNSAFE_PATH"):
+            JournalSource._open_windows(tmp_path / "missing")
+
     def test_posix_fifo_rejected_without_blocking(tmp_path: Path) -> None:
         path = tmp_path / "pipe"
         os.mkfifo(path)

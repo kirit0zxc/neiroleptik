@@ -143,7 +143,7 @@ describe('живая лента (F10–F12)', () => {
     expect(within(b).getByRole('link')).toHaveAccessibleName('Запись сессии …0000bbbb');
   });
 
-  it('событие без источника не роняет ленту и не проходит фильтр по IP', async () => {
+  it('событие без источника не роняет ленту: «источник неизвестен»', async () => {
     // Защита от неполных данных: по схеме source обязателен, но приходит от ловушек.
     publish({ ...ev('no-source'), source: null } as unknown as HfEvent);
     open('/events', controlledStream().create);

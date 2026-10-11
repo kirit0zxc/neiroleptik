@@ -1,5 +1,5 @@
 import type { HfEvent } from '../../shared/api/types';
-import { serviceLabel } from '../../shared/format/source';
+import { eventData, serviceLabel } from '../../shared/format/source';
 import { maskSecret, sanitizeTerminal } from '../../shared/security/terminal';
 
 const TYPE_LABEL: Record<string, string> = {
@@ -24,7 +24,7 @@ const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : JSON.s
  * Результат выводится как текстовый узел, без разметки.
  */
 export function describeEvent(e: Pick<HfEvent, 'type' | 'data'> & { service?: unknown }): string {
-  const d = e.data;
+  const d = eventData(e);
   const trunc = d.truncated === true ? ' [обрезано]' : '';
   switch (e.type) {
     case 'auth.attempt': {

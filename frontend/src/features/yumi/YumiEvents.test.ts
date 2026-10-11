@@ -65,4 +65,10 @@ describe('Юми: сквозной путь события до реплики',
     const e = { ...ev('connection.opened', {}), source: null } as unknown as Ev;
     expect(reply(e)).toBe('Новое подключение с неизвестного адреса по ssh.');
   });
+
+  it('data: null — реплика без падения; runtime.state без data — без сигнала', () => {
+    const e = { ...ev('session.command', {}), data: null } as unknown as Ev;
+    expect(reply(e)).toBe('203.0.113.9 выполняет: —');
+    expect(mascotSignalFor({ type: 'runtime.state', data: null } as never)).toBeNull();
+  });
 });

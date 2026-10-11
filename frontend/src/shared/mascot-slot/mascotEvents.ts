@@ -1,4 +1,5 @@
 import type { HfEvent } from '../api/types';
+import { eventData } from '../format/source';
 
 /**
  * Адаптер «событие потока → событие маскота» (specs/frontend.md, раздел 9).
@@ -20,7 +21,7 @@ const BY_TYPE: Partial<Record<string, MascotSignal>> = {
 /** Какой сигнал даёт событие; null — маскоту неинтересно. */
 export function mascotSignalFor(event: Pick<HfEvent, 'type' | 'data'>): MascotSignal | null {
   if (event.type === 'runtime.state') {
-    const state = event.data.state;
+    const state = eventData(event).state;
     if (state === 'running') return 'trap:online';
     if (state === 'failed' || state === 'stopped') return 'trap:offline';
     return null;

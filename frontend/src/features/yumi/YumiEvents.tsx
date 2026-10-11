@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { HfEvent } from '../../shared/api/types';
-import { sourceIp } from '../../shared/format/source';
+import { eventData, sourceIp } from '../../shared/format/source';
 import { onMascotEvent, type MascotSignal } from '../../shared/mascot-slot/mascotEvents';
 import { useStreamStatus } from '../../shared/stream/stream';
 import { useYumi } from './yumi';
@@ -11,7 +11,7 @@ import { useYumi } from './yumi';
  * атакующего — `session.command` → `data.input`.
  */
 export function attackPayload(signal: MascotSignal, e: Pick<HfEvent, 'type' | 'source' | 'service' | 'data'>) {
-  const data = e.data;
+  const data = eventData(e);
   const isCommand = signal === 'attack:command' && e.type === 'session.command';
   return {
     // Нет источника — пустой ip: правила Юми скажут «неизвестного адреса».

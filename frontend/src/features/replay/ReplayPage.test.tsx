@@ -75,13 +75,27 @@ describe('экран записи сессии (F15)', () => {
   });
 
   it.each([
-    ['ввод без вывода', [{ seq: 0, offset_ms: 0, direction: 'in', data_base64: btoa('GET /'), truncated: false }], 'Ответы ловушки в записи отсутствуют'],
-    ['без чанков', [], 'Запись пуста'],
+    ['ввод без вывода', [{ seq: 0, offset_ms: 0, direction: 'in', data_base64: btoa('GET /'), truncated: false }], 'ответы ловушки в записи отсутствуют'],
+    ['без чанков', [], 'запись пуста'],
   ])('неполная запись (%s) — честная пометка', async (_name, chunks, note) => {
     server.use(http.get('/api/v1/sessions/:id/replay', () => HttpResponse.json({
       session_id: DEMO_SESSION, started_at: '2026-10-11T09:00:00Z', chunks, next_cursor: null, tail_cursor: null, complete: true,
     })));
     open(DEMO_SESSION);
     expect(await screen.findByText(note)).toBeInTheDocument();
+    // Пометки взаимоисключающие.
+    const other = note === 'запись пуста' ? 'ответы ловушки в записи отсутствуют' : 'запись пуста';
+    expect(screen.queryByText(other)).toBeNull();
+  });
+
+  it('идущая запись: ввод без вывода — без пометки, только «запись продолжается»', async () => {
+    server.use(http.get('/api/v1/sessions/:id/replay', () => HttpResponse.json({
+      session_id: DEMO_SESSION, started_at: '2026-10-11T09:00:00Z', next_cursor: null, tail_cursor: 'r0', complete: false,
+      chunks: [{ seq: 0, offset_ms: 0, direction: 'in', data_base64: btoa('GET /'), truncated: false }],
+    })));
+    open(DEMO_SESSION);
+    expect(await screen.findByText('запись продолжается')).toBeInTheDocument();
+    expect(screen.queryByText('ответы ловушки в записи отсутствуют')).toBeNull();
+    expect(screen.queryByText('запись пуста')).toBeNull();
   });
 });

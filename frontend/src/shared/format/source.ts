@@ -9,6 +9,9 @@ export const UNKNOWN_SOURCE = 'источник неизвестен';
 const record = (v: unknown): Record<string, unknown> | null =>
   (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null);
 
+/** `data` события как объект; null, массив или примитив — пустой объект. */
+export const eventData = (e: { data?: unknown }): Record<string, unknown> => record(e.data) ?? {};
+
 /** IP источника или null, если его нет или он не строка. */
 export function sourceIp(e: { source?: unknown }): string | null {
   const ip = record(e.source)?.ip;

@@ -28,4 +28,8 @@ describe('описание события (S1, S2, S4)', () => {
     expect(describeEvent({ type: 'connection.opened', data: {}, service: { protocol: 'tcp', port: 2222 } })).toBe('tcp :2222');
     expect(describeEvent({ type: 'session.closed', data: {}, service: null })).toBe('');
   });
+
+  it.each(['auth.attempt', 'session.command', 'http.request', 'x.y'])('data: null (%s) — без падения', (type) => {
+    expect(() => describeEvent({ type, data: null } as never)).not.toThrow();
+  });
 });

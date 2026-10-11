@@ -97,6 +97,39 @@ jobs:
       - run: npm run test:ci
       - run: npm run build
 
+  e2e:
+    name: Frontend E2E (Chromium, MSW)
+    needs: repository
+    if: needs.repository.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      PW_CHANNEL: chromium
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+      - name: Upload browser diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
+
   backend:
     name: Backend checks
     needs: repository
@@ -216,7 +249,7 @@ jobs:
 
   result:
     name: CI result
-    needs: [repository, frontend, backend, telemetry, runtime]
+    needs: [repository, frontend, e2e, backend, telemetry, runtime]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -228,6 +261,7 @@ jobs:
           TELEMETRY_RESULT: ${{ needs.telemetry.result }}
           RUNTIME_RESULT: ${{ needs.runtime.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
           FRONTEND_PRESENT: ${{ needs.repository.outputs.frontend }}
         run: |
           test "$REPOSITORY_RESULT" = success
@@ -236,8 +270,10 @@ jobs:
           test "$RUNTIME_RESULT" = success
           if [ "$FRONTEND_PRESENT" = true ]; then
             test "$FRONTEND_RESULT" = success
+            test "$E2E_RESULT" = success
           elif [ "$FRONTEND_PRESENT" = false ]; then
             test "$FRONTEND_RESULT" = skipped
+            test "$E2E_RESULT" = skipped
           else
             echo "::error::Component detection did not complete."
             exit 1

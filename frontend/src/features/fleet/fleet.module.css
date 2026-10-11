@@ -14,3 +14,4 @@
 .token input { flex: 1; min-width: 0; font-family: var(--font-mono); background: var(--bg); color: var(--text); border: 1px solid var(--line); padding: 6px 8px; }
 .cmd { margin: 0 16px 12px; padding: 8px; font: 12px/1.5 var(--font-mono); background: var(--bg); border: 1px solid var(--line-faint); white-space: pre-wrap; overflow-wrap: anywhere; }
 .dialog .note { margin: 0 16px 12px; font-size: 13px; }
+.toolbar { margin-bottom: 10px; }

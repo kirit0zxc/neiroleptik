@@ -14,7 +14,9 @@ test('администратор выдаёт токен регистрации 
   await expect(enroll).toContainText('осталось 15 минут');
   await expect(enroll).toContainText('HF_ENROLLMENT_TOKEN');
   const value = await token.inputValue();
-  await expect(enroll.locator('pre')).not.toContainText(value);
+  const command = enroll.getByLabel('Команда регистрации агента');
+  await expect(command).toContainText('agent.runtime.executor.enroll');
+  await expect(command).not.toContainText(value);
   await enroll.getByRole('button', { name: 'Закрыть' }).click();
   await expect(enroll).toBeHidden();
   // Токен не остаётся ни в адресе, ни на странице, ни в хранилищах.

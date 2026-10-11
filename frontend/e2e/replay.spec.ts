@@ -20,8 +20,11 @@ test('из ленты событий к записи сессии', async ({ pag
   await expect(page).toHaveURL(/\/sessions\/[0-9a-f-]{36}$/);
   const screen = page.getByRole('region', { name: 'Текст записи' });
 
-  // reduced-motion: стоим в начале, текста ещё нет.
+  // reduced-motion: запись загружена целиком (длительность известна), но стоим в начале.
+  await expect(page.getByText('00:00 / 00:11')).toBeVisible();
+  await page.waitForTimeout(1500);
   await expect(page.getByRole('button', { name: 'Пуск' })).toBeVisible();
+  await expect(page.getByText('00:00 / 00:11')).toBeVisible();
   await expect(screen).not.toContainText('whoami');
 
   await page.getByRole('button', { name: 'В конец' }).click();

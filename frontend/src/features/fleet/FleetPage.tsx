@@ -26,7 +26,8 @@ export function FleetPage() {
       <h1>Парк ловушек</h1>
       {editable && <p><Link className={ui.button} to="/fleet/new">+ Запустить ловушку</Link></p>}
       <Panel title="Хосты">
-        {admin && <p><AddHostButton /></p>}
+        {/* div, а не p: рядом с кнопкой рендерится окно с <pre> — внутри <p> это невалидно. */}
+        {admin && <div className={s.toolbar}><AddHostButton /></div>}
         {hosts.isError && hosts.data && <Stale what="хостов" message={hosts.error.message} onRetry={() => void hosts.refetch()} />}
         {hosts.isPending ? <Loading what="хосты" />
           : !hosts.data ? <ErrorState message={hosts.error?.message ?? 'Не удалось загрузить'} onRetry={() => void hosts.refetch()} />

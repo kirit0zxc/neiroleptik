@@ -81,9 +81,10 @@ export const handlers = [
   // Вход и выход доступны всем; остальное проходит к обработчикам ниже.
   http.all('/api/v1/*', ({ request }) => {
     const path = new URL(request.url).pathname;
-    if (!MUTATING.has(request.method) || path.startsWith('/api/v1/auth/')) return undefined;
-    if (session.get() && session.role() === 'viewer') return HttpResponse.json({ detail: 'Недостаточно прав' }, { status: 403 });
-    return undefined;
+    if (!MUTATING.has(request.method) || path === '/api/v1/auth/login' || path === '/api/v1/auth/logout') return undefined;
+    if (!session.get() || session.role() !== 'viewer') return undefined;
+    // Порядок центра: вход → CSRF → роль.
+    return csrfFailure(request) ?? HttpResponse.json({ detail: 'Требуется роль operator или admin' }, { status: 403 });
   }),
   http.post('/api/v1/auth/login', async ({ request }) => {
     const body = (await request.json()) as { username?: string; password?: string };

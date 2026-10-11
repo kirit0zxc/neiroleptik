@@ -77,7 +77,7 @@ export function InvestigationPage() {
 
 /**
  * Основание вывода (F17): исходные события по ссылкам через lookup.
- * Недоступные ссылки — «событие недоступно»; при усечении — «первые N из M».
+ * Недоступные ссылки — «событие недоступно»; при усечении — «Список неполный: показано ссылок — N, событий всего — M».
  */
 function Basis({ refs, truncated, total }: { refs: EventRef[]; truncated: boolean; total?: number }) {
   // UUID сравниваются без учёта регистра — как на сервере (иначе 422 «не уникальны»).
@@ -297,7 +297,7 @@ function IocExport() {
 
   return (
     <Panel title="Экспорт IoC">
-      <p className={s.note}>CSV с индикаторами (IPv4, IPv6, URL, SHA-256) за период до {IOC_MAX_DAYS} дня. Время — локальное.</p>
+      <p className={s.note}>CSV с индикаторами (IPv4, IPv6, URL, SHA-256) за период не длиннее {IOC_MAX_DAYS} дн. Время — локальное.</p>
       <div className={s.form}>
         <label>С <input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} required /></label>
         <label>По <input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} required /></label>

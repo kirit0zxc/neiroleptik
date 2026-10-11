@@ -267,3 +267,14 @@ binding/record/summary и безопасную ошибку; `validation.py` п�
 Header/footer выдаются с исходными bytes и физическими позициями; checkpoint,
 Event mapping, HTTP-разбор, sender, backend и UI остаются следующими этапами.
 Статус low-journal-v1 как интеграционного предложения сохраняется.
+
+## Долговечное сырьё Low
+
+`agent/telemetry/low_journal/durable.py` — отдельные SQLite WAL/FULL таблицы
+проверенных BLOB и поколений; атомарные raw+checkpoint, повтор и конфликт.
+`collector.py` — ограниченный шаг по явно заданным файлам доверенного источника,
+порядок цепочки, безопасная перепроверка префикса, ожидание ротации/предшественника.
+`mapping.py` — только интерфейс будущего преобразования, production mapping нет.
+Существующие Event/spool/sender и публичные API не изменяются. Сырьё не попадает
+в pending и не удаляется автоматически. Граница и цена восстановления описаны
+в [low-journal-reader.md](low-journal-reader.md), раздел 7.

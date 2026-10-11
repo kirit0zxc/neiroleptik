@@ -33,15 +33,24 @@ function warnSecret() {
 }
 /** Только для тестов: снова разрешить предупреждение. */
 export function resetSecretWarning() { passwordWarned = false; }
-/** Ключи данных, которые не выводятся никогда (S4). */
-const SECRET_KEY = /pass(word|wd)?|secret|credential/i;
+/** Слова ключей, которые не выводятся никогда (S4); сравниваются целые слова ключа. */
+const SECRET_WORDS = new Set(['pass', 'password', 'passwd', 'passphrase', 'pwd', 'secret', 'secrets',
+  'credential', 'credentials', 'apikey', 'privatekey']);
+
+/**
+ * Секретный ли ключ: делим на слова по `_ - .` и camelCase, проверяем слова
+ * и пары соседних («api_key» → apikey). «bypass», «passive» — не секреты.
+ */
+export function isSecretKey(key: string): boolean {
+  const words = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s_.-]+/).filter(Boolean);
+  return words.some((w, i) => SECRET_WORDS.has(w) || SECRET_WORDS.has(w + (words[i + 1] ?? '')));
+}
 
 export function passwordView(d: Record<string, unknown>): string | null {
   if (d.password !== undefined) warnSecret();
-  if (d.password_present === true) return 'пароль скрыт';
+  // Пришедший пароль — «скрыт» при любом флаге: ни значения, ни длины, ни краёв.
+  if (d.password !== undefined || d.password_present === true) return 'пароль скрыт';
   if (d.password_present === false) return 'пароль не записан';
-  // Пришедший пароль — тоже «скрыт»: ни длины, ни крайних символов (как у сервера).
-  if (d.password !== undefined) return 'пароль скрыт';
   return null;
 }
 
@@ -71,10 +80,13 @@ export function describeEvent(e: Pick<HfEvent, 'type' | 'data'>): string {
       return sanitizeTerminal(`приманка ${str(d.token_id)}`);
     default: {
       // Неизвестный тип — данные текстом, но без секретов: пароль в нём — ошибка сервера (S4).
-      const entries = Object.entries(d);
-      if (entries.some(([k]) => SECRET_KEY.test(k))) warnSecret();
-      const safe = Object.fromEntries(entries.filter(([k]) => !SECRET_KEY.test(k)));
-      return sanitizeTerminal(Object.keys(safe).length ? JSON.stringify(safe) : '');
+      if (!Object.keys(d).length) return '';
+      // Секретные ключи убираем на любой глубине.
+      const text = JSON.stringify(d, (k, v: unknown) => {
+        if (k && isSecretKey(k)) { warnSecret(); return undefined; }
+        return v;
+      });
+      return sanitizeTerminal(text === '{}' ? '' : text);
     }
   }
 }

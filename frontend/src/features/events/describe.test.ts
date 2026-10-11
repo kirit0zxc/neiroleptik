@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { describeEvent, eventLabel, resetSecretWarning } from './describe';
+import { describeEvent, eventLabel, isSecretKey, resetSecretWarning } from './describe';
 
 describe('описание события (S1, S2, S4)', () => {
   it('пароль атакующего замаскирован', () => {
@@ -68,5 +68,18 @@ describe('пароль: маска сервера (S4, согласовано 11
     const text = describeEvent({ type: 'x.new', data: { user: 'root', password: 'hunter2', api_secret: 's', note: 'ok' } });
     expect(warn).toHaveBeenCalledTimes(1);
     expect(text).toBe('{"user":"root","note":"ok"}');
+  });
+
+  it('секретные ключи — по словам: полезные поля не прячутся, вложенные секреты убираются', () => {
+    for (const k of ['password', 'user_password', 'apiSecret', 'pwd', 'api_key', 'privateKey', 'credentials']) expect(isSecretKey(k), k).toBe(true);
+    for (const k of ['passive', 'bypass', 'compass', 'passenger', 'bypass_detected', 'classpath', 'token_id']) expect(isSecretKey(k), k).toBe(false);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(describeEvent({ type: 'x.new', data: { bypass: true, auth: { user: 'root', password: 'hunter2' } } }))
+      .toBe('{"bypass":true,"auth":{"user":"root"}}');
+  });
+
+  it('пароль пришёл при password_present: false — всё равно «пароль скрыт»', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(auth({ username: 'root', password: 'x', password_present: false })).toBe('root / пароль скрыт');
   });
 });

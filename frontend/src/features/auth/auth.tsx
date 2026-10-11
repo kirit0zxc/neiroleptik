@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { DemoNote } from '../../shared/ui/DataSource';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
@@ -83,6 +84,7 @@ export function LoginPage() {
         <div className={s.inner}>
         <h1>HoneyForge</h1>
         <p className={s.sub}>Пульт оператора ловушек</p>
+        <DemoNote logins />
         {/* Ошибка — вне label: иначе она становится частью названия поля. */}
         <div className={s.field}>
           <label htmlFor="login">Логин</label>

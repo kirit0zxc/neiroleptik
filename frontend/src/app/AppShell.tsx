@@ -6,6 +6,7 @@ import { MascotSlot, YumiConsole } from '../shared/mascot-slot/MascotSlot';
 import { streamLabel, useStreamStatus } from '../shared/stream/stream';
 import { StatusBadge } from '../shared/ui';
 import { Terrain } from '../shared/ui/Terrain';
+import { DataSourceBadge, DemoNote } from '../shared/ui/DataSource';
 import { YumiEvents } from '../features/yumi/YumiEvents';
 import s from './shell.module.css';
 
@@ -44,6 +45,7 @@ export function AppShell() {
           <span className={s.logo}>HoneyForge</span>
           {me && (
             <div className={s.user}>
+              <DataSourceBadge />
               <span aria-live="polite" title="Поток событий"><StatusBadge tone={live.tone}>{live.label}</StatusBadge></span>
               <span>{me.user.username} · {ROLE[me.user.role]}</span>
               <button className={s.logout} disabled={logout.isPending} onClick={() => logout.mutate()}>Выйти</button>
@@ -61,7 +63,7 @@ export function AppShell() {
           </nav>
           <div className={s.mascot}><MascotSlot /></div>
         </aside>
-        <main className={s.main}><Outlet /></main>
+        <main className={s.main}><DemoNote /><Outlet /></main>
       </div>
       {me && <YumiEvents username={me.user.username} />}
       <YumiConsole />

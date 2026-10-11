@@ -8,34 +8,53 @@ info:
   title: HoneyForge — расследование (proposal)
   version: 0.1.0-proposal
   x-status: proposal
-  description: "Общие правила (как в specs/frontend-protocol-v1.md):\n\n* Время — RFC 3339 в UTC (`2026-10-11T09:41:12Z`).\
-    \ Идентификаторы — UUID строкой\n  в нижнем регистре.\n* Доступ — cookie-сессия `hf_session`, роли\
-    \ admin/operator/viewer читают всё\n  ниже. Все ручки — GET, CSRF не нужен.\n* Ошибки — `ErrorResponse`\
-    \ (`detail` строка или список `ValidationIssue`,\n  необязательный машинный `code`), как в contracts/openapi.json.\n\
-    * Списки — `{items, next_cursor}`. `limit` 1..200, по умолчанию 50.\n  `next_cursor: null` — страниц\
-    \ больше нет.\n* Курсор непрозрачный и подписанный; frontend его не разбирает. Он\n  связан с фильтрами,\
-    \ сортировкой и снимком: первая страница фиксирует\n  снимок (границу по ключу сортировки), следующие\
-    \ страницы читают тот же\n  снимок, новые поступления его не сдвигают. Курсор с другими фильтрами\n\
-    \  или сортировкой, испорченный или устаревший — 422 с\n  `code: INVALID_CURSOR`. Frontend перечитывает\
-    \ с первой страницы один\n  раз; повторный 422 — ошибка на экране.\n* Порядок внутри страницы стабилен:\
-    \ последним ключом всегда идёт\n  уникальная пара/идентификатор.\n* Данные атакующего — только строки;\
-    \ frontend выводит их текстом (S1, S2).\n  Пароли не передаются (S4: `data.password_present` вместо\
-    \ `data.password`).\n* Каждый вывод (алерт, срабатывание токена, артефакт) ссылается на\n  исходные\
-    \ события `event_refs`.\n\nОткрытые вопросы помечены `x-question`.\n\nДополнения после ревью (до сверки\
-    \ с backend):\n\n* **Коды ошибок.** Формат `^[A-Z][A-Z0-9_]*$`. Новые коды этого черновика:\n  `INVALID_CURSOR`\
-    \ (422), `ARTIFACT_PENDING`, `ARTIFACT_FAILED` (409),\n  `ARTIFACT_EXPIRED` (410). Frontend различает\
-    \ курсорную ошибку и ошибку\n  фильтров по `code`, а не по форме `detail`; без `code` любой 422 на\n\
-    \  странице с курсором считается курсорным (как сейчас в protocol v1).\n* **Пагинация.** Списки control\
-    \ (`/audit`, `/profiles`, ...) остаются на\n  `limit` 1..100 + `offset` и ответе-массиве; телеметрия\
-    \ и расследование —\n  курсор, `limit` 1..200 и конверт `{items, next_cursor}`, как `/events`.\n \
-    \ Различие осознанное: курсор нужен там, где данные растут во время чтения.\n* **Снимок.** Первая\
-    \ страница фиксирует watermark `W` (как у потока); все\n  страницы читают только записи с `received_at\
-    \ <= W` независимо от `sort`.\n  Опоздавшее событие (offline-доставка) не появляется внутри уже прочитанных\n\
-    \  страниц — его покажет живой поток или новый первый запрос. Курсор живёт не\n  дольше 24 ч; старше\
-    \ — 422 `INVALID_CURSOR`.\n* **`x-added`** — поле или параметр, которого нет в согласованном составе\n\
-    \  (specs/frontend-dto-proposal.md); предлагает frontend, решает backend.\n* **Ссылки `event_refs`**\
-    \ могут указывать на событие, удалённое по сроку\n  хранения: frontend показывает «событие больше\
-    \ не хранится», а не ошибку.\n"
+  description: |
+    Общие правила (как в specs/frontend-protocol-v1.md):
+
+    * Время — RFC 3339 в UTC (`2026-10-11T09:41:12Z`). Идентификаторы — UUID строкой
+      в нижнем регистре.
+    * Доступ — cookie-сессия `hf_session`, роли admin/operator/viewer читают всё
+      ниже. Все ручки — GET, CSRF не нужен.
+    * Ошибки — `ErrorResponse` (`detail` строка или список `ValidationIssue`,
+      необязательный машинный `code`), как в contracts/openapi.json.
+    * Списки — `{items, next_cursor}`. `limit` 1..200, по умолчанию 50.
+      `next_cursor: null` — страниц больше нет.
+    * Курсор непрозрачный и подписанный; frontend его не разбирает. Он
+      связан с фильтрами, сортировкой и снимком: первая страница фиксирует
+      снимок (границу по ключу сортировки), следующие страницы читают тот же
+      снимок, новые поступления его не сдвигают. Курсор с другими фильтрами
+      или сортировкой, испорченный или устаревший — 422 с
+      `code: INVALID_CURSOR`. Frontend перечитывает с первой страницы один
+      раз; повторный 422 — ошибка на экране.
+    * Порядок внутри страницы стабилен: последним ключом всегда идёт
+      уникальная пара/идентификатор.
+    * Данные атакующего — только строки; frontend выводит их текстом (S1, S2).
+      Пароли не передаются (S4: `data.password_present` вместо `data.password`).
+    * Каждый вывод (алерт, срабатывание токена, артефакт) ссылается на
+      исходные события `event_refs`.
+
+    Открытые вопросы помечены `x-question`.
+
+    Дополнения после ревью (до сверки с backend):
+
+    * **Коды ошибок.** Формат `^[A-Z][A-Z0-9_]*$`. Новые коды этого черновика:
+      `INVALID_CURSOR` (422), `ARTIFACT_PENDING`, `ARTIFACT_FAILED` (409),
+      `ARTIFACT_EXPIRED` (410). Frontend различает курсорную ошибку и ошибку
+      фильтров по `code`, а не по форме `detail`; без `code` любой 422 на
+      странице с курсором считается курсорным (как сейчас в protocol v1).
+    * **Пагинация.** Списки control (`/audit`, `/profiles`, ...) остаются на
+      `limit` 1..100 + `offset` и ответе-массиве; телеметрия и расследование —
+      курсор, `limit` 1..200 и конверт `{items, next_cursor}`, как `/events`.
+      Различие осознанное: курсор нужен там, где данные растут во время чтения.
+    * **Снимок.** Первая страница фиксирует watermark `W` (как у потока); все
+      страницы читают только записи с `received_at <= W` независимо от `sort`.
+      Опоздавшее событие (offline-доставка) не появляется внутри уже прочитанных
+      страниц — его покажет живой поток или новый первый запрос. Курсор живёт не
+      дольше 24 ч; старше — 422 `INVALID_CURSOR`.
+    * **`x-added`** — поле или параметр, которого нет в согласованном составе
+      (specs/frontend-dto-proposal.md); предлагает frontend, решает backend.
+    * **Ссылки `event_refs`** могут указывать на событие, удалённое по сроку
+      хранения: frontend показывает «событие больше не хранится», а не ошибку.
   x-question:
   - Подтвердить коды ошибок и что 422 курсора несёт code INVALID_CURSOR.
   - Допустим ли source=null в EventV1 (влияет на SessionRead.source и HoneytokenTrigger.source)?
@@ -73,24 +92,15 @@ paths:
     get:
       operationId: listEvents
       summary: История событий и timeline сессии (F11, F14)
-      description: 'Существующая ручка истории (protocol v1) с двумя новыми параметрами:
-
+      description: |
+        Существующая ручка истории (protocol v1) с двумя новыми параметрами:
         `session_id` и `sort`. По умолчанию — нынешний порядок истории
-
         `received_at DESC, event_id DESC, agent_id DESC`. Timeline сессии —
-
         `session_id=<id>&sort=occurred_at&order=asc`: порядок
-
         `occurred_at ASC, event_id ASC, agent_id ASC` (время события, а не
-
         приёма — после offline-доставки они расходятся). Курсор связан с
-
         `sort`/`order` и фильтрами.
-
-        Допустимы только две комбинации: `sort=received_at&order=desc` (история) и `sort=occurred_at&order=asc`
-        (timeline); остальные — 422. Для timeline нужен индекс `(session_id, occurred_at, event_id, agent_id)`.
-
-        '
+        Допустимы только две комбинации: `sort=received_at&order=desc` (история) и `sort=occurred_at&order=asc` (timeline); остальные — 422. Для timeline нужен индекс `(session_id, occurred_at, event_id, agent_id)`.
       parameters:
       - name: deployment_id
         in: query
@@ -240,28 +250,18 @@ paths:
     get:
       operationId: downloadArtifact
       summary: Скачивание артефакта (F16, S5)
-      description: 'Только `state=available`. Ответ — вложение, frontend не открывает
-
+      description: |
+        Только `state=available`. Ответ — вложение, frontend не открывает
         содержимое в браузере. 410 здесь — «файл недоступен (истёк)», не
-
         пересинхронизация потока.
 
-
         Заголовки ответа: `Content-Type: application/octet-stream` всегда (не `mime`
-
         артефакта), `Content-Length` = `size_bytes`, `ETag: "sha256:<sha256>"`,
-
         `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
-
         `Content-Security-Policy: sandbox`, `Accept-Ranges: none` (Range не
-
         поддерживается). Имя файла формирует сервер: `filename` — ASCII, символы вне
-
         `[A-Za-z0-9._-]` заменяются на `_`, до 100 символов; плюс
-
-        `filename*=UTF-8''''<percent-encoded исходное имя>`.
-
-        '
+        `filename*=UTF-8''<percent-encoded исходное имя>`.
       parameters:
       - $ref: '#/components/parameters/ArtifactId'
       responses:
@@ -414,20 +414,15 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
-          $ref: '#/components/responses/ValidationError'
+          $ref: '#/components/responses/InvalidCursorOrFilters'
   /api/v1/alerts:
     get:
       operationId: listAlerts
       summary: Алерты (F17), только чтение в MVP
-      description: 'Порядок — `created_at DESC, id DESC`. Отдельного WS-сообщения нет:
-
+      description: |
+        Порядок — `created_at DESC, id DESC`. Отдельного WS-сообщения нет:
         экраны опрашивают список и сводку раз в 15 с. Смена состояния — после MVP.
-
-        Алерт может обновляться на месте (`updated_at`, `count`, `event_refs`): при опросе frontend заменяет
-        элемент по `id`. Снимок страниц — по `created_at` первой страницы; обновления существующих алертов
-        видны при следующем опросе.
-
-        '
+        Алерт может обновляться на месте (`updated_at`, `count`, `event_refs`): при опросе frontend заменяет элемент по `id`. Снимок страниц — по `created_at` первой страницы; обновления существующих алертов видны при следующем опросе.
       parameters:
       - name: state
         in: query
@@ -474,14 +469,10 @@ paths:
     get:
       operationId: getSummary
       summary: Сводка обзора
-      description: 'События и топ источников — по опубликованным событиям с `occurred_at`
-
+      description: |
+        События и топ источников — по опубликованным событиям с `occurred_at`
         в `[as_of − 1 ч, as_of)`. События без source в топ не входят.
-
-        `as_of` — время сервера в момент расчёта. `alerts_open` — только `state=open` (без acknowledged).
-        Равные `count` в топе — по IP как `inet` по возрастанию (IPv4 раньше IPv6).
-
-        '
+        `as_of` — время сервера в момент расчёта. `alerts_open` — только `state=open` (без acknowledged). Равные `count` в топе — по IP как `inet` по возрастанию (IPv4 раньше IPv6).
       responses:
         '200':
           description: Сводка.
@@ -513,38 +504,24 @@ paths:
     get:
       operationId: exportIocs
       summary: Экспорт IoC (F18)
-      description: 'Файл формирует сервер. Одна строка на индикатор и событие-основание.
-
+      description: |
+        Файл формирует сервер. Одна строка на индикатор и событие-основание.
         `from` включительно, `to` исключительно, по `occurred_at`; диапазон не больше
-
         31 дня, иначе 422; строк не больше 100 000, иначе 422 с просьбой сузить
-
         период. Порядок строк — `occurred_at ASC, agent_id ASC, event_id ASC`.
 
-
         Формат: UTF-8 с BOM (иначе Excel ломает кириллицу), разделитель `,`, перевод
-
         строки CRLF, заголовок первой строкой. Паролей нет (S4).
 
-
         Защита от формул: к каждой строковой ячейке, которая начинается с `=`, `+`,
-
         `-`, `@`, TAB, CR или их полноширинных аналогов (`＝ ＋ － ＠`), спереди
-
-        добавляется `''`. Затем по RFC 4180: поле с `,`, `"`, CR или LF берётся в
-
+        добавляется `'`. Затем по RFC 4180: поле с `,`, `"`, CR или LF берётся в
         кавычки, `"` внутри удваивается. Правило одинаково для всех ячеек, включая
-
         IPv6 и отрицательные числа.
 
-
         `indicator_type`: `ipv4`, `ipv6`, `url`, `sha256`, `username`, `user_agent`.
-
         Имя файла: `honeyforge-iocs-<YYYYMMDDTHHMMSSZ>.csv` по времени формирования
-
         (без `:` — допустимо в Windows).
-
-        '
       parameters:
       - name: from
         in: query
@@ -643,11 +620,9 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     InvalidCursorOrFilters:
-      description: 'Неверные фильтры (`from >= to`, неверный IP) — `detail` списком;
-
+      description: |
+        Неверные фильтры (`from >= to`, неверный IP) — `detail` списком;
         несовместимый/устаревший курсор — `code: INVALID_CURSOR`.
-
-        '
       content:
         application/json:
           schema:

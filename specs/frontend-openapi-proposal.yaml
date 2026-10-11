@@ -14,7 +14,9 @@ info:
     * Время — RFC 3339 в UTC (`2026-10-11T09:41:12Z`). Идентификаторы — UUID строкой
       в нижнем регистре.
     * Доступ — cookie-сессия `hf_session`, роли admin/operator/viewer читают всё
-      ниже. Все ручки — GET, CSRF не нужен.
+      ниже. Чтение — GET без CSRF; единственный POST — `/events/lookup`: без побочных
+      эффектов, но с CSRF и проверкой Origin, как изменяющие запросы в
+      contracts/openapi.json (заголовок `X-CSRF-Token`; отказ — 403).
     * Ошибки — `ErrorResponse` (`detail` строка или список `ValidationIssue`,
       необязательный машинный `code`), как в contracts/openapi.json.
     * Списки — `{items, next_cursor}`. `limit` 1..200, по умолчанию 50.
@@ -38,14 +40,19 @@ info:
     Дополнения после ревью (до сверки с backend):
 
     * **Коды ошибок.** Формат `^[A-Z][A-Z0-9_]*$`. Новые коды этого черновика:
-      `INVALID_CURSOR` (422, закрепить — согласовано с участником 4 12.10;
+      `INVALID_CURSOR` (422, закрепить — согласовано с участником 4 11.10;
       сервер пока отвечает курсорным 422 без кода), `ARTIFACT_PENDING`,
       `ARTIFACT_FAILED` (409), `ARTIFACT_EXPIRED` (410). Сброс курсора и
       перечитывание с первой страницы — только при `code: INVALID_CURSOR`;
       ошибки фильтров сброс не запускают. До появления кода на сервере frontend
       сохраняет нынешнее поведение: фильтры проверяются до запроса, а 422 на
       следующей странице (фильтры те же, что у успешной первой) считается
-      курсорным.
+      курсорным: перечитывание с первой страницы автоматически один раз;
+      повторный 422 (до успешной страницы или смены фильтров) — ошибка с
+      «Повторить», показанные live-события и очередь паузы сохраняются.
+      Основные фильтры (IP, from < to) проверяются до запроса.
+      TODO: когда сервер начнёт отдавать `INVALID_CURSOR`, обновить
+      specs/frontend.md (лента событий) и EventsPage — сброс только по коду.
     * **Пагинация.** Списки control (`/audit`, `/profiles`, ...) остаются на
       `limit` 1..100 + `offset` и ответе-массиве; телеметрия и расследование —
       курсор, `limit` 1..200 и конверт `{items, next_cursor}`, как `/events`.
@@ -53,7 +60,7 @@ info:
     * **Снимок.** Первая страница фиксирует watermark `W` — номер последнего
       опубликованного события (`stream_seq`, как у потока), а не время; все
       страницы читают только записи с `stream_seq <= W` независимо от `sort`, в
-      том числе timeline по `occurred_at` (согласовано с участником 4 12.10).
+      том числе timeline по `occurred_at` (согласовано с участником 4 11.10).
       Опоздавшее событие (offline-доставка) не появляется внутри уже прочитанных
       страниц — его покажет живой поток или новый первый запрос. Срок жизни курсора
       24 ч — новое требование (`x-added`), сейчас на сервере его нет; старше —
@@ -437,6 +444,8 @@ paths:
         алертов (созданных до первой страницы), но не их изменяемые поля — `count`,
         `state`, `event_refs` на следующих страницах могут быть новее, чем на первой.
         Frontend не сравнивает страницы между собой и при опросе заменяет алерт по `id`.
+        `created_at` при обновлении алерта не меняется, поэтому ключ сортировки
+        (`created_at`, `id`) стабилен и дублей между страницами нет.
       parameters:
       - name: state
         in: query
@@ -580,10 +589,12 @@ paths:
     post:
       operationId: lookupEvents
       summary: Исходные события по ссылкам (F17)
-      x-added: true
+      x-added: Новая ручка для F17 по ответу участника 4 (11.10).
       x-question: Маршрут, метод и формат — предложение; согласовать с backend.
       description: |
-        Отдельно от пагинации истории. До 100 уникальных пар `{agent_id, event_id}`. Изменяющий метод не нужен по смыслу, но список не помещается в query — POST без побочных эффектов, с CSRF как у остальных POST. Порядок `items` — как в запросе; недоступные ссылки перечислены явно, причина не раскрывается.
+        Отдельно от пагинации истории. До 100 пар `{agent_id, event_id}`, без дублей (дубли — 422; frontend дедуплицирует сам). Доступна ролям admin/operator/viewer. POST — потому что список не помещается в query; побочных эффектов нет, CSRF и Origin проверяются как у изменяющих запросов.
+
+        Каждая ссылка запроса попадает ровно в один список: `items` (в порядке соответствующих `refs`, без недоступных) или `unavailable` (тоже в порядке `refs`). Неизвестный `agent_id`/`event_id` — в `unavailable`, не 404. Сопоставление `items` со ссылками — по `agent_id` и `event_id` внутри EventV1. Причина недоступности не раскрывается; frontend пишет «событие недоступно».
       requestBody:
         required: true
         content:
@@ -600,6 +611,7 @@ paths:
                   maxItems: 100
                   items:
                     $ref: '#/components/schemas/EventRef'
+                  uniqueItems: true
       responses:
         '200':
           description: Найденные и недоступные события.
@@ -625,6 +637,20 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '403':
+          description: Неверный CSRF-токен или Origin.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                detail: CSRF-токен отсутствует или неверен
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
 components:
   securitySchemes:
     APIKeyCookie:
@@ -767,7 +793,8 @@ components:
       items:
         $ref: '#/components/schemas/EventRef'
       x-added: maxItems 100 и minItems 1.
-      description: До 100 ссылок; полноту показывает event_refs_truncated рядом.
+      description: До 100 ссылок. Где ссылок может быть больше одной, полноту показывает event_refs_truncated
+        рядом.
     Endpoint:
       type: object
       additionalProperties: false
@@ -999,6 +1026,7 @@ components:
         event_refs_truncated:
           type: boolean
           description: true — событий больше, чем ссылок в event_refs.
+          x-added: Признак усечения — по ответу участника 4 (11.10).
       allOf:
       - if:
           properties:
@@ -1176,6 +1204,7 @@ components:
         event_refs_truncated:
           type: boolean
           description: true — событий больше, чем ссылок в event_refs.
+          x-added: Признак усечения — по ответу участника 4 (11.10).
       x-question: Область группировки (deployment+source_ip?) и подавление повторов для auth.bruteforce.
     SummaryRead:
       type: object

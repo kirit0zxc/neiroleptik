@@ -3,7 +3,7 @@
 //   npm run mascot:sync -- [путь к mascot] [--prune]
 //
 // Копирует файлы данных, которые пишет лаборатория (specs/mascot.md, 4.8):
-// пресеты, общий кадр, кадры клипов, переходы. Анимации копирует только те,
+// пресеты, общий кадр, кадры клипов, переходы; фон окна Юми. Анимации копирует только те,
 // на которые ссылаются состояния, пресеты и цепочки: HoneyForge не возит
 // неиспользуемые клипы. С --prune удаляет из public/mascot/anim/vrma всё
 // лишнее. Манифест анимаций пересобирается по оставшимся файлам.
@@ -36,6 +36,10 @@ for (const file of DATA) {
   copyFileSync(from(file), to(file));
   console.log('данные:', file);
 }
+
+// 1б. Фон окна Юми — «комната с экранами» (specs/frontend.md, 6a).
+copyFileSync(from('public/mascot/bg/room.webp'), to('public/mascot/bg/room.webp'));
+console.log('фон: public/mascot/bg/room.webp');
 
 // 2. Какие клипы нужны: действия встроенных состояний, пресетов и цепочек.
 const used = new Set();

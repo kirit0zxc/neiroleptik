@@ -64,7 +64,8 @@ export function MascotSlot() {
   return (
     <section className={`win ${s.slot}`} data-mascot-slot aria-labelledby="yumi-title">
       <div className="win-titlebar"><span className="win-icon" aria-hidden="true" /><h2 id="yumi-title">Юми</h2></div>
-      <div className={s.stage} aria-hidden="true">
+      {/* За 3D-моделью — комната с экранами; портрет-заглушка остаётся «досье». */}
+      <div className={`${s.stage} ${show3d && phase !== 'failed' ? s.room : ''}`} aria-hidden="true">
         {phase !== 'ready' && <div className={s.portrait}><span className={s.corners} /></div>}
         {show3d && phase !== 'failed' && <Mascot core={yumi.core} className={s.model} style={FILL} />}
       </div>

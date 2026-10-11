@@ -15,6 +15,9 @@ export default defineConfig({
     baseURL: external ?? 'http://127.0.0.1:5174',
     // Локально — установленный Edge, без скачивания браузеров; в CI — PW_CHANNEL=chromium.
     channel: process.env.PW_CHANNEL ?? 'msedge',
+    // Функциональные сценарии идут со штатным портретом Юми: программный
+    // WebGL на CI задерживает клики и polling. 3D требует отдельного GPU-стенда.
+    launchOptions: { args: ['--disable-webgl'] },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },

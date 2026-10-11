@@ -19,6 +19,7 @@ test('остановка и запуск ловушки с ходом задан
   await page.getByLabel('Логин').fill('operator');
   await page.getByLabel('Пароль').fill('operator');
   await page.getByRole('button', { name: 'Войти' }).click();
+  await expect(page.getByText('3D недоступно — реплики в консоли.')).toBeVisible();
 
   const low = page.getByRole('row').filter({ hasText: 'decoy-low-01' });
   await expect(low.getByText('работает')).toBeVisible();

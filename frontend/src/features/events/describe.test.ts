@@ -23,4 +23,13 @@ describe('описание события (S1, S2, S4)', () => {
     expect(eventLabel('x.y')).toBe('Неизвестное событие (x.y)');
     expect(describeEvent({ type: 'x.y', data: { a: 1 } })).toBe('{"a":1}');
   });
+
+  it('подключение и закрытие сессии — по сервису', () => {
+    expect(describeEvent({ type: 'connection.opened', data: {}, service: { protocol: 'tcp', port: 2222 } })).toBe('tcp :2222');
+    expect(describeEvent({ type: 'session.closed', data: {}, service: null })).toBe('');
+  });
+
+  it.each(['auth.attempt', 'session.command', 'http.request', 'x.y'])('data: null (%s) — без падения', (type) => {
+    expect(() => describeEvent({ type, data: null } as never)).not.toThrow();
+  });
 });

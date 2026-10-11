@@ -143,6 +143,14 @@ describe('живая лента (F10–F12)', () => {
     expect(within(b).getByRole('link')).toHaveAccessibleName('Запись сессии …0000bbbb');
   });
 
+  it('событие без источника не роняет ленту: «источник неизвестен»', async () => {
+    // Защита от неполных данных: по схеме source обязателен, но приходит от ловушек.
+    publish({ ...ev('no-source'), source: null } as unknown as HfEvent);
+    open('/events', controlledStream().create);
+    const row = (await screen.findByText('cmd-no-source')).closest('tr')!;
+    expect(within(row).getByText('источник неизвестен')).toBeInTheDocument();
+  });
+
   it('«Показать ещё» догружает следующую страницу', async () => {
     const user = userEvent.setup();
     for (let i = 0; i < 55; i++) publish(ev(`bulk-${i}`));

@@ -1,4 +1,5 @@
 import type { HfEvent } from '../../shared/api/types';
+import { sourceIp } from '../../shared/format/source';
 
 /**
  * Фильтры ленты (specs/frontend.md, F11 и «Лента: фильтры и живой поток»).
@@ -82,7 +83,8 @@ export function toQuery(f: EventFilters, cursor?: string | null, limit = 50): UR
 export function matches(e: HfEvent, f: EventFilters): boolean {
   if (f.deployment_id && e.deployment_id !== f.deployment_id) return false;
   if (f.type && e.type !== f.type) return false;
-  if (f.source_ip && e.source.ip !== f.source_ip) return false;
+  // Событие без источника под фильтр по IP не подходит.
+  if (f.source_ip && sourceIp(e) !== f.source_ip) return false;
   const at = new Date(e.occurred_at).getTime();
   const from = f.from ? new Date(f.from).getTime() : null;
   const to = f.to ? new Date(f.to).getTime() : null;

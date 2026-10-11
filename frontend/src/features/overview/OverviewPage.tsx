@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { sourceIp, UNKNOWN_SOURCE } from '../../shared/format/source';
 import { useCallback, useState } from 'react';
 import { Link } from 'react-router';
 import { api } from '../../shared/api/client';
@@ -130,7 +131,7 @@ function RecentEvents() {
                 <tr key={eventKey(e)} data-testid="recent-row">
                   <td>{formatTime(e.occurred_at)}</td>
                   <td>{eventLabel(e.type)}</td>
-                  <td className="mono">{e.source.ip}</td>
+                  <td className="mono">{sourceIp(e) ?? UNKNOWN_SOURCE}</td>
                   <td className="mono">{describeEvent(e)}</td>
                 </tr>
               ))}

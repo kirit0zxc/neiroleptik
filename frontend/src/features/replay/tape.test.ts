@@ -165,3 +165,16 @@ describe('Replay: Enter атакующего', () => {
     expect(textOf(split)).toBe(textOf(together));
   });
 });
+
+describe('Replay: неполная запись', () => {
+  it('пустая запись и ввод без вывода распознаются', () => {
+    const tape = new ReplayTape();
+    expect(tape.isEmpty).toBe(true);
+    expect(tape.inputWithoutOutput).toBe(false);
+    tape.append([chunk('in', 'GET / HTTP/1.1\r\n')]);
+    expect(tape.isEmpty).toBe(false);
+    expect(tape.inputWithoutOutput).toBe(true);
+    tape.append([chunk('out', 'HTTP/1.1 200 OK')]);
+    expect(tape.inputWithoutOutput).toBe(false);
+  });
+});

@@ -124,6 +124,9 @@ uv run --frozen python -m infra.vm.preflight
 - Runtime: [требования D1](specs/runtime-d1.md),
   [командный API](specs/commands.md), [исполнитель Low](specs/runtime-agent-executor.md),
   [handoff журнала Диме](specs/low-telemetry-handoff.md),
+  [предложение реестра экземпляров](specs/instance-registry-proposal.md) и
+  [границы процесса журнала](specs/journal-process-boundary-proposal.md)
+  (согласование перед реализацией),
   [подготовка runtime и Cowrie spike](infra/runtime/README.md).
   Старые [предложения общих контрактов](specs/runtime-contract-proposal.md)
   не определяют командный API.

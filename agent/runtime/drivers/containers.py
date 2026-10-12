@@ -97,16 +97,20 @@ class PortPublish:
 
 @dataclass(frozen=True)
 class BindMount:
-    """Каталог хоста, доступный контейнеру на запись.
+    """Каталог хоста с явным режимом доступа контейнера.
 
-    Единственный разрешённый вид монтирования: корневая файловая система остаётся только
-    для чтения, поэтому контейнер пишет лишь сюда (например, журнал для сборщика).
+    По умолчанию каталог записываемый, как журнал Low. Read-only подходит для отдельной
+    конфигурации; ограничения пути сохраняются и не разрешают доступ к сокету Docker.
+    Режим не запрещает изменения источника на хосте и не обещает защиту вложенных mounts.
     """
 
     source: str
     target: str
+    read_only: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.read_only) is not bool:
+            raise ValueError("режим read_only должен быть bool")
         self.check_source(self.source)
         if _MOUNT_TARGET.fullmatch(self.target) is None or ".." in self.target.split("/"):
             raise ValueError("недопустимый путь внутри контейнера")
@@ -136,8 +140,9 @@ class BindMount:
             raise ValueError("каталог хоста не может быть корнем или открывать сокет Docker")
 
     def argument(self) -> str:
-        """Значение docker --mount."""
-        return f"type=bind,source={self.source},target={self.target}"
+        """Одно значение docker --mount; readonly добавляется только в явном режиме."""
+        argument = f"type=bind,source={self.source},target={self.target}"
+        return argument + ",readonly" if self.read_only else argument
 
 
 @dataclass(frozen=True)

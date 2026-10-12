@@ -602,7 +602,24 @@ JOURNAL_HOST = "/var/lib/honeyforge/low/11111111-1111-4111-8111-111111111111"
     ids=["posix", "windows-with-spaces", "posix-with-spaces", "equals", "unicode"],
 )
 def test_bind_mount_accepts_ordinary_absolute_paths(source: str) -> None:
-    assert BindMount(source, "/journal").argument() == f"type=bind,source={source},target=/journal"
+    mount = BindMount(source, "/journal")
+
+    assert mount.read_only is False
+    assert mount.argument() == f"type=bind,source={source},target=/journal"
+
+
+@pytest.mark.parametrize("read_only", [False, True])
+def test_bind_mount_renders_the_explicit_access_mode(read_only: bool) -> None:
+    mount = BindMount(JOURNAL_HOST, "/journal", read_only=read_only)
+
+    expected = f"type=bind,source={JOURNAL_HOST},target=/journal"
+    assert mount.argument() == expected + (",readonly" if read_only else "")
+
+
+@pytest.mark.parametrize("read_only", [0, 1, 0.0, 1.0, "", "false", "true", None, [], {}])
+def test_bind_mount_refuses_non_bool_access_mode(read_only: Any) -> None:
+    with pytest.raises(ValueError, match="read_only"):
+        BindMount(JOURNAL_HOST, "/journal", read_only=read_only)
 
 
 @pytest.mark.parametrize(
@@ -648,15 +665,17 @@ def test_bind_mount_accepts_ordinary_absolute_paths(source: str) -> None:
         "zero-width",
     ],
 )
-def test_bind_mount_refuses_unsafe_sources(source: str) -> None:
+@pytest.mark.parametrize("read_only", [False, True])
+def test_bind_mount_refuses_unsafe_sources(source: str, read_only: bool) -> None:
     with pytest.raises(ValueError):
-        BindMount(source, "/journal")
+        BindMount(source, "/journal", read_only=read_only)
 
 
 @pytest.mark.parametrize("target", ["journal", "/", "/a/../b", "/a b", "/a,b", ""])
-def test_bind_mount_refuses_unsafe_targets(target: str) -> None:
+@pytest.mark.parametrize("read_only", [False, True])
+def test_bind_mount_refuses_unsafe_targets(target: str, read_only: bool) -> None:
     with pytest.raises(ValueError):
-        BindMount("/srv/journal", target)
+        BindMount("/srv/journal", target, read_only=read_only)
 
 
 def test_spec_with_a_mount_renders_the_mount_option() -> None:
@@ -669,10 +688,36 @@ def test_spec_with_a_mount_renders_the_mount_option() -> None:
     assert argv.index("--mount") < argv.index("honeyforge-low:local")
 
 
+def test_spec_with_read_only_config_and_writable_journal_preserves_both_modes() -> None:
+    argv = DockerCli().run_command(
+        spec(
+            mounts=(
+                BindMount("/srv/honeyforge/config", "/config", read_only=True),
+                BindMount(JOURNAL_HOST, "/journal"),
+            )
+        )
+    )
+
+    mount_indices = [index for index, argument in enumerate(argv) if argument == "--mount"]
+    assert [argv[index + 1] for index in mount_indices] == [
+        "type=bind,source=/srv/honeyforge/config,target=/config,readonly",
+        f"type=bind,source={JOURNAL_HOST},target=/journal",
+    ]
+    assert all(index + 1 < argv.index("honeyforge-low:local") for index in mount_indices)
+    assert "--read-only" in argv, "корневая файловая система остаётся только для чтения"
+
+
 def test_spec_without_mounts_has_no_mount_option() -> None:
     assert "--mount" not in DockerCli().run_command(spec())
 
 
-def test_duplicate_mount_targets_are_refused() -> None:
+@pytest.mark.parametrize("first_read_only", [False, True])
+@pytest.mark.parametrize("second_read_only", [False, True])
+def test_duplicate_mount_targets_are_refused(first_read_only: bool, second_read_only: bool) -> None:
     with pytest.raises(ValueError):
-        spec(mounts=(BindMount("/a", "/journal"), BindMount("/b", "/journal")))
+        spec(
+            mounts=(
+                BindMount("/a", "/journal", read_only=first_read_only),
+                BindMount("/b", "/journal", read_only=second_read_only),
+            )
+        )

@@ -4,12 +4,7 @@
  * каркасный рельеф на фоне. Это единственный источник цветов, шрифтов и
  * рамок — окно маскота (--yumi-*) берёт значения отсюда же.
  */
-@import '@fontsource/pixelify-sans/cyrillic-400.css';
-@import '@fontsource/pixelify-sans/latin-400.css';
-@import '@fontsource/pixelify-sans/cyrillic-600.css';
-@import '@fontsource/pixelify-sans/latin-600.css';
-@import '@fontsource/press-start-2p/cyrillic-400.css';
-@import '@fontsource/press-start-2p/latin-400.css';
+@import '../assets/fonts/fonts.css';
 
 :root {
   color-scheme: dark;

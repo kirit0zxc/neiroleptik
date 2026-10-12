@@ -1,6 +1,14 @@
 /* Окно Юми тянется до низа колонки, сцена занимает всё свободное место. */
 .slot { display: grid; grid-template-rows: auto minmax(170px, 1fr) auto; min-height: 0; }
 .stage { position: relative; min-height: 170px; overflow: hidden; background: var(--bg); }
+/* Фон окна Юми: пиксельная комната с экранами, слегка притушена под тему. */
+.room {
+  background:
+    linear-gradient(rgba(7, 7, 14, .25), rgba(7, 7, 14, .45)),
+    url('/mascot/bg/room.webp') center / cover no-repeat,
+    var(--bg);
+  image-rendering: pixelated;
+}
 /* Модель поверх портрета; пока не готова — портрет виден под ней. */
 .model { position: absolute; inset: 0; }
 .model canvas { display: block; width: 100% !important; height: 100% !important; }

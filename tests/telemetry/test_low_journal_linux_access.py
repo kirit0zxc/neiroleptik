@@ -127,7 +127,9 @@ finally:
         assert journal.read_bytes() == original
         after = journal.stat()
         assert (after.st_uid, after.st_gid, after.st_mode) == (
-            source_stat.st_uid, source_stat.st_gid, source_stat.st_mode
+            source_stat.st_uid,
+            source_stat.st_gid,
+            source_stat.st_mode,
         )
         assert spool.stat().st_uid == 65533
         assert list(journals.iterdir()) == [journal]

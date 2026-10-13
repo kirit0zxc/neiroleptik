@@ -22,7 +22,8 @@ test('вход, парк, лента событий и выход', async ({ pag
   await expect(page.getByRole('heading', { name: 'События' })).toBeVisible();
   // Не меньше трёх: в режиме моков по потоку идут ещё и демо-атаки.
   await expect(page.getByTestId('event-row').nth(2)).toBeVisible();
-  await expect(page.getByText('GET /<img src=x onerror=alert(1)>')).toBeVisible();
+  await expect(page.getByText('GET [скрыто] — полнота захвата неизвестна; ответ не записан')).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('/<img src=x onerror=alert(1)>');
   await expect(page.locator('main img')).toHaveCount(0);
   await expect(page.getByText('root / пароль скрыт — успешно')).toBeVisible();
   await expect(page.locator('body')).not.toContainText('hunter2');

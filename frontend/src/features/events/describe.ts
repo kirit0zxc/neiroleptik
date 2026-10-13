@@ -8,6 +8,7 @@ const TYPE_LABEL: Record<string, string> = {
   'session.command': 'Команда',
   'session.output': 'Вывод',
   'http.request': 'HTTP-запрос',
+  'tcp.request': 'TCP-запрос',
   'artifact.observed': 'Файл',
   'token.triggered': 'Honeytoken',
   'session.closed': 'Сессия закрыта',
@@ -75,7 +76,17 @@ export function describeEvent(e: Pick<HfEvent, 'type' | 'data'> & { service?: un
     case 'session.output':
       return sanitizeTerminal(str(d.input ?? d.output)) + trunc;
     case 'http.request':
-      return sanitizeTerminal(`${str(d.method)} ${str(d.path)}`) + trunc;
+    case 'tcp.request': {
+      const methods = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'TRACE', 'CONNECT'];
+      const method = typeof d.method === 'string' && methods.includes(d.method) ? d.method : 'метод не распознан';
+      const path = d.path === '/' ? '/' : d.path == null ? '' : '[скрыто]';
+      const capture = Number.isSafeInteger(d.captured_bytes) && Number(d.captured_bytes) >= 0
+        ? `захвачено ${d.captured_bytes} байт; ` : '';
+      const shortened = d.mapper_truncated === true ? '; сохранён префикс' : '';
+      const prefix = e.type === 'http.request' ? `${method} ${path} — ` : '';
+      return prefix + capture + 'полнота захвата неизвестна' + shortened
+        + (e.type === 'http.request' ? '; ответ не записан' : '');
+    }
     case 'connection.opened':
     case 'session.closed':
       // Полезных данных обычно нет — показываем сервис: «tcp :2222».

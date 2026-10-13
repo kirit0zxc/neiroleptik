@@ -8,7 +8,6 @@ from honeyforge.investigation.iocs import IocExporter
 
 FIELDS = {
     "auth.attempt": ("username", "success"),
-    "http.request": ("method", "path", "truncated"),
     "token.triggered": ("token_id",),
     "artifact.observed": ("name", "sha256"),
     "runtime.state": ("state",),
@@ -41,9 +40,37 @@ class PublicPolicy:
                 del public["data"]["sha256"]
         if public["type"] == "auth.attempt":
             public["data"]["password_present"] = bool(raw.get("password"))
-        if public["type"] == "http.request" and isinstance(raw.get("path"), str):
-            # Даже path способен включать query credentials: общая лента не передаёт query.
-            public["data"]["path"] = raw["path"].split("?", 1)[0].split("#", 1)[0]
+        if public["type"] in {"http.request", "tcp.request"}:
+            # Capture не доказывает полноту обмена. Ни старые flags, ни входной
+            # status/response не разрешают показать выдуманный результат ответа.
+            data: dict[str, Any] = {}
+            count = raw.get("captured_bytes")
+            if type(count) is int and 0 <= count <= 9007199254740991:
+                data["captured_bytes"] = count
+            if type(raw.get("mapper_truncated")) is bool:
+                data["mapper_truncated"] = raw["mapper_truncated"]
+            if raw.get("capture_completeness") == "unknown":
+                data["capture_completeness"] = "unknown"
+            if public["type"] == "http.request":
+                method = raw.get("method")
+                if isinstance(method, str) and method in {
+                    "GET",
+                    "HEAD",
+                    "POST",
+                    "PUT",
+                    "DELETE",
+                    "OPTIONS",
+                    "PATCH",
+                    "TRACE",
+                    "CONNECT",
+                }:
+                    data["method"] = method
+                state = raw.get("http_parse_state")
+                if isinstance(state, str) and state in {"parsed", "incomplete", "invalid", "limited"}:
+                    data["http_parse_state"] = state
+                if isinstance(raw.get("path"), str):
+                    data["path"] = "/" if raw["path"] == "/" else "[скрыто]"
+            public["data"] = data
         if public["type"] == "artifact.observed":
             public["data"]["source_url"] = IocExporter.safe_url(raw.get("source_url"))
         return public

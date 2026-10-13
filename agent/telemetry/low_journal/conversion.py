@@ -1,4 +1,4 @@
-"""Атомарная внутренняя конверсия; согласованного production mapper пока нет."""
+"""Атомарная конверсия проверенного raw через внедрённый mapper в ledger и pending."""
 
 import json
 import sqlite3

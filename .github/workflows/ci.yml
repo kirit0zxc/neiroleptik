@@ -220,6 +220,12 @@ jobs:
           uv run --frozen pytest
           uv run --frozen python -m agent.telemetry.export_contracts --check
           uv run --frozen python -m agent.telemetry.demo
+      - name: Verify Linux journal access under a separate collector UID
+        # Родитель меняет UID ребёнка; сборщик работает без root и без записи в Low.
+        run: >-
+          sudo env HF_REQUIRE_LINUX_ACCESS=1
+          "$GITHUB_WORKSPACE/.venv/bin/python" -m pytest
+          tests/telemetry/test_low_journal_linux_access.py -q
 
   runtime:
     name: Runtime checks

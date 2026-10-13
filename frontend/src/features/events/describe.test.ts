@@ -14,9 +14,23 @@ describe('описание события (S1, S2, S4)', () => {
       .toBe('ls -la [обрезано]');
   });
 
-  it('HTML в запросе остаётся строкой — его выводит React как текст', () => {
+  it('произвольный path скрыт, результат ответа не придумывается', () => {
     expect(describeEvent({ type: 'http.request', data: { method: 'GET', path: '/<script>alert(1)</script>' } }))
-      .toBe('GET /<script>alert(1)</script>');
+      .toBe('GET [скрыто] — полнота захвата неизвестна; ответ не записан');
+  });
+
+  it('TCP показывает только метаданные захвата', () => {
+    expect(eventLabel('tcp.request')).toBe('TCP-запрос');
+    expect(describeEvent({ type: 'tcp.request', data: {
+      captured_bytes: 3, mapper_truncated: true, payload_b64: 'secret', body: 'secret',
+    } })).toBe('захвачено 3 байт; полнота захвата неизвестна; сохранён префикс');
+  });
+
+  it('неизвестный HTTP method не подменяется GET', () => {
+    const text = describeEvent({ type: 'http.request', data: { method: 'BOGUS', status: 200 } });
+    expect(text).toContain('метод не распознан');
+    expect(text).toContain('ответ не записан');
+    expect(text).not.toContain('200');
   });
 
   it('неизвестный тип не роняет ленту', () => {

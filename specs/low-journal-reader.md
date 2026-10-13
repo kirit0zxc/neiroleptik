@@ -1,5 +1,72 @@
 # Читатель Low JSONL: внутренняя спецификация
 
+## Дополнительная проверка восстановления и Linux-доступа (12.10.2026)
+
+База: main `391d292a92c54180dc76ab08ce2417b0afbad027`. Существующие crash-тесты
+raw/конверсии сохраняются. Новая проверка `test_conversion_ack_crash.py` завершает
+отдельный процесс внутри DELETE pending до commit либо после commit полного ACK.
+После открытия той же БД проверяются rollback/commit, неизменность raw/checkpoint,
+ledger и snapshot, повтор старой позиции без requeue после ACK, конфликт версии
+mapper и конверсия следующей позиции. Mapper и ACK здесь явно синтетические;
+проверка не утверждает production mapping, HTTP, PostgreSQL или публикацию.
+
+`test_low_journal_linux_access.py` требует Linux; родитель root подготавливает
+только временный каталог и запускает ребёнка UID/GID 65533. Файлы Low принадлежат
+root:65532 (0640), каталог root:65532 (0750), spool находится в отдельном каталоге
+65533:65533 (0700). Ребёнок сбрасывает supplementary groups, GID и UID до доступа.
+С группой 65532 collector сохраняет точные строки; без группы получает IO_ERROR
+без продвижения. Реальные append/truncate/unlink/rename/chmod должны дать
+PermissionError, отдельная spool создаётся и повторно открывается тем же UID.
+Это проверка Linux DAC, а не read-only mount или контейнерного deployment.
+Root не используется сборщиком. Все источники и binding задаются тестом явно.
+
+В обычном Windows/непривилегированном pytest Linux-тест пропускается с причиной.
+Отдельный Linux CI шаг задаёт HF_REQUIRE_LINUX_ACCESS=1: неверная платформа или
+отсутствие root у родителя приводит к fail, а не skip. Команда только на сервере Linux:
+
+```sh
+uv sync --frozen
+sudo env HF_REQUIRE_LINUX_ACCESS=1 "$PWD/.venv/bin/python" -m pytest tests/telemetry/test_low_journal_linux_access.py -q
+```
+
+Для crash-сценария на сервере:
+
+```sh
+uv run --frozen pytest tests/telemetry/test_conversion_ack_crash.py -q
+```
+
+Ни один из этих тестов не удаляет исходные рабочие журналы; временные фикстуры
+изолированы. Поддерживаемый production запуск сборщика и общий mapper остаются
+зависимыми от ответов владельцев, перечисленных в low-telemetry-handoff.md.
+
+### Независимая серверная подготовка 12.10.2026
+
+Новые локальные исполнения запрещены пользователем. Итоговая версия тестов
+не запускалась. Матрица доказательств и команды:
+[server-acceptance.md](../infra/telemetry/server-acceptance.md).
+ACK-тест закрывает обе SQLite connections даже при отказе второго открытия.
+Linux DAC-тест отдельно проверяет нулевой checkpoint без группы, неизменность
+прав и владельца исходника, владельца spool и фактическую попытку append bytes.
+Обе Linux-фикстуры создают собственный TemporaryDirectory непосредственно в
+/tmp: закрытый TMPDIR оператора не должен блокировать проход отдельному UID.
+После setuid оба теста требуют нулевые CapEff/CapPrm/CapAmb в /proc/self/status,
+чтобы отдельный UID не скрывал сохранённые Linux capabilities.
+
+Отдельный `test_low_journal_readonly_mount.py` проверяет read-only bind mount
+в приватном mount namespace (Linux, root родителя, util-linux, CAP_SYS_ADMIN).
+Это изолированная временная фикстура: DAC намеренно разрешает запись UID 65533,
+но mount обязан отвергнуть append/truncate/unlink/rename/chmod через EROFS.
+Collector после mount работает UID/GID 65533 с явно сброшенными группами,
+сохраняет точные bytes в отдельную writable spool и повторно открывает её.
+Namespace исчезает вместе с дочерним процессом; рабочие пути не передаются.
+Обязательный серверный запуск задаёт HF_REQUIRE_READONLY_MOUNT=1: отсутствие
+предпосылок — ошибка, не skip. Обычный pytest без этого флага пропускает
+привилегированный сценарий; успешный DAC CI шаг не подтверждает mount/runtime.
+Ни этот mount, ни DAC не доказывают реальное развёртывание runtime.
+Дополнительный тест позднего previous_journal_id=null проверяет сохранение
+MISSING_PREDECESSOR и прежнего checkpoint при открытом и закрытом первом файле.
+Он подтверждает только текущий блокирующий отказ, а не разрешение новой цепочки.
+
 ## Независимая конверсия сохранённого raw
 
 `low_journal/conversion.py` добавляет внедряемый LowRawConverter, не меняя reader,

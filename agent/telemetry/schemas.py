@@ -30,6 +30,7 @@ EventType = Literal[
     "session.command",
     "session.output",
     "http.request",
+    "tcp.request",
     "artifact.observed",
     "token.triggered",
     "session.closed",

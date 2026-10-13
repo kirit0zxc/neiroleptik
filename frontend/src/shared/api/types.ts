@@ -153,7 +153,7 @@ export interface DeploymentCreate {
 /** Словарь типов событий v1; неизвестный тип UI показывает как «неизвестное». */
 export const EVENT_TYPES = [
   'connection.opened', 'auth.attempt', 'session.command', 'session.output',
-  'http.request', 'artifact.observed', 'token.triggered', 'session.closed', 'runtime.state',
+  'http.request', 'tcp.request', 'artifact.observed', 'token.triggered', 'session.closed', 'runtime.state',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

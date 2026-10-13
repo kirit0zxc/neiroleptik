@@ -56,7 +56,8 @@ const SCRIPT: Array<Pick<HfEvent, 'type' | 'deployment_id' | 'data'> & { ip: str
   { type: 'auth.attempt', deployment_id: 'decoy-medium-01', ip: '203.0.113.50', protocol: 'ssh', port: 2222, data: { username: 'root', password: '123456', success: false } },
   { type: 'auth.attempt', deployment_id: 'decoy-medium-01', ip: '203.0.113.50', protocol: 'ssh', port: 2222, data: { username: 'admin', password: 'admin123', success: true } },
   { type: 'session.command', deployment_id: 'decoy-medium-01', ip: '203.0.113.50', protocol: 'ssh', port: 2222, data: { input: 'uname -a; cat /etc/passwd', truncated: false } },
-  { type: 'http.request', deployment_id: 'decoy-low-01', ip: '198.51.100.99', protocol: 'http', port: 8080, data: { method: 'POST', path: '/cgi-bin/login.cgi', truncated: false } },
+  { type: 'http.request', deployment_id: 'decoy-low-01', ip: '198.51.100.99', protocol: 'http', port: 8080, data: { method: 'POST', path: '[скрыто]', captured_bytes: 64, mapper_truncated: false, capture_completeness: 'unknown', http_parse_state: 'parsed' } },
+  { type: 'tcp.request', deployment_id: 'decoy-low-01', ip: '198.51.100.99', protocol: 'tcp', port: 2222, data: { captured_bytes: 3, mapper_truncated: false, capture_completeness: 'unknown' } },
 ];
 
 let demoSeq = 0;

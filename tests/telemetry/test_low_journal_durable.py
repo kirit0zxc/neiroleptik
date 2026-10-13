@@ -221,7 +221,11 @@ def test_late_null_process_boundary_keeps_previous_checkpoint(repo, tmp_path, cl
     )
     assert len(read(second)[0]) == 3
     result = collector.step([first, second])
-    assert (result.state, result.code, result.saved_records) == ("waiting", "MISSING_PREDECESSOR", 0)
+    assert (result.state, result.code, result.saved_records) == (
+        "waiting",
+        "MISSING_PREDECESSOR",
+        0,
+    )
     assert stored(repo) == before
     assert repo.checkpoint(binding(), JOURNAL) == checkpoint
     assert repo.checkpoint(binding(), OTHER) == 0

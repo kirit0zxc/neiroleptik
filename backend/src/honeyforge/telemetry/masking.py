@@ -66,7 +66,12 @@ class PublicPolicy:
                 }:
                     data["method"] = method
                 state = raw.get("http_parse_state")
-                if isinstance(state, str) and state in {"parsed", "incomplete", "invalid", "limited"}:
+                if isinstance(state, str) and state in {
+                    "parsed",
+                    "incomplete",
+                    "invalid",
+                    "limited",
+                }:
                     data["http_parse_state"] = state
                 if isinstance(raw.get("path"), str):
                     data["path"] = "/" if raw["path"] == "/" else "[скрыто]"

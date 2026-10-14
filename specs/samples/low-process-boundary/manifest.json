@@ -1,0 +1,74 @@
+{
+  "schema": "honeyforge-low-process-boundary-fixture/1",
+  "status": "proposal-only-not-authorized-runtime-proof",
+  "pr39_head": "20f19d2ce3c1aae6ec79205a971a6d358260dfb1",
+  "source_observation": "real Python Low loopback 2026-10-11; not Docker",
+  "real_fields": [
+    "journal bytes",
+    "journal/header IDs",
+    "deployment_id",
+    "instance_id",
+    "revision",
+    "sizes",
+    "SHA-256",
+    "LF positions"
+  ],
+  "synthetic_fields": [
+    "agent_id",
+    "writer/container IDs",
+    "boundary identities/counter",
+    "publisher_epoch",
+    "fencing/commit times",
+    "Docker fencing claim"
+  ],
+  "files": [
+    {
+      "file": "old-crash.jsonl",
+      "size_bytes": "885",
+      "sha256": "48491825af8ebe71078cee42d9fde01de2f95d044f71618623c82b1852416b8e",
+      "complete_lf_end": "885",
+      "tail_bytes": "0",
+      "synthetic_tail": false
+    },
+    {
+      "file": "new-process.jsonl",
+      "size_bytes": "889",
+      "sha256": "461bc062bfd51fc95bdcdcba0b9d08fabde4c6143807709fe3ed2b2caabb2137",
+      "complete_lf_end": "889",
+      "tail_bytes": "0",
+      "synthetic_tail": false
+    },
+    {
+      "file": "old-with-tail.jsonl",
+      "size_bytes": "910",
+      "sha256": "ee98c6080d62239d899514cfee4316306cfeb116b89d3db00d194d271612c422",
+      "complete_lf_end": "885",
+      "tail_bytes": "25",
+      "synthetic_tail": true
+    }
+  ],
+  "tail_variant": {
+    "changes": {
+      "previous_journals": [
+        {
+          "journal_id": "61c4c12f-bcd3-45eb-8498-d04f84d6cc75",
+          "journal_seq": "1",
+          "snapshot_ref": "old-with-tail.jsonl",
+          "size_bytes": "910",
+          "sha256": "ee98c6080d62239d899514cfee4316306cfeb116b89d3db00d194d271612c422",
+          "complete_lf_end": "885",
+          "footer_present": false
+        }
+      ]
+    },
+    "note": "25 bytes appended by controlled fixture, not observed crash output"
+  },
+  "expectations": {
+    "before_trusted_proof": "waiting/MISSING_PREDECESSOR",
+    "verified_old_conversion_continues": true,
+    "after_implemented_trusted_consumer": "new chain admitted; only process seq boundary resets",
+    "cleanup_allowed": false,
+    "capture_completeness": "unknown",
+    "response_display": "ответ не записан"
+  }
+}

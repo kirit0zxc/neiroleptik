@@ -1,5 +1,10 @@
 # Архитектура HoneyForge
 
+Внутреннее предложение runtime для перезапуска Low в прежнем instance описано в
+[journal-process-boundary-proposal.md](journal-process-boundary-proposal.md):
+writer identity, durable fencing, защищённые crash snapshots и привязка новой
+цепочки. Это проект протокола; новых production-модулей producer/consumer нет.
+
 ## Low production mapping, 13.10.2026
 
 `agent/telemetry/low_journal/production.py` реализует RawEventMapper согласно

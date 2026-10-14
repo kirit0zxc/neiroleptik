@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from agent.telemetry.adapters.low import SourceRecord
 from agent.telemetry.schemas import MAX_BATCH_BYTES, MAX_BATCH_EVENTS, Ack, Batch, Event
+from agent.telemetry.storage_schema import StorageMigration
 
 
 class OffsetConflict(ValueError):
@@ -34,8 +35,11 @@ class SpoolRepository:
         self.agent_id = UUID(agent_id)
         self.db = sqlite3.connect(path)
         try:
+            migration = StorageMigration()
+            migration.check(self.db, str(self.agent_id))
             self.db.execute("PRAGMA journal_mode=WAL")
             self.db.execute("PRAGMA synchronous=FULL")
+            migration.migrate(self.db, str(self.agent_id))
             self.db.executescript("""
                 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS checkpoints (

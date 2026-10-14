@@ -1,5 +1,27 @@
 # Архитектура HoneyForge
 
+## Low production mapping, 13.10.2026
+
+`agent/telemetry/low_journal/production.py` реализует RawEventMapper согласно
+low-telemetry-handoff.md. Не хранит состояние: идентичность вычисляется из
+доверенной привязки и физической позиции, транзакциями владеет LowRawConverter.
+`agent/telemetry/collect_low.py` — ограниченный CLI проход reader/collector →
+RawJournalRepository → LowRawConverter → SpoolRepository в одном файле SQLite.
+При ожидании predecessor ранее сохранённые записи продолжают конвертироваться.
+Отправляет существующий deliver.py; требуется один sender на spool.
+Общий тип tcp.request проходит ingress/history/PublicPolicy и UI. Контракт
+принят; факт сквозной работоспособности до серверной приёмки не утверждается.
+
+## Независимая серверная подготовка 12.10.2026
+
+[infra/telemetry/server-acceptance.md](../infra/telemetry/server-acceptance.md)
+содержит команды и матрицу доказательств, без развёртывания и запуска.
+`tests/telemetry/test_low_journal_readonly_mount.py` — изолированная серверная
+фикстура private mount namespace, не новый runtime модуль. Вместе с DAC,
+ACK/crash и блокирующим late-null тестом она использует существующие
+reader/collector/raw/spool/conversion. Production mapping и контракты не меняются.
+Итоговые проверки не выполнялись; будущая сквозная приёмка зависит от согласований.
+
 ## Рабочий MVP расследования 11.10.2026
 
 Требования: [investigation-mvp.md](investigation-mvp.md). telemetry/runtime.py

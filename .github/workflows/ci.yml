@@ -175,7 +175,8 @@ jobs:
       - name: Lint and formatting
         run: |
           uv run --frozen ruff check . ../scripts
-          uv run --frozen ruff format --check . ../scripts
+          # При отказе показываем точный diff, не меняя checkout и статус проверки.
+          uv run --frozen ruff format --check . ../scripts || { uv run --frozen ruff format --diff . ../scripts; exit 1; }
       - name: Type checking
         run: uv run --frozen mypy
       - name: Migration upgrade, downgrade and model consistency
@@ -213,13 +214,19 @@ jobs:
       - name: Validate agent telemetry
         run: |
           uv run --frozen ruff check agent tests/telemetry
-          uv run --frozen ruff format --check agent tests/telemetry
+          uv run --frozen ruff format --check agent tests/telemetry || { uv run --frozen ruff format --diff agent tests/telemetry; exit 1; }
           uv run --frozen mypy
           # Win32 API проверяем отдельно, даже когда CI выполняется на Linux.
           uv run --frozen mypy --platform win32
           uv run --frozen pytest
           uv run --frozen python -m agent.telemetry.export_contracts --check
           uv run --frozen python -m agent.telemetry.demo
+      - name: Verify Linux journal access under a separate collector UID
+        # Родитель меняет UID ребёнка; сборщик работает без root и без записи в Low.
+        run: >-
+          sudo env HF_REQUIRE_LINUX_ACCESS=1
+          "$GITHUB_WORKSPACE/.venv/bin/python" -m pytest
+          tests/telemetry/test_low_journal_linux_access.py -q
 
   runtime:
     name: Runtime checks
@@ -240,7 +247,7 @@ jobs:
       - name: Validate runtime
         run: |
           uv run --frozen ruff check agent honeypots infra tests
-          uv run --frozen ruff format --check agent honeypots infra tests
+          uv run --frozen ruff format --check agent honeypots infra tests || { uv run --frozen ruff format --diff agent honeypots infra tests; exit 1; }
           uv run --frozen mypy
           uv run --frozen pytest tests --ignore=tests/telemetry
           uv build --wheel

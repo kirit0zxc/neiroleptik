@@ -115,7 +115,8 @@ describe('живая лента (F10–F12)', () => {
     await user.type(ip, '198.51.100.7');
     await user.click(screen.getByRole('button', { name: 'Применить' }));
     expect(window.location.search).toBe('?source_ip=198.51.100.7');
-    await screen.findByText('GET /<img src=x onerror=alert(1)>');
+    await screen.findByText('GET [скрыто] — полнота захвата неизвестна; ответ не записан');
+    expect(screen.queryByText(/GET \/<img/)).not.toBeInTheDocument();
     expect(rows()).toHaveLength(1);
 
     await user.click(screen.getByRole('button', { name: 'Сбросить' }));

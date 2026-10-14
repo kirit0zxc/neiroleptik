@@ -1,4 +1,4 @@
-"""Граница будущего согласованного преобразования; production адаптера пока нет."""
+"""Протокол конверсии: рабочая реализация находится в production.LowProductionMapper."""
 
 from typing import Protocol
 
@@ -11,5 +11,5 @@ class RawEventMapper(Protocol):
     """Результат требует отдельного атомарного ledger конверсии, независимо от ACK."""
 
     def convert(self, binding: JournalBinding, record: JournalRecord) -> Event | None:
-        """Служебная запись не создаёт Event; mapping определяется владельцами."""
+        """Служебная запись не создаёт Event; атомарность обеспечивает внешний ledger."""
         ...

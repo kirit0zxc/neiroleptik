@@ -152,12 +152,19 @@ def test_filter_boundaries_intersection_and_normalization() -> None:
     assert history.filters(start="2026-10-10T03:00:00+03:00").start == NOW
 
 
+def test_tcp_request_filter_selects_only_tcp() -> None:
+    _, history, _ = services([record(1, kind="tcp.request"), record(2, kind="http.request")])
+    page = history.page(history.filters(event_type="tcp.request"))
+    assert len(page["items"]) == 1
+    assert page["items"][0]["type"] == "tcp.request"
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
         {"deployment_id": "bad"},
         {"source_ip": "invalid"},
-        {"event_type": "tcp.request"},
+        {"event_type": "unknown.request"},
         {"start": "2026-10-10"},
         {"start": "2026-10-10T00:00:00"},
         {"start": NOW.isoformat(), "end": NOW.isoformat()},

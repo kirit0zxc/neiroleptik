@@ -204,6 +204,35 @@ def test_chain_order_connection_and_missing_predecessor(repo, tmp_path):
     assert collector.step([first, second]).saved_records == 0
 
 
+@pytest.mark.parametrize("closed", [False, True])
+def test_late_null_process_boundary_keeps_previous_checkpoint(repo, tmp_path, closed):
+    """Поздний null не разрешает новую цепь даже после завершённого predecessor."""
+    first = tmp_path / "first.jsonl"
+    first.write_bytes(line(header()) + line(event()) + (line(footer()) if closed else b""))
+    collector = LowJournalCollector(repo, binding())
+    assert collector.step([first]).saved_records == (3 if closed else 2)
+    before = stored(repo)
+    checkpoint = repo.checkpoint(binding(), JOURNAL)
+    second = tmp_path / "new-process.jsonl"
+    second.write_bytes(
+        line(header(journal_id=OTHER, journal_seq=2, previous_journal_id=None))
+        + line(event())
+        + line(footer(journal_id=OTHER))
+    )
+    assert len(read(second)[0]) == 3
+    result = collector.step([first, second])
+    assert (result.state, result.code, result.saved_records) == (
+        "waiting",
+        "MISSING_PREDECESSOR",
+        0,
+    )
+    assert stored(repo) == before
+    assert repo.checkpoint(binding(), JOURNAL) == checkpoint
+    assert repo.checkpoint(binding(), OTHER) == 0
+    assert not repo.db.in_transaction
+    assert collector.step([first]).saved_records == 0
+
+
 def test_open_predecessor_waits(repo, tmp_path):
     first, second = generations(tmp_path, close=False)
     collector = LowJournalCollector(repo, binding())

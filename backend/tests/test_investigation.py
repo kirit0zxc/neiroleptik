@@ -1,5 +1,6 @@
 """Поведение MVP на настоящем HTTP, авторизации и изолированной PostgreSQL."""
 
+import base64
 import csv
 import io
 import json
@@ -9,6 +10,8 @@ from threading import Barrier
 from uuid import UUID, uuid4
 
 import pytest
+from agent.telemetry.low_journal.models import JournalBinding, JournalRecord
+from agent.telemetry.low_journal.production import LowProductionMapper
 from agent.telemetry.schemas import Event
 from conftest import login, profile_payload, register_host
 from fastapi.testclient import TestClient
@@ -863,6 +866,48 @@ def test_nested_public_payload_hidden_rest_ws_lookup(investigation):
         socket.receive_json()
         store(ctx, [document(ctx, data=event["data"])])
         assert socket.receive_json()["event"]["data"] == history["data"]
+
+
+@pytest.mark.parametrize("protocol", ["tcp", "http"])
+def test_low_mapper_production_ingest_rest_ws_lookup(investigation, protocol):
+    """Один DTO через production ingress/PostgreSQL/publisher и публичные маршруты."""
+    ctx = investigation
+    client, _, host, deployment, instance = ctx
+    payload = b"GET /secret?token=secret HTTP/1.1\r\nCookie: secret\r\n\r\n"
+    row = {
+        "record": "event",
+        "seq": 7,
+        "event": "request",
+        "timestamp": "2026-10-13T00:00:00Z",
+        "connection_id": str(uuid4()),
+        "protocol": protocol,
+        "service": {"protocol": protocol, "port": 8080},
+        "peer": None,
+        "payload_b64": base64.b64encode(payload).decode("ascii"),
+    }
+    raw = (json.dumps(row) + "\n").encode("ascii")
+    binding = JournalBinding(deployment["id"], str(instance), 1)
+    record = JournalRecord("event", str(uuid4()), 512, 512 + len(raw), raw)
+    mapper = LowProductionMapper(host["host_id"])
+    event = mapper.convert(binding, record).model_dump(mode="json")
+    with client.websocket_connect("/api/v1/stream") as socket:
+        socket.receive_json()
+        store(ctx, [event])
+        live = socket.receive_json()["event"]
+    history = client.get("/api/v1/events", params={"type": protocol + ".request"})
+    assert history.status_code == 200
+    assert history.json()["items"] == [live]
+    lookup = client.post(
+        "/api/v1/events/lookup",
+        json={"refs": [{"agent_id": event["agent_id"], "event_id": event["event_id"]}]},
+    ).json()["items"]
+    assert lookup == [live]
+    assert live["data"]["capture_completeness"] == "unknown"
+    assert live["data"]["captured_bytes"] == len(payload)
+    assert "secret" not in json.dumps(live) and "payload_b64" not in live["data"]
+    assert "low_seq" not in live["data"]
+    assert post(ctx, [event]).json()["accepted_ids"] == [event["event_id"]]
+    assert ctx[1].publisher.publish_once(500) == 0
 
 
 def test_artifact_read_masks_persisted_secret_url(investigation, engine):

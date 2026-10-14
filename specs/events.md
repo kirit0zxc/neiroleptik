@@ -1,5 +1,17 @@
 # Телеметрия D1: Event v1 и локальная очередь
 
+## Low MVP, согласован 13.10.2026
+
+Нормативный контракт и UUID-векторы: [low-telemetry-handoff.md](low-telemetry-handoff.md).
+Добавлен `tcp.request`; `source_seq` остаётся byte offset конкретного journal,
+исходный seq процесса — закрытая десятичная строка `data.low_seq`.
+Сервер скрывает произвольный HTTP path, raw/base64, headers/query/body и публикует
+только согласованный allowlist capture/HTTP. Полнота неизвестна, HTTP 200 не выводится.
+`LowProductionMapper` подключается через `agent.telemetry.collect_low` к прежнему
+raw/conversion ledger/spool; доставка — прежний `agent.telemetry.deliver`.
+Исторические разделы ниже описывают предшествующие этапы. Новый код не запускался
+локально по указанию пользователя; приёмка на сервере остаётся открытой.
+
 ## Согласованный MVP расследования (11.10.2026)
 
 Актуальные требования: [investigation-mvp.md](investigation-mvp.md). Source
@@ -128,7 +140,7 @@ PostgreSQL ingest, outbox и WS следуют следующим шагом. Г
 не обрезается молча: адаптер возвращает ошибку без продвижения offset.
 
 Типы: `connection.opened`, `auth.attempt`, `session.command`, `session.output`,
-`http.request`, `artifact.observed`, `token.triggered`, `session.closed`,
+`http.request`, `tcp.request`, `artifact.observed`, `token.triggered`, `session.closed`,
 `runtime.state`. IP валидируется как IPv4/IPv6, source.port 0..65535, service.port 1..65535, protocol: tcp/http/ssh.
 `source.ip` принимается только строкой; числа, boolean и другие типы отклоняются.
 

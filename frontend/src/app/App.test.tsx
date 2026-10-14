@@ -151,14 +151,15 @@ describe('приложение на моках (F1, F3, F5, S1, S4)', () => {
     expect(screen.getByText('Введите пароль')).toBeInTheDocument();
   });
 
-  it('лента: XSS из запроса атакующего видна текстом, пароль замаскирован', async () => {
+  it('лента: path атакующего скрыт без выполнения XSS, пароль замаскирован', async () => {
     resetMockSession(true);
     go('/events');
     render(<App client={makeQueryClient()} />);
 
     const rows = await screen.findAllByTestId('event-row');
     expect(rows).toHaveLength(3);
-    expect(screen.getByText('GET /<img src=x onerror=alert(1)>')).toBeInTheDocument();
+    expect(screen.getByText('GET [скрыто] — полнота захвата неизвестна; ответ не записан')).toBeInTheDocument();
+    expect(screen.queryByText(/GET \/<img/)).not.toBeInTheDocument();
     expect(document.querySelector('img')).toBeNull();
     expect(screen.getByText('root / пароль скрыт — успешно')).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('hunter2');

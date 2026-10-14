@@ -348,3 +348,7 @@ Event mapping, HTTP-разбор, sender, backend и UI остаются сле�
 Существующие Event/spool/sender и публичные API не изменяются. Сырьё не попадает
 в pending и не удаляется автоматически. Граница и цена восстановления описаны
 в [low-journal-reader.md](low-journal-reader.md), раздел 7.
+
+## Изолированное хранение Low boundary
+
+agent/telemetry/storage_schema.py владеет атомарной версией SQLite raw/boundary и общим учётом логических байтов. low_journal/durable.py предоставляет raw-запись в транзакции владельца; low_journal/boundary.py сохраняет неизменяемый подготовленный переход в той же spool. Collector и production consumer этот путь не вызывают. Контракт: [low-boundary-storage.md](low-boundary-storage.md).

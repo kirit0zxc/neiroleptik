@@ -398,6 +398,41 @@ class ExecutionStore:
             return DeploymentHistory()
         return DeploymentHistory(row["generation"], row["instance_id"], row["applied_revision"])
 
+    def prepare_telemetry_path(self) -> Path:
+        """Spool наследует приватный каталог и замок именно этого state-файла."""
+        path = self.path.with_name(self.path.name + ".telemetry.sqlite3")
+        self._prepare_file(path)
+        for suffix in ("-wal", "-shm", "-journal"):
+            self._check_file(Path(str(path) + suffix), missing_allowed=True)
+        return path
+
+    def telemetry_bindings(self) -> tuple[tuple[str, str, int], ...]:
+        """Экспорт только подтверждённых start; попытка и header не являются доверием."""
+        try:
+            rows = self._connection.execute(
+                "SELECT deployment_id, result_json FROM commands "
+                "WHERE action = 'start' AND phase = 'completed' AND acked = 1 "
+                "ORDER BY rowid"
+            ).fetchall()
+        except sqlite3.Error:
+            raise StoreError("STORE_IO") from None
+        bindings: dict[tuple[str, str], int] = {}
+        for deployment, encoded in rows:
+            try:
+                result = self._result(json.loads(encoded))
+            except (ValueError, TypeError):
+                raise StoreError("SCHEMA_MISMATCH") from None
+            if result["outcome"] == "succeeded" and result["runtime_state"] == "running":
+                instance = _uuid(result["instance_id"], "SCHEMA_MISMATCH")
+                revision = _integer(result["applied_revision"], 1, "SCHEMA_MISMATCH")
+                key = (_uuid(deployment, "SCHEMA_MISMATCH"), instance)
+                if key in bindings and bindings[key] != revision:
+                    raise StoreError("SCHEMA_MISMATCH")
+                bindings[key] = revision
+        return tuple(
+            (deployment, instance, rev) for (deployment, instance), rev in bindings.items()
+        )
+
     def known_instances(self, deployment_id: str) -> set[str]:
         """Все UUID экземпляров назначения, созданные агентом или сообщённые центром.
 

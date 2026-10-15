@@ -393,3 +393,13 @@ Cowrie и повторно использует lifecycle LowDriver с отде�
 executor telemetry передаёт только подтверждённые ACK bindings. Checkpoint и события
 атомарно сохраняются в общей SQLite-очереди, далее работает прежний batch sender.
 Границы демо и запуск описаны в [medium-cowrie-executor.md](medium-cowrie-executor.md).
+
+`agent/runtime/drivers/medium_config.py` сохраняет неизменяемую конфигурацию instance
+в отдельном закрытом файле; контейнер получает read-only mount, credentials не
+передаются через argv. Reset использует общий executor/store и новый UUID.
+`agent/telemetry/adapters/cowrie_tty.py` читает завершённые TTY, ограничивает чанки
+и атомарно сохраняет события/checkpoint в той же очереди. Cowrie JSON collector
+добавляет manifest записей при закрытии сессии. Прежние instance bindings сохраняются.
+`backend/src/honeyforge/investigation/replay.py` проверяет опубликованные чанки,
+полноту manifest, порядок времени и подписанный cursor. Общая API Reader dependency
+ограничивает доступ; frontend ReplayTape показывает безопасный текст и разрывы.

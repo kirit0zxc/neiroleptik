@@ -411,7 +411,7 @@ class ExecutionStore:
         try:
             rows = self._connection.execute(
                 "SELECT deployment_id, result_json FROM commands "
-                "WHERE action = 'start' AND phase = 'completed' AND acked = 1 "
+                "WHERE action IN ('start', 'reset') AND phase = 'completed' AND acked = 1 "
                 "ORDER BY rowid"
             ).fetchall()
         except sqlite3.Error:
@@ -541,7 +541,7 @@ class ExecutionStore:
                 raise StoreError("STALE_GENERATION")
             if self.pending() is not None:
                 raise StoreError("BUSY")
-            attempt = str(uuid4()) if safe["action"] == "start" else None
+            attempt = str(uuid4()) if safe["action"] in ("start", "reset") else None
             self._connection.execute(
                 """
                 INSERT INTO commands
@@ -663,7 +663,7 @@ class ExecutionStore:
             ):
                 raise StoreError("INVALID_RESULT")
             if normalized["outcome"] == "succeeded":
-                if record.action == "start" and (
+                if record.action in ("start", "reset") and (
                     normalized["runtime_state"] != "running"
                     or normalized["instance_id"] != record.attempt_instance_id
                     or normalized["applied_revision"] != record.revision
@@ -672,7 +672,7 @@ class ExecutionStore:
                 if record.action == "stop" and normalized["runtime_state"] != "stopped":
                     raise StoreError("INVALID_RESULT")
             elif (
-                record.action == "start"
+                record.action in ("start", "reset")
                 and normalized["runtime_state"] == "running"
                 and (normalized["instance_id"] != record.expected_instance_id)
             ):

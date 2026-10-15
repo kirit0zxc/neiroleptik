@@ -4,7 +4,8 @@
 Этот документ описывает локальное исполнение, не изменяя API центра. Предложения
 из `runtime-contract-proposal.md` не определяют командный API. Сроки D1–D5,
 lease 60 секунд, продление каждые 20 секунд и hard deadline центра сохраняются.
-Medium/High/reset здесь не реализуются; неподдерживаемая команда получает failed ACK.
+Medium start/stop/reset описан в [medium-cowrie-executor.md](medium-cowrie-executor.md).
+High и Low reset этим исполнителем не поддерживаются и получают failed ACK.
 
 ## Поток и устойчивое состояние
 

@@ -3606,6 +3606,194 @@
         }
       }
     },
+    "/api/v1/sessions/{session_id}/replay": {
+      "get": {
+        "tags": [
+          "investigation"
+        ],
+        "summary": "Replay",
+        "operationId": "replay_api_v1_sessions__session_id__replay_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "x-csrf-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
+            }
+          },
+          {
+            "name": "origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Origin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplayPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
     "/api/v1/artifacts": {
       "get": {
         "tags": [
@@ -7352,6 +7540,107 @@
           "expected_revision"
         ],
         "title": "ProfileUpdate"
+      },
+      "ReplayChunk": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Seq"
+          },
+          "offset_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset Ms"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out"
+            ],
+            "title": "Direction"
+          },
+          "data_base64": {
+            "type": "string",
+            "title": "Data Base64"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "seq",
+          "offset_ms",
+          "direction",
+          "data_base64",
+          "truncated"
+        ],
+        "title": "ReplayChunk",
+        "description": "Текстовые байты TTY; frontend не исполняет управляющие последовательности."
+      },
+      "ReplayPage": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/ReplayChunk"
+            },
+            "type": "array",
+            "title": "Chunks"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "tail_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tail Cursor"
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "session_id",
+          "started_at",
+          "chunks",
+          "next_cursor",
+          "tail_cursor",
+          "complete"
+        ],
+        "title": "ReplayPage",
+        "description": "Конец доступной страницы отдельно от завершения записи."
       },
       "RevisionRead": {
         "properties": {

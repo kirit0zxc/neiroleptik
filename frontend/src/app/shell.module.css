@@ -46,7 +46,7 @@
 /* Узкий или низкий экран: лист целиком не помещается — возвращаем прокрутку страницы. */
 @media (max-width: 860px), (max-height: 560px) {
   .shell { height: auto; min-height: 100%; overflow: visible; padding: 8px; }
-  .main { overflow: visible; padding: 14px; }
+  .main { overflow: visible; }
 }
 @media (max-width: 860px) {
   .sheet { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; }
@@ -54,4 +54,6 @@
   .nav { grid-auto-flow: column; overflow-x: auto; border-bottom: 0; }
   .nav a { border-bottom: 0; border-right: 1px solid var(--line-faint); white-space: nowrap; }
   .mascot { display: none; }
+  /* Окно Юми скрыто — резерв под него не нужен, отступ поуже. */
+  .main { padding: 14px; }
 }

@@ -10,6 +10,6 @@
 .columns { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 900px) { .columns { grid-template-columns: minmax(0, 1fr); } }
 .sources { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
-.sources li { display: flex; justify-content: space-between; gap: 12px; }
+.sources li { display: flex; justify-content: space-between; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
 .count { color: var(--text-dim); font-family: var(--font-mono); }
 .more { margin: 10px 0 0; text-align: right; }

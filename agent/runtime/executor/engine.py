@@ -23,6 +23,7 @@ from agent.runtime.drivers.low import (
     LowDriver,
     LowSettings,
 )
+from agent.runtime.drivers.medium import MediumDriver
 from agent.runtime.executor.client import ClientError, CommandClient
 from agent.runtime.executor.protocol import ClaimedCommand, LeaseReply
 from agent.runtime.executor.store import ExecutionStore, StoredCommand
@@ -104,12 +105,14 @@ class LeasedBackend:
         deployment_id: str,
         allowed_instances: set[str],
         revision: int,
+        level: str = "low",
     ) -> None:
         self._backend = backend
         self._gate = gate
         self._deployment_id = deployment_id
         self._allowed_instances = allowed_instances
         self._revision = revision
+        self._level = level
         self.run_requested = False
 
     def _authorize(self, labels: dict[str, str]) -> None:
@@ -117,7 +120,7 @@ class LeasedBackend:
         if (
             labels.get(LABEL_MANAGED) != "true"
             or labels.get(LABEL_DEPLOYMENT) != self._deployment_id
-            or labels.get(LABEL_LEVEL) != "low"
+            or labels.get(LABEL_LEVEL) != self._level
             or labels.get(LABEL_INSTANCE) not in self._allowed_instances
             or labels.get(LABEL_REVISION) != str(self._revision)
         ):
@@ -161,6 +164,7 @@ class CommandExecutor:
         settings: LowSettings | None = None,
         *,
         renew_interval: float = 20.0,
+        medium_settings: LowSettings | None = None,
     ) -> None:
         if (
             isinstance(renew_interval, bool)
@@ -172,6 +176,7 @@ class CommandExecutor:
         self._store = store
         self._backend = backend
         self._settings = settings or LowSettings()
+        self._medium_settings = medium_settings
         self._renew_interval = renew_interval
         self._lock = asyncio.Lock()
 
@@ -324,18 +329,35 @@ class CommandExecutor:
                 "message": _ERROR_MESSAGES["UNSUPPORTED_COMMAND"],
             },
         }
-        if command.config.interaction_level != "low" or command.action not in ("start", "stop"):
+        if command.config.interaction_level not in ("low", "medium") or command.action not in (
+            "start",
+            "stop",
+        ):
+            return result
+        if command.config.interaction_level == "medium" and self._medium_settings is None:
             return result
         allowed = self._store.known_instances(command.deployment_id)
         if record.attempt_instance_id is not None:
             allowed.add(record.attempt_instance_id)
         leased = LeasedBackend(
-            self._backend, gate, command.deployment_id, allowed, command.revision
+            self._backend,
+            gate,
+            command.deployment_id,
+            allowed,
+            command.revision,
+            command.config.interaction_level,
         )
-        driver = LowDriver(
+        driver_class = MediumDriver if command.config.interaction_level == "medium" else LowDriver
+        driver_settings = (
+            self._medium_settings
+            if command.config.interaction_level == "medium"
+            else self._settings
+        )
+        assert driver_settings is not None
+        driver = driver_class(
             command.deployment_id,
             leased,
-            self._settings,
+            driver_settings,
             new_instance_id=lambda: record.attempt_instance_id or "",
         )
         # После рестарта executing неоднозначен. В текущем процессе mark_executing

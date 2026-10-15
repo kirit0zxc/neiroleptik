@@ -35,6 +35,57 @@ UI stop → дочитывание; повтор запуска исполнит
 Автотесты проверяют доверенный экспорт, отсутствие binding до ACK, историю после
 stop/restart, сбор и доставку через настоящую SQLite, backoff/ошибки и завершение.
 
+## Отказоустойчивость worker: требования и матрица
+
+Это требования независимого этапа, а не отчёт об успешном прогоне. Проверяется
+цепочка trusted start/ACK → worker → collector → production mapper → SQLite →
+HttpBatchTransport → долговечный тестовый receiver. Последний фиксирует canonical
+Event до ACK и дедуплицирует `(agent_id,event_id)` с проверкой неизменности bytes.
+Он не доказывает PostgreSQL, ownership, publication, WebSocket, UI или fencing.
+
+Raw/checkpoint и pending/ledger сохраняют прежнюю атомарность. Невалидный ACK
+не применяется частично. Accepted удаляется, retryable остаётся, permanent
+переходит в quarantine. После потери ACK и crash разрешён новый batch_id,
+но Event ID/bytes прежние; ACK не удаляет raw/ledger/журнал. Неполная LF-строка
+дочитывается после restart, footer не порождает Event. Cleanup не добавляется.
+
+503/transport failure сохраняют очередь и backoff; следующие шаги продолжают
+сбор. 401/403 приостанавливают только sender до restart. Стабильный tuple из N
+bindings обслуживается за N завершённых шагов: повреждение, поздний null или
+исчерпание raw budget не блокируют другие источники и сохранённый pending.
+Поздний null не создаёт boundary binding/anchor/writer автоматически.
+
+HTTP и SQLite выполняются одним worker-потоком. Event loop сохраняет возможность
+завершить контрольную coroutine во время HTTP до штатного deadline. Отмена при
+создании и при step дожидается операции и закрывает SQLite в том же потоке до
+освобождения ExecutionStore. Произвольный SQLite I/O не обещает прерываемости.
+Диагностика содержит безопасные коды, без токенов, payload, query, путей и текста
+внешних исключений. Барьеры/IPC задают порядок тестов; timeout означает провал.
+
+| ID | Обязательная приёмка |
+| --- | --- |
+| C01 | До complete/ACK и после failed start binding отсутствует; файл не разрешает сбор |
+| C02 | Stop/reopen сохраняет trusted историю, footer дочитан без нового Event |
+| C03 | 503, накопление во время backoff, точная доставка старых и новых Event |
+| C04 | Реальный connection refusal, receiver на том же зарезервированном endpoint, retry |
+| C05 | Commit/потеря ACK, новый процесс, неизменные ID/bytes, дедупликация |
+| C06 | Чужой batch_id, плохой JSON, неполный ACK не меняют очередь частично |
+| C07 | Mixed ACK: accepted/retryable/permanent, сохранные raw/ledger |
+| C08 | Отдельно 401/403, продолжающийся сбор, доставка после restart |
+| C09 | Повреждённый и исправный binding, round robin и доставка старого pending |
+| C10 | Поздний null блокируется, независимый источник и сохранённый raw работают |
+| C11 | Незавершённая LF-строка, restart, дописывание, replay без дубля |
+| C12 | Настоящий Low TCP/HTTP в дочернем процессе, binary/Unicode, connection/request |
+| C13 | IPC подтверждает pending до отправки, аварийный выход и новый процесс |
+| C14 | Настоящий медленный HTTP, контроль event loop, deadline и retry |
+| C15 | Отмена constructor/step, тот же поток close, замок до release |
+| C16 | Секрет-маркеры отсутствуют в stdout/stderr и публичной диагностике |
+| C17 | Raw budget: видимый отказ, сохранные bytes/checkpoint и доставка pending |
+
+Результаты, команды, SHA, числа passed/failed/skipped и ограничения среды
+фиксируются отдельно в `continuous-low-resilience-validation.md` после исполнения.
+Все сценарии входят в root pytest штатных telemetry/runtime CI jobs.
+
 ## Локальная приёмка 15.10.2026
 
 Центр и frontend: main `f5ad092` + WebSocket runtime из PR №41; новый исполнитель

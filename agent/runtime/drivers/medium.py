@@ -2,10 +2,11 @@
 
 import ipaddress
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import ClassVar
 from uuid import uuid4
 
-from agent.runtime.contract import DeploymentSpec, Level
+from agent.runtime.contract import DeploymentSpec, Level, ProfileSpec
 from agent.runtime.drivers.containers import (
     LABEL_MANAGED,
     BindMount,
@@ -24,8 +25,16 @@ from agent.runtime.drivers.low import (
     LowProfileTranslator,
     LowSettings,
 )
+from agent.runtime.drivers.medium_config import MediumConfigStore
 
 SSH_BANNER = "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3"
+
+
+@dataclass(frozen=True)
+class MediumBlueprint(LowBlueprint):
+    """Профиль содержит секреты и исключён из диагностического repr."""
+
+    profile: ProfileSpec = field(repr=False)
 
 
 class MediumProfileTranslator(LowProfileTranslator):
@@ -43,31 +52,40 @@ class MediumProfileTranslator(LowProfileTranslator):
             raise self._unsupported("профиль не уровня medium")
         if len(profile.services) != 1 or profile.services[0].protocol != "ssh":
             raise self._unsupported("Medium поддерживает ровно один SSH-сервис")
-        valid_credentials = len(profile.credentials) == 1 and (
-            profile.credentials[0].username == "root"
-            and profile.credentials[0].password.reveal() == "demo"
-        )
-        if profile.services[0].port != 2222 or not valid_credentials:
-            raise self._unsupported(
-                "Демо Medium: порт 2222, единственные credentials профиля root/demo"
-            )
-        if profile.services[0].banner:
-            raise self._unsupported("пользовательский SSH banner пока не поддерживается")
+        if not 1 <= len(profile.credentials) <= 8:
+            raise self._unsupported("Medium требует от одного до восьми пользователей")
+        banner = profile.services[0].banner
+        if banner and (
+            not banner.startswith("SSH-2.0-") or not all(32 <= ord(c) < 127 for c in banner)
+        ):
+            raise self._unsupported("SSH banner должен начинаться SSH-2.0- и содержать ASCII")
         if self._settings.network is None or self._settings.journal_root is None:
             raise self._unsupported("Medium требует отдельную сеть и постоянный каталог журналов")
-        return LowBlueprint(
-            deployment.deployment_id, deployment.revision, profile.services[0], None, ()
+        return MediumBlueprint(
+            deployment.deployment_id, deployment.revision, profile.services[0], None, (), profile
         )
 
     def container_spec(self, blueprint: LowBlueprint, instance_id: str) -> ContainerSpec:
         directory = self.journal_directory(blueprint.deployment_id)
         assert directory is not None and blueprint.tcp is not None
+        assert isinstance(blueprint, MediumBlueprint) and self._settings.journal_root is not None
+        try:
+            config = MediumConfigStore(self._settings.journal_root.parent / "medium-config").write(
+                blueprint.deployment_id, instance_id, blueprint.profile
+            )
+        except (OSError, ValueError):
+            raise self._unsupported(
+                "Не удалось безопасно подготовить конфигурацию Cowrie"
+            ) from None
         return ContainerSpec(
             name=self.container_name(blueprint.deployment_id),
             image=self._settings.image,
             command=(instance_id,),
             publish=(PortPublish(self._settings.bind_address, blueprint.tcp.port, 2222),),
-            mounts=(BindMount(str(directory), "/cowrie/cowrie-git/var"),),
+            mounts=(
+                BindMount(str(directory), "/cowrie/cowrie-git/var"),
+                BindMount(str(config), "/honeyforge-config", read_only=True),
+            ),
             labels=(
                 (LABEL_MANAGED, "true"),
                 (LABEL_LEVEL, "medium"),
@@ -83,7 +101,10 @@ class MediumProfileTranslator(LowProfileTranslator):
     def health_targets(self, blueprint: LowBlueprint) -> HealthTargets:
         assert blueprint.tcp is not None
         return HealthTargets(
-            self._probe_host(), blueprint.tcp.port, (SSH_BANNER + "\r\n").encode(), None
+            self._probe_host(),
+            blueprint.tcp.port,
+            ((blueprint.tcp.banner or SSH_BANNER) + "\r\n").encode(),
+            None,
         )
 
     def release_targets(self, deployment: DeploymentSpec) -> HealthTargets:

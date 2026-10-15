@@ -13,6 +13,27 @@ class ReadModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ReplayChunk(ReadModel):
+    """Текстовые байты TTY; frontend не исполняет управляющие последовательности."""
+
+    seq: int = Field(ge=0, le=9007199254740991)
+    offset_ms: int = Field(ge=0)
+    direction: Literal["in", "out"]
+    data_base64: str
+    truncated: bool
+
+
+class ReplayPage(ReadModel):
+    """Конец доступной страницы отдельно от завершения записи."""
+
+    session_id: UUID
+    started_at: datetime
+    chunks: list[ReplayChunk]
+    next_cursor: str | None
+    tail_cursor: str | None
+    complete: bool
+
+
 class Endpoint(ReadModel):
     ip: str
     port: Annotated[int, Field(ge=0, le=65535)]

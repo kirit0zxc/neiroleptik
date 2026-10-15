@@ -96,7 +96,7 @@ describe('команды ловушек на API (F6)', () => {
     const alert = await within(high).findByRole('alert');
     expect(alert).toHaveTextContent('Нет связи с сервером');
     // Пока команда не отправлена, другие команды ловушки неактивны.
-    expect(within(high).getByRole('button', { name: 'Сбросить VM' })).toBeDisabled();
+    expect(within(high).getByRole('button', { name: 'Сбросить ловушку' })).toBeDisabled();
     await user.click(within(alert).getByRole('button', { name: 'Повторить' }));
     await within(high).findByText('Запустить: успешно');
     expect(sent).toHaveLength(2);
@@ -255,10 +255,10 @@ describe('команды ловушек на API (F6)', () => {
     const high = await row('decoy-high-01');
     await user.click(within(high).getByRole('button', { name: 'Запустить' }));
     const alert = await within(high).findByRole('alert');
-    expect(within(high).getByRole('button', { name: 'Сбросить VM' })).toBeDisabled();
+    expect(within(high).getByRole('button', { name: 'Сбросить ловушку' })).toBeDisabled();
     await user.click(within(alert).getByRole('button', { name: 'Отменить' }));
     expect(within(high).queryByRole('alert')).toBeNull();
-    expect(within(high).getByRole('button', { name: 'Сбросить VM' })).toBeEnabled();
+    expect(within(high).getByRole('button', { name: 'Сбросить ловушку' })).toBeEnabled();
   });
 
   it('STALE_GENERATION: данные перечитаны, «Повторить» — новое действие со свежим поколением', async () => {
@@ -408,9 +408,9 @@ describe('команды ловушек на API (F6)', () => {
     server.use(recordCommands(sent));
     open();
     const high = await row('decoy-high-01');
-    const reset = within(high).getByRole('button', { name: 'Сбросить VM' });
+    const reset = within(high).getByRole('button', { name: 'Сбросить ловушку' });
     await user.click(reset);
-    const dialog = await screen.findByRole('dialog', { name: 'Сбросить VM — decoy-high-01?' });
+    const dialog = await screen.findByRole('dialog', { name: 'Сбросить ловушку — decoy-high-01?' });
     expect(dialog).toHaveTextContent('доказательства сохранятся');
     await user.click(within(dialog).getByRole('button', { name: 'Отмена' }));
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -420,7 +420,7 @@ describe('команды ловушек на API (F6)', () => {
 
     await user.click(reset);
     await user.click(await confirmDialog());
-    await within(high).findByText(/Сбросить VM: /);
+    await within(high).findByText(/Сбросить ловушку: /);
     expect(sent).toEqual([expect.objectContaining({ command: 'reset', expected_generation: 2 })]);
   });
 

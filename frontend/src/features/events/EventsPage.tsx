@@ -84,16 +84,17 @@ export function EventsPage() {
 
   const recoverOverflow = () => { void reloadHistory().catch(() => {}); };
 
-  // 422 на следующей странице: курсор снимка больше не принимается — перечитать с
-  // начала, но автоматически один раз. Повторный 422 — ошибка: неверные фильтры
-  // перечитыванием не исправить. Новая выборка или успешная страница снимают отметку.
+  // 422 с кодом INVALID_CURSOR: курсор снимка больше не принимается — перечитать с
+  // начала, но автоматически один раз. Другой 422 (ошибка фильтров) курсор не
+  // сбрасывает — остаётся ошибка с «Повторить». Новая выборка или успешная
+  // страница снимают отметку.
   const [restarted, setRestarted] = useState(false);
   const autoReset = useRef(false);
   useEffect(() => { setRestarted(false); autoReset.current = false; }, [key]);
   const loadMore = async () => {
     setRestarted(false);
     const r = await pages.fetchNextPage();
-    if (!(r.error instanceof ApiError && r.error.status === 422)) {
+    if (!(r.error instanceof ApiError && r.error.status === 422 && r.error.code === 'INVALID_CURSOR')) {
       if (!r.error) autoReset.current = false;
       return;
     }

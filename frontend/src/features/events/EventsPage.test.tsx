@@ -146,7 +146,7 @@ describe('живая лента (F10–F12)', () => {
 
   it('событие без источника не роняет ленту: «источник неизвестен»', async () => {
     // Защита от неполных данных: по схеме source обязателен, но приходит от ловушек.
-    publish({ ...ev('no-source'), source: null } as unknown as HfEvent);
+    publish({ ...ev('no-source'), source: null });
     open('/events', controlledStream().create);
     const row = (await screen.findByText('cmd-no-source')).closest('tr')!;
     expect(within(row).getByText('источник неизвестен')).toBeInTheDocument();
@@ -172,7 +172,7 @@ describe('живая лента (F10–F12)', () => {
     await screen.findAllByTestId('event-row');
     let firstPages = 0;
     server.use(http.get('/api/v1/events', ({ request }) => {
-      if (new URL(request.url).searchParams.get('cursor')) return HttpResponse.json({ detail: 'Курсор не принимается' }, { status: 422 });
+      if (new URL(request.url).searchParams.get('cursor')) return HttpResponse.json({ detail: 'Курсор не принимается', code: 'INVALID_CURSOR' }, { status: 422 });
       firstPages++;
       return undefined;
     }));
@@ -195,13 +195,33 @@ describe('живая лента (F10–F12)', () => {
     await user.click(screen.getByRole('button', { name: '⏸ Пауза' }));
     publish(ev('waiting')); s.send(ev('waiting'));
     server.use(http.get('/api/v1/events', ({ request }) => (new URL(request.url).searchParams.get('cursor')
-      ? HttpResponse.json({ detail: 'Курсор не принимается' }, { status: 422 }) : undefined)));
+      ? HttpResponse.json({ detail: 'Курсор не принимается', code: 'INVALID_CURSOR' }, { status: 422 }) : undefined)));
     await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
     await screen.findByText('Список событий обновлён — загружен заново.');
     await waitFor(() => expect(screen.getByText('cmd-shown')).toBeInTheDocument());
     expect(screen.queryByText('cmd-waiting')).toBeNull();
     expect(screen.getByRole('button', { name: '1 новых — показать' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '▶ Продолжить' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('422 без INVALID_CURSOR (ошибка фильтров) курсор не сбрасывает — видна ошибка', async () => {
+    const user = userEvent.setup();
+    for (let i = 0; i < 55; i++) publish(ev(`filters-${i}`));
+    open('/events', controlledStream().create);
+    await screen.findAllByTestId('event-row');
+    let firstPages = 0;
+    server.use(http.get('/api/v1/events', ({ request }) => {
+      if (new URL(request.url).searchParams.get('cursor')) {
+        return HttpResponse.json({ detail: [{ loc: ['query', 'to'], type: 'value_error', msg: 'to раньше from' }] }, { status: 422 });
+      }
+      firstPages++;
+      return undefined;
+    }));
+    await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Повторить' })).toBeInTheDocument();
+    expect(screen.queryByText('Список событий обновлён — загружен заново.')).toBeNull();
+    expect(firstPages).toBe(0);
   });
 
   it('повторный 422 после автоматического перечитывания — ошибка, а не новый сброс', async () => {
@@ -211,7 +231,7 @@ describe('живая лента (F10–F12)', () => {
     await screen.findAllByTestId('event-row');
     let firstPages = 0;
     server.use(http.get('/api/v1/events', ({ request }) => {
-      if (new URL(request.url).searchParams.get('cursor')) return HttpResponse.json({ detail: 'Курсор не принимается' }, { status: 422 });
+      if (new URL(request.url).searchParams.get('cursor')) return HttpResponse.json({ detail: 'Курсор не принимается', code: 'INVALID_CURSOR' }, { status: 422 });
       firstPages++;
       return undefined;
     }));
@@ -276,7 +296,8 @@ describe('живая лента (F10–F12)', () => {
       await waitFor(() => expect(rows()).toHaveLength(Math.min((page + 1) * 50, 504)));
     }
     expect(screen.getByText('cmd-overflow-0')).toBeInTheDocument();
-  }, 15000);
+  // 501 событие и 10 страниц: под общей нагрузкой happy-dom 15 с не хватало.
+  }, 40000);
 
   it('после 410 получает новый hello до REST, события во время снимка не теряются', async () => {
     let reads = 0;

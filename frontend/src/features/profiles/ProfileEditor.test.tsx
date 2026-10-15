@@ -261,7 +261,7 @@ describe('форма профиля (F8, F9)', () => {
     await user.type(name, 'Моя правка');
     const host = screen.getByLabelText('Имя хоста (легенда)');
     const oldHost = (host as HTMLInputElement).value;
-    // Чужая правка меняет легенду узла; баннер SSH на Medium остаётся пустым (агент иной не принимает).
+    // Чужая правка меняет легенду узла; баннер SSH в этом сценарии не меняется.
     latest = { ...original, revision: original.revision + 1, name: 'Чужая правка',
       config: { ...original.config, hostname: 'other-node' } };
     await act(async () => { await client.invalidateQueries({ queryKey: ['profiles', original.id], exact: true }); });

@@ -178,7 +178,7 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
                   {(a) => <input {...a} inputMode="numeric" {...form.register(`services.${i}.port`)} />}
                 </Field>
                 <Field label={bannerLabel(serviceValues[i]?.protocol ?? '')} error={errors.services?.[i]?.banner} wide
-                  hint={level === 'medium' && serviceValues[i]?.protocol === 'ssh' ? 'Свой баннер для Medium пока не поддерживается — оставьте пустым.' : undefined}>
+                  hint={level === 'medium' && serviceValues[i]?.protocol === 'ssh' ? 'Оставьте пустым или задайте SSH-2.0-баннер печатными ASCII-символами.' : undefined}>
                   {(a) => <input {...a} {...form.register(`services.${i}.banner`)} />}
                 </Field>
                 <button type="button" className={s.remove} onClick={() => services.remove(i)}

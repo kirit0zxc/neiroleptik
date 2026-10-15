@@ -75,10 +75,10 @@ export const ProfileSchema = z.object({
     if (!allowed.includes(s.protocol)) {
       ctx.addIssue({ code: 'custom', path: ['services', i, 'protocol'], message: `На уровне ${p.level} нельзя ${s.protocol}` });
     }
-    // Medium (Cowrie) свой SSH-баннер пока не принимает — агент отклонит профиль.
-    // Требуем ровно пустую строку: даже пробелы ушли бы на сервер непустым баннером.
-    if (p.level === 'medium' && s.protocol === 'ssh' && s.banner !== '') {
-      ctx.addIssue({ code: 'custom', path: ['services', i, 'banner'], message: 'На Medium баннер SSH пока не поддерживается — оставьте пустым' });
+    // Ограничение совпадает с MediumTranslator: пустой или печатный SSH-2.0 banner.
+    if (p.level === 'medium' && s.protocol === 'ssh' && s.banner !== '' &&
+      (!s.banner.startsWith('SSH-2.0-') || !PRINTABLE_ASCII.test(s.banner))) {
+      ctx.addIssue({ code: 'custom', path: ['services', i, 'banner'], message: 'Баннер Medium: пустой или SSH-2.0- с печатными ASCII-символами' });
     }
     if (s.protocol === 'tcp') {
       if (!s.banner.trim()) ctx.addIssue({ code: 'custom', path: ['services', i, 'banner'], message: 'У TCP баннер обязателен' });

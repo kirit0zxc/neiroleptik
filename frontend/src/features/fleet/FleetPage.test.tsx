@@ -56,12 +56,16 @@ describe('парк: DeploymentRead с центра', () => {
     server.use(http.get('/api/v1/deployments', () => HttpResponse.json([
       live({ id: 'on-dead-host', host_id: 'host-runtime-03', state: 'running', applied_revision: 1 }),
       live({ id: 'on-live-host', host_id: 'host-runtime-01', state: 'running', applied_revision: 1 }),
+      live({ id: 'on-unknown-host', host_id: 'host-gone', state: 'running', applied_revision: 1 }),
     ])));
     open();
     const dead = (await screen.findByText('on-dead-host')).closest('tr')!;
     expect(within(dead).getByText('работает')).toBeInTheDocument();
-    expect(await within(dead).findByText('хост не на связи — состояние не подтверждено')).toBeInTheDocument();
+    expect(await within(dead).findByTitle('Хост не на связи — состояние не подтверждено')).toHaveTextContent('хост не на связи — состояние не подтверждено');
     const alive = screen.getByText('on-live-host').closest('tr')!;
     expect(within(alive).queryByText(/хост не на связи/)).toBeNull();
+    // Хоста нет в списке — пометки нет.
+    const unknown = screen.getByText('on-unknown-host').closest('tr')!;
+    expect(within(unknown).queryByText(/хост не на связи/)).toBeNull();
   });
 });

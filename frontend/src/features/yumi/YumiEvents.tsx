@@ -25,7 +25,8 @@ export function attackPayload(signal: MascotSignal, e: Pick<HfEvent, 'type' | 's
     // Сервер уже урезал ввод — реплика это показывает, даже если текст короткий.
     truncated: isCommand && data.truncated === true,
     // HTTP: метод только из известного списка; путь не берём — сервер его скрывает.
-    method: signal === 'attack:http' && typeof data.method === 'string' && HTTP_METHODS.has(data.method) ? data.method : '',
+    method: signal === 'attack:http' && typeof data.method === 'string' && HTTP_METHODS.has(data.method.toUpperCase())
+      ? data.method.toUpperCase() : '',
     // TCP: сколько байт захвачено; отрицательное или нецелое — не называем.
     bytes: signal === 'attack:tcp' && Number.isSafeInteger(data.captured_bytes) && Number(data.captured_bytes) >= 0
       ? Number(data.captured_bytes) : null,

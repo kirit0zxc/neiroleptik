@@ -74,7 +74,9 @@ export function FleetPage() {
                       <td className="mono">{d.host_id}</td>
                       <td>
                         <StatusBadge tone={st.tone}>{st.label}</StatusBadge>
-                        {unreachable && <div className={s.unconfirmed}>хост не на связи — состояние не подтверждено</div>}
+                        {/* Коротко в таблице, полностью — в подсказке и для читалок. */}
+                        {unreachable && <div className={s.unconfirmed} title="Хост не на связи — состояние не подтверждено">
+                          хост не на связи<span className={s.srOnly}> — состояние не подтверждено</span></div>}
                       </td>
                       <td className="mono">{d.profile_id} · r{d.revision}</td>
                       {editable && <td><DeploymentActions deployment={d} /></td>}

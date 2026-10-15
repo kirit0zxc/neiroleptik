@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { deploymentStatus, hostStatus } from './status';
+import { deploymentStatus, hostStatus, hostUnreachable } from './status';
 
 describe('статусы парка (F4, F5)', () => {
   it('связь агента', () => {
@@ -26,5 +26,14 @@ describe('статусы парка (F4, F5)', () => {
 
   it('неизвестное состояние не роняет экран', () => {
     expect(deploymentStatus({ state: 'quantum' as never, desired_revision: 1, applied_revision: 1 }).label).toBe('неизвестно');
+  });
+});
+
+describe('хост без связи (F5)', () => {
+  it('offline и revoked — пометка; online и неизвестный — нет', () => {
+    expect(hostUnreachable('offline')).toBe(true);
+    expect(hostUnreachable('revoked')).toBe(true);
+    expect(hostUnreachable('online')).toBe(false);
+    expect(hostUnreachable(undefined)).toBe(false);
   });
 });

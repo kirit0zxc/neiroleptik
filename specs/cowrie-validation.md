@@ -95,7 +95,8 @@ legacy collector из main в cowrie_collector.py. Он совпадает с ma
 Независимые проверки переноса: 195 pure tests и 8 legacy tests прошли;
 один POSIX FIFO skip на Windows. Сценарии service.port=2200/2323 сохранены.
 Ruff/format, mypy Linux/Win32, export_contracts и wheel build прошли на новой базе.
-Первый полный прогон: 1767 passed, 11 skipped, 37 subtests passed и один отказ
+Первый полный агентский прогон на базе `e61f6ef` (agent/tests не менялись
+в последующих коммитах main): 1767 passed, 11 skipped, 37 subtests passed и один отказ
 существующего test_executor_client slow-response-body (сервер не увидел закрытие
 соединения за 3 секунды на Windows). Все Medium tests в нём прошли.
 Целевой повтор дал тот же отказ и 5 passed Medium tests. Client, deadline и

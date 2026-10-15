@@ -17,8 +17,8 @@ class CommandPolicy:
         }
         if deployment.state not in states[action]:
             raise DomainError(409, "Команда недоступна в текущем состоянии", "INVALID_STATE")
-        if action == "reset" and revision.config["interaction_level"] != "high":
-            raise DomainError(409, "reset разрешён только для High", "UNSUPPORTED_COMMAND")
+        if action == "reset" and revision.config["interaction_level"] not in {"medium", "high"}:
+            raise DomainError(409, "reset разрешён для Medium и High", "UNSUPPORTED_COMMAND")
 
     @staticmethod
     def validate_ack(

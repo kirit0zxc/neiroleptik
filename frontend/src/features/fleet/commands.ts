@@ -28,7 +28,7 @@ export interface Job {
 export const COMMAND_LABEL: Record<Command, string> = {
   start: 'Запустить',
   stop: 'Остановить',
-  reset: 'Сбросить VM',
+  reset: 'Сбросить ловушку',
 };
 
 /** Текст подтверждения; null — команда без подтверждения. */
@@ -43,7 +43,7 @@ export function availableCommands(d: Pick<Deployment, 'state' | 'interaction_lev
   const out: Command[] = [];
   if (d.state === 'planned' || d.state === 'stopped' || d.state === 'failed') out.push('start');
   if (d.state === 'running' || d.state === 'failed' || d.state === 'unknown') out.push('stop');
-  if (d.interaction_level === 'high' && (d.state === 'running' || d.state === 'failed')) out.push('reset');
+  if (['medium', 'high'].includes(d.interaction_level) && (d.state === 'running' || d.state === 'failed')) out.push('reset');
   return out;
 }
 
@@ -92,7 +92,7 @@ const REJECTS: Readonly<Record<string, string>> = {
   STALE_GENERATION: 'Ловушку уже изменили — данные обновлены.',
   COMMAND_BUSY: 'У ловушки уже выполняется команда',
   INVALID_STATE: 'Команда недоступна в текущем состоянии',
-  UNSUPPORTED_COMMAND: 'Сброс доступен только для High',
+  UNSUPPORTED_COMMAND: 'Сброс доступен для Medium и High',
   PROFILE_ARCHIVED: 'Профиль в архиве — запуск невозможен',
   UNSUPPORTED_PROFILE: 'Хост не поддерживает уровень профиля',
   AGENT_REVOKED: 'Доступ агента отозван',

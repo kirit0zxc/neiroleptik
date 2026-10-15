@@ -81,3 +81,11 @@ Pure TTY bytes созданы struct.pack по upstream `<iLiiLL>`; это не 
 не получены. Новый durable collector/worker, seal/digest storage, replay upload,
 read API и модель нескольких каналов остаются следующими PR по
 [cowrie-telemetry.md](cowrie-telemetry.md). Сообщение Данилу не отправлялось.
+
+## Совместимость с Medium replay (PR51)
+
+При обновлении на main e61f6ef рабочий CowrieCollector перенесён целиком, включая
+чтение порта из instance-конфигурации, сбор TTY, checkpoint и manifest закрытой
+сессии. Импорт CowrieCollector сохранён. Чистые CowrieAdapter/CowrieTtyConverter
+остаются самостоятельными компонентами; существующий replay использует
+adapters/cowrie_tty.py. Подключение нового parser не подменяется этим переносом.

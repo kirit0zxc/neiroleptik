@@ -20,7 +20,7 @@ Generation — счётчик принятых команд deployment, начи
 после завершения; изменённое тело — 409 IDEMPOTENCY_CONFLICT. Ключ не разделяется
 между deployments. На deployment допускается одно незавершённое задание.
 
-start: planned/stopped/failed; stop: running/failed/unknown; reset: High,
+start: planned/stopped/failed; stop: running/failed/unknown; reset: Medium/High,
 running/failed. Архивный профиль и неподдерживаемый уровень не запускаются.
 В этом этапе apply_config/rotate_credentials не реализованы.
 Команды всегда используют уже назначенную неизменяемую revision; изменение

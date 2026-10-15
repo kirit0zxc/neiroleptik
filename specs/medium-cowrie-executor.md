@@ -1,56 +1,100 @@
-# Medium: Cowrie, минимальный исполнитель
+# Medium Cowrie: локальный стенд Windows + Docker Desktop
 
-Объём согласован владельцем в задаче завершения Medium: один SSH-сервис,
-start/stop через существующие команды центра, durable ACK и журнал Cowrie.
-Контракты HTTP и Event v1 не меняются. Reset, High и точный TTY replay не входят.
+Объём и контракт согласованы владельцем 15.10.2026: настраиваемый SSH-профиль,
+start/stop/reset, постоянная доставка событий и текстовый replay. Серверное
+развёртывание, публичная экспозиция и полноценная сетевая изоляция — отдельный этап.
 
-Medium включается явно параметром `--medium-image`; образ собирается заранее из
-закреплённого Cowrie 3.1.1. Регистрация с `--medium` объявляет low и medium только
-после проверки образа оператором. Без флага прежний Low работает без изменений.
-Один профиль medium содержит ровно один ssh-сервис; пользовательский banner пока
-не поддерживается. Единственный порт — 2222, обязательные credentials профиля —
-ровно root/demo. Другие значения отвергаются до Docker run. Существующие lease,
-generation, instance_id и повтор ACK общие.
+## Профиль и жизненный цикл
 
-Контейнер работает непривилегированно с read-only rootfs, ограничением CPU/RAM/PID,
-без Docker socket. Для первого стенда порт привязан к loopback; отдельная Docker
-bridge network обязательна для локального Medium. Исходящий доступ этой сетью
-не блокируется; публичная эксплуатация не разрешена режимом драйвера. SSH-forwarding
-и SFTP выключены. Каталог состояния Cowrie отделён по
-deployment/instance, не удаляется при stop; содержит JSON, ключи, TTY и downloads.
-Публичный доступ и доказательство полноценной изоляции на Linux в MVP не заявляются.
+Medium включается явно через --medium-image. Образ собран из закреплённого Cowrie
+3.1.1. Профиль содержит один SSH-сервис, порт 1..65535, hostname, 1–8 credentials.
+Необязательный banner — печатный ASCII с префиксом SSH-2.0-. Пароли сопоставляются
+буквально, включая Unicode и символы правил Cowrie. Неподдерживаемая конфигурация
+даёт UNSUPPORTED_PROFILE до Docker run.
 
-Проверено 15.10.2026 на Windows + Docker Desktop: настоящий центр принял start,
-состояние стало running; вход root/demo и команда whoami вернули root; 11 событий
-прошли batch ACK и появились в GET /api/v1/events; stop завершился состоянием stopped.
-Назначение проверки: b7a7e17b-8825-426f-b643-7cf974ed6aa3. Журналы пережили stop.
-Автотесты покрывают повтор ACK без повторного run, явное включение Medium,
-checkpoint после рестарта, маскирование пароля и некорректный журнал.
+Конфигурация сохраняется в medium-config/<deployment>/<instance>/profile.json
+рядом с корнем medium-журналов. Файл неизменяем и монтируется read-only; пароли
+не попадают в argv/env или repr. Каталог доступен только оператору и Cowrie.
+Состояние executor SQLite не содержит credentials. Конфигурационные файлы и raw
+журналы могут содержать секреты: не публиковать и не добавлять в Git.
 
-## Запуск Windows + Docker Desktop
+Start/reset выделяют новый instance_id; reset останавливает прежний контейнер и
+запускает новый с назначенной revision. Общие lease, fencing, generation и durable
+ACK сохраняются. После потерянного ACK повтор не создаёт второй контейнер.
+Неопределённое исполнение восстанавливается наблюдением сохранённого UUID.
+Stop сохраняет журналы, а успешные прежние start/reset остаются bindings сборщика.
+Low reset по-прежнему не поддерживается.
 
-Из корня checkout с установленными зависимостями Python 3.12:
+Контейнер непривилегированный, read-only rootfs, CPU/RAM/PID limits, без Docker
+socket. Bind только loopback; отдельная Docker bridge network обязательна.
+SSH forwarding и SFTP отключены. Bridge не блокирует весь исходящий трафик;
+этот режим не предназначен для публичного размещения.
+
+## События и replay
+
+JSON Cowrie преобразуется в существующий Event v1. Фактический порт читается из
+конфигурации instance; старые записи MVP без конфигурации используют 2222.
+TTY начинается после аутентификации: login password в replay не включается.
+Записанные shell-команды и ответы доступны авторизованным reader/operator/admin.
+
+Завершённый TTY разбирается по формату Cowrie 3.1.1. Каждый session.output содержит
+только data.replay: seq, capture_seq, recording_id, offset_ms, direction,
+data_base64, truncated, started_at, final. recording_id — UUID log.closed;
+внутренний seq = JSON offset * 8192 + capture_seq. UUID события детерминирован.
+SQLite queue и checkpoint фиксируются атомарно; за шаг читается до 100 чанков,
+поэтому большой TTY не блокирует отправку уже накопленных событий.
+
+session.closed содержит replay_recordings — manifest записей этой SSH-сессии.
+GET /api/v1/sessions/{id}/replay выдаёт данные только после публикации полного
+manifest и всех последовательных чанков. До этого complete=false и chunks=[].
+Это закрывает гонку поздней доставки за tail_cursor. Несколько SSH-каналов
+сортируются по абсолютному времени каждого чанка, затем получают публичный seq.
+Пароль входа и произвольные data-поля не открываются этой ручкой.
+
+Ограничения: raw-файл 64 MiB, кадр 1 MiB, чанк 4096 байт, до 4000 чанков плюс
+финальная отметка, до 128 TTY в manifest, до 10000 опубликованных событий сессии.
+Обрезанный хвост или предел записи создаёт truncated=true и видимый разрыв.
+complete означает завершённую доставку записи, а не отсутствие разрывов.
+Повреждённый заголовок/неполный manifest не выдаются за полную запись.
+Replay текстовый, без точной геометрии терминала/resize, доступен после закрытия
+сессии; live-лента команд работает во время подключения.
+
+## Запуск
+
+Python 3.12, Docker Desktop в режиме Linux containers, зависимости корня проекта:
 
 ```powershell
 docker build -f honeypots/medium/Dockerfile -t honeyforge-medium:local .
 docker network create honeyforge-medium-local
 New-Item -ItemType Directory -Force C:\HoneyForge\medium-private
-# HF_ENROLLMENT_TOKEN передаётся отдельно, не сохраняется в репозитории.
+# HF_ENROLLMENT_TOKEN передаётся отдельно, не хранится в репозитории.
 python -m agent.runtime.executor.enroll --center https://CENTER --name medium-demo --medium --token-file C:\HoneyForge\medium-private\agent.token
 python -m agent.runtime.executor --center https://CENTER --token-file C:\HoneyForge\medium-private\agent.token --state C:\HoneyForge\medium-private\executor\state.sqlite3 --journal-root C:\HoneyForge\journals --medium-image honeyforge-medium:local --network honeyforge-medium-local --telemetry
 ```
 
-Для центра на этом же ПК допускается `--center http://127.0.0.1:8000
---allow-http-loopback` в обеих командах. Каталоги state и journals сохраняются вне
-checkout; их нельзя очищать при обновлении. Очередь событий создаётся рядом с state.
-В UI создать Medium SSH-профиль порт 2222, пустой banner, root/demo и назначить
-зарегистрированному узлу. После start: `ssh -p 2222 root@127.0.0.1`, пароль demo.
-После stop порт должен закрыться; в ленте остаются auth.attempt/session.command.
+Для центра на том же ПК: --center http://127.0.0.1:8000 --allow-http-loopback
+в обеих командах. State, очередь рядом со state, journals и medium-config сохранять
+вне checkout. При обновлении их не очищать. Агент должен работать постоянно.
+Для UI без моков включить VITE_API_MOCK=0, VITE_EVENTS_ENABLED=1,
+VITE_INVESTIGATION_ENABLED=1 и VITE_REPLAY_ENABLED=1.
 
-Проверенный стенд — Windows. На Linux нужно заранее обеспечить доступ UID/GID 999
-к выделенному каталогу Cowrie; запуск и права на таком стенде здесь не проверены.
-Лог plain не ротируется; предел одного файла 64 MiB. Общая дисковая квота, внешние
-архивы, разбор TTY, reset, произвольные credentials и production firewall остаются
-отдельными этапами. Журналы могут содержать введённые пароли: доступ только оператору;
-в публичный Event исходный пароль не передаётся. Docker Desktop может показывать
-адрес шлюза вместо настоящего IP клиента — source attribution не гарантируется.
+В UI создать Medium-профиль, например SSH 2224, hostname accounting-server,
+banner SSH-2.0-OpenSSH_9.6 и тестовые credentials. Назначить узлу с medium.
+В Парке нажать Запустить, дождаться работает; подключиться
+`ssh -p 2224 root@127.0.0.1` с паролем профиля, выполнить whoami и выйти.
+В Событиях открыть SSH-сессию и replay. Сбросить ловушку создаёт новый instance;
+Остановить закрывает порт, сохраняя события и replay прежней сессии.
+
+## Проверка и ограничения
+
+15.10.2026 реальный Windows/Docker smoke: пользовательский порт/hostname/banner,
+Unicode-пароль со спецсимволами, whoami, 27 доставленных событий и 16 replay-чанков,
+reset с новым instance_id и stop. Запуск кнопкой UI также проверен с настоящим
+SSH и автоматической доставкой команды. Автотесты покрывают lost ACK, checkpoint
+после рестарта посреди TTY, отсутствие дублей, поздние чанки, пагинацию, авторизацию
+и обратный порядок закрытия параллельных SSH-каналов.
+
+На Linux потребуются права UID/GID 999 на выделенные каталоги; приёмка заявлена
+для Windows. Общая квота диска, ротация/retention, внешний архив и production
+firewall ещё не входят в этот стенд. Docker Desktop может показывать адрес шлюза
+вместо реального IP клиента. High этим изменением не реализуется.

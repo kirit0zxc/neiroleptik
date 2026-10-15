@@ -1,5 +1,6 @@
 """Выделяет постоянное состояние одному instance и запускает настоящий Cowrie."""
 
+import json
 import os
 import resource
 import sys
@@ -15,12 +16,17 @@ class CowrieLauncher:
             raise RuntimeError("Cowrie запускается только внутри Linux-контейнера")
         resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024 * 1024, 64 * 1024 * 1024))
         identifier = str(UUID(instance))
+        profile = json.loads(Path("/honeyforge-config/profile.json").read_text(encoding="utf-8"))
         root = Path("/cowrie/cowrie-git/var") / identifier
         root.mkdir(mode=0o700, exist_ok=False)
         for name in ("log", "state", "etc", "downloads", "tty"):
             (root / name).mkdir(mode=0o700)
-        # Демо-пароль относится только к эмуляции shell, не к настоящему хосту.
-        (root / "etc" / "userdb.txt").write_text("root:x:demo\n", encoding="utf-8")
+        # Hex-regex означает точный UTF-8 пароль: '*' и '!' не становятся правилами Cowrie.
+        users = []
+        for item in profile["credentials"]:
+            password = "".join(f"\\x{value:02x}" for value in item["password"].encode("utf-8"))
+            users.append(f"{item['username']}:x:/\\A{password}\\Z/")
+        (root / "etc" / "userdb.txt").write_text("\n".join(users) + "\n", encoding="ascii")
         values = {
             "HONEYPOT_LOGTYPE": "plain",
             "HONEYPOT_LOG_PATH": str(root / "log"),
@@ -28,7 +34,8 @@ class CowrieLauncher:
             "HONEYPOT_ETC_PATH": str(root / "etc"),
             "HONEYPOT_DOWNLOAD_PATH": str(root / "downloads"),
             "HONEYPOT_TTYLOG_PATH": str(root / "tty"),
-            "SSH_VERSION": "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3",
+            "HONEYPOT_HOSTNAME": profile["hostname"],
+            "SSH_VERSION": profile["banner"] or "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3",
             "SSH_ENABLED": "true",
             "SSH_FORWARDING": "false",
             "SSH_SFTP_ENABLED": "false",

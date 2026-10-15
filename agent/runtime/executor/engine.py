@@ -332,9 +332,12 @@ class CommandExecutor:
         if command.config.interaction_level not in ("low", "medium") or command.action not in (
             "start",
             "stop",
+            "reset",
         ):
             return result
         if command.config.interaction_level == "medium" and self._medium_settings is None:
+            return result
+        if command.action == "reset" and command.config.interaction_level != "medium":
             return result
         allowed = self._store.known_instances(command.deployment_id)
         if record.attempt_instance_id is not None:
@@ -362,7 +365,7 @@ class CommandExecutor:
         )
         # После рестарта executing неоднозначен. В текущем процессе mark_executing
         # ещё не доказывает вызов run: подготовка или очистка слота могла отказать.
-        recovering = command.action == "start" and record.phase == "executing"
+        recovering = command.action in ("start", "reset") and record.phase == "executing"
         try:
             observed = await driver.observe()
             if observed is not None and observed.labels[LABEL_REVISION] != str(command.revision):
@@ -380,7 +383,7 @@ class CommandExecutor:
             if observed is not None and observed.labels[LABEL_INSTANCE] not in allowed:
                 raise ExecutionError("INSTANCE_MISMATCH")
             gate.require()
-            if command.action == "start":
+            if command.action in ("start", "reset"):
                 if record.phase == "executing":
                     status = await driver.recover(command.deployment(), record.attempt_instance_id)
                     if status.state != DriverState.RUNNING or not status.healthy:
@@ -435,7 +438,7 @@ class CommandExecutor:
                     result["runtime_state"] = "running" if observed.running else "failed"
                     return result
                 if (
-                    command.action == "start"
+                    command.action in ("start", "reset")
                     and instance == command.expected_instance_id
                     and observed.running
                     and result["applied_revision"] is not None
@@ -445,12 +448,12 @@ class CommandExecutor:
                     result["instance_id"] = instance
                     result["runtime_state"] = "running"
                     return result
-                if command.action == "start" and instance == record.attempt_instance_id:
+                if command.action in ("start", "reset") and instance == record.attempt_instance_id:
                     result["instance_id"] = record.attempt_instance_id
                 # Наблюдение прежнего экземпляра важнее предположения о новой попытке.
                 # Даже exited или ещё не применённый экземпляр сохраняет историю.
                 return result
-            if command.action == "start" and (leased.run_requested or recovering):
+            if command.action in ("start", "reset") and (leased.run_requested or recovering):
                 # При недоступном inspect сообщаем возможную попытку. Прежний UUID
                 # остаётся в known_instances, поэтому обычный stop сможет убрать его.
                 result["instance_id"] = record.attempt_instance_id

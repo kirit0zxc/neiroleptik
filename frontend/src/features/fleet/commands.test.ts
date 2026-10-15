@@ -11,20 +11,21 @@ const d = (patch: Partial<Deployment>): Pick<Deployment, 'state' | 'interaction_
 describe('доступность команд (F6, specs/commands.md)', () => {
   it('start — из planned, stopped, failed', () => {
     for (const state of ['planned', 'stopped'] as const) expect(availableCommands(d({ state }))).toEqual(['start']);
-    expect(availableCommands(d({ state: 'failed' }))).toEqual(['start', 'stop']);
+    expect(availableCommands(d({ state: 'failed' }))).toEqual(['start', 'stop', 'reset']);
   });
 
   it('stop — из running, failed и unknown; в unknown запуск запрещён', () => {
-    expect(availableCommands(d({ state: 'running' }))).toEqual(['stop']);
+    expect(availableCommands(d({ state: 'running' }))).toEqual(['stop', 'reset']);
     expect(availableCommands(d({ state: 'unknown' }))).toEqual(['stop']);
   });
 
-  it('reset — только High, работающей или упавшей', () => {
+  it('reset — Medium и High, работающей или упавшей', () => {
     expect(availableCommands(d({ interaction_level: 'high' }))).toEqual(['stop', 'reset']);
     expect(availableCommands(d({ interaction_level: 'high', state: 'failed' }))).toEqual(['start', 'stop', 'reset']);
     expect(availableCommands(d({ interaction_level: 'high', state: 'stopped' }))).toEqual(['start']);
     expect(availableCommands(d({ interaction_level: 'high', state: 'unknown' }))).toEqual(['stop']);
-    expect(availableCommands(d({ interaction_level: 'medium', state: 'failed' }))).not.toContain('reset');
+    expect(availableCommands(d({ interaction_level: 'medium', state: 'failed' }))).toContain('reset');
+    expect(availableCommands(d({ interaction_level: 'low', state: 'running' }))).not.toContain('reset');
   });
 
   it('в переходных состояниях команд нет', () => {
@@ -70,7 +71,7 @@ describe('отказ при отправке команды (409 с кодом)'
     expect(commandRejectText(err('STALE_GENERATION'))).toBe('Ловушку уже изменили — данные обновлены.');
     expect(commandRejectText(err('COMMAND_BUSY'))).toBe('У ловушки уже выполняется команда');
     expect(commandRejectText(err('INVALID_STATE'))).toBe('Команда недоступна в текущем состоянии');
-    expect(commandRejectText(err('UNSUPPORTED_COMMAND'))).toBe('Сброс доступен только для High');
+    expect(commandRejectText(err('UNSUPPORTED_COMMAND'))).toBe('Сброс доступен для Medium и High');
     expect(commandRejectText(err('PROFILE_ARCHIVED'))).toBe('Профиль в архиве — запуск невозможен');
     expect(commandRejectText(err('UNSUPPORTED_PROFILE'))).toBe('Хост не поддерживает уровень профиля');
     expect(commandRejectText(err('AGENT_REVOKED'))).toBe('Доступ агента отозван');

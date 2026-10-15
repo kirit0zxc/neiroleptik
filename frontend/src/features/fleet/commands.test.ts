@@ -86,9 +86,9 @@ describe('отказ при отправке команды (409 с кодом)'
 });
 
 describe('удаление ловушки (F6a)', () => {
-  it('canDelete — только stopped и failed', () => {
-    for (const state of ['stopped', 'failed'] as const) expect(canDelete({ state })).toBe(true);
-    for (const state of ['planned', 'deploying', 'running', 'stopping', 'unknown'] as const) expect(canDelete({ state })).toBe(false);
+  it('canDelete — только stopped', () => {
+    for (const state of ['stopped'] as const) expect(canDelete({ state })).toBe(true);
+    for (const state of ['failed', 'planned', 'deploying', 'running', 'stopping', 'unknown'] as const) expect(canDelete({ state })).toBe(false);
   });
 
   it('deleteErrorText — 409 показывает detail, неизвестный результат просит повторить', () => {

@@ -106,12 +106,12 @@ export function commandRejectText(error: unknown): string {
 }
 
 /**
- * Удаление ловушки доступно (F6a) только из stopped/failed: только тогда
+ * Удаление ловушки доступно (F6a) только из stopped: сервер дополнительно проверяет ACK stop; тогда
  * исполнитель точно не держит порт. В других состояниях сервер всё равно
  * откажет (409) — кнопку просто не показываем.
  */
 export function canDelete(d: Pick<Deployment, 'state'>): boolean {
-  return d.state === 'stopped' || d.state === 'failed';
+  return d.state === 'stopped';
 }
 
 /**

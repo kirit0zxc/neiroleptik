@@ -122,13 +122,13 @@ export const jobHandlers = (
     return HttpResponse.json({ job_id: job.job_id }, { status: 202 });
   }),
   // Удаление ловушки (F6a): 204 — удалена и резерв порта освобождён; 404 — уже нет;
-  // 409 — только из stopped/failed (иначе исполнитель может держать порт).
+  // 409 — только из stopped (иначе исполнитель может держать порт).
   http.delete('/api/v1/deployments/:id', ({ params, request }) => {
     const bad = csrfFailure(request); if (bad) return bad;
     const d = deployments.find((x) => x.id === params.id);
     if (!d) return HttpResponse.json({ detail: 'Ловушка не найдена' }, { status: 404 });
-    if (d.state !== 'stopped' && d.state !== 'failed') {
-      return reject('DELETE_NOT_ALLOWED', 'Удалить можно только остановленную ловушку или ловушку в ошибке');
+    if (d.state !== 'stopped') {
+      return reject('DELETE_NOT_ALLOWED', 'Сначала выполните Остановить и дождитесь подтверждения агента');
     }
     deployments = deployments.filter((x) => x.id !== d.id);
     return new HttpResponse(null, { status: 204 });

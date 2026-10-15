@@ -6,7 +6,7 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { App, makeQueryClient } from '../../app/App';
 import { handlers, resetMockSession } from '../../mocks/handlers';
-import { expireNextJobs, failNextJobs } from '../../mocks/jobs';
+import { currentDeployments, expireNextJobs, failNextJobs } from '../../mocks/jobs';
 
 const server = setupServer(...handlers);
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
@@ -444,16 +444,20 @@ describe('команды ловушек на API (F6)', () => {
 
 // Удаление ловушки (F6a): DELETE /deployments/{id}, освобождает резерв порта.
 describe('удаление ловушки (F6a)', () => {
-  beforeEach(() => resetMockSession(true));
+  beforeEach(() => {
+    resetMockSession(true);
+    // Начальная фикстура здесь представляет уже подтверждённую остановку.
+    currentDeployments().find((d) => d.id === 'decoy-high-01')!.state = 'stopped';
+  });
   /** Записывает DELETE и пропускает во встроенный мок (он реально удаляет ловушку). */
   const recordDelete = (into: string[]) => http.delete('/api/v1/deployments/:id', ({ params, request }) => {
     into.push(`${request.headers.get('X-CSRF-Token') ?? ''} ${String(params.id)}`);
     return undefined;
   });
 
-  it('кнопка «Удалить» только у остановленной или ошибочной ловушки', async () => {
+  it('кнопка «Удалить» только у остановленной ловушки', async () => {
     open();
-    // decoy-high-01 в состоянии failed — удалить можно.
+    // decoy-high-01 в состоянии stopped — удалить можно.
     expect(within(await row('decoy-high-01')).getByRole('button', { name: 'Удалить' })).toBeInTheDocument();
     // decoy-low-01 работает — удаления нет.
     expect(within(await row('decoy-low-01')).queryByRole('button', { name: 'Удалить' })).toBeNull();

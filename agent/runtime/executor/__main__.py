@@ -14,6 +14,7 @@ from agent.runtime.drivers.low import LowSettings
 from agent.runtime.executor.client import ClientError, HttpCommandClient
 from agent.runtime.executor.engine import CommandExecutor, ExecutionError
 from agent.runtime.executor.store import ExecutionStore, StoreError
+from agent.runtime.executor.telemetry import ExecutorTelemetry
 from agent.runtime.executor.tokens import TokenFile, TokenFileError
 
 # Heartbeat не заменяет renew и не зависит от времени выполнения Docker-команды.
@@ -53,6 +54,11 @@ async def _poll(args: argparse.Namespace, token: str) -> None:
     with ExecutionStore(args.state) as store:
         executor = CommandExecutor(client, store, DockerCli(), settings)
         heartbeat = asyncio.create_task(_heartbeat(client))
+        telemetry = None
+        if getattr(args, "telemetry", False):
+            telemetry = asyncio.create_task(
+                ExecutorTelemetry(client, store, args.journal_root, args.center, token).run()
+            )
         try:
             while True:
                 try:
@@ -66,6 +72,12 @@ async def _poll(args: argparse.Namespace, token: str) -> None:
                     return
                 await asyncio.sleep(0.1 if processed else 2.0)
         finally:
+            if telemetry is not None:
+                telemetry.cancel()
+                try:
+                    await telemetry
+                except asyncio.CancelledError:
+                    pass
             heartbeat.cancel()
             try:
                 await heartbeat
@@ -103,7 +115,10 @@ def main() -> None:
     parser.add_argument("--network")
     parser.add_argument("--allow-http-loopback", action="store_true")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--telemetry", action="store_true", help="Постоянный сбор и доставка Low")
     args = parser.parse_args()
+    if args.telemetry and args.once:
+        parser.error("--telemetry требует постоянного запуска без --once")
     # Токен не наследуется дочерними процессами; /proc environ этим не переписывается.
     token = os.environ.pop("HF_AGENT_TOKEN", None)
     try:

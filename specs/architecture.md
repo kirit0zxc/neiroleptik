@@ -1,5 +1,12 @@
 # Архитектура HoneyForge
 
+## Постоянный сбор Low
+
+`agent/runtime/executor/telemetry.py` соединяет доверенную историю ACK исполнителя
+с collector, production mapper и sender в отдельном последовательном worker.
+Команды и heartbeat остаются асинхронными; контракт и ограничения описаны в
+[continuous-low-telemetry.md](continuous-low-telemetry.md).
+
 ## Low production mapping, 13.10.2026
 
 `agent/telemetry/low_journal/production.py` реализует RawEventMapper согласно

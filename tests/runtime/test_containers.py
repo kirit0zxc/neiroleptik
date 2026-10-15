@@ -16,6 +16,7 @@ from agent.runtime.drivers.containers import (
     ContainerSpec,
     DockerCli,
     PortPublish,
+    TmpfsMount,
 )
 from infra.process import CommandResult
 
@@ -705,6 +706,45 @@ def test_spec_with_read_only_config_and_writable_journal_preserves_both_modes() 
     ]
     assert all(index + 1 < argv.index("honeyforge-low:local") for index in mount_indices)
     assert "--read-only" in argv, "корневая файловая система остаётся только для чтения"
+
+
+def test_tmpfs_keeps_the_root_read_only_and_forbids_execution() -> None:
+    """Записываемый путь в памяти не отменяет read-only корень и не даёт исполнять код."""
+    argv = DockerCli().run_command(spec(tmpfs=(TmpfsMount("/tmp", 16),)))
+
+    assert ("--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m") in set(
+        zip(argv, argv[1:], strict=False)
+    )
+    assert "--read-only" in argv
+    assert argv.index("--tmpfs") < argv.index("honeyforge-low:local")
+
+
+def test_spec_without_tmpfs_has_no_tmpfs_option() -> None:
+    assert "--tmpfs" not in DockerCli().run_command(spec())
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"target": "relative/tmp"},
+        {"target": "/tmp/../etc"},
+        {"target": "/tmp with space"},
+        {"size_mb": 0},
+        {"size_mb": 513},
+        {"size_mb": True},
+        {"size_mb": 16.0},
+    ],
+)
+def test_tmpfs_refuses_unsafe_values(changes: dict[str, Any]) -> None:
+    values: dict[str, Any] = {"target": "/tmp", "size_mb": 16}
+    values.update(changes)
+    with pytest.raises(ValueError):
+        TmpfsMount(**values)
+
+
+def test_tmpfs_target_cannot_repeat_a_bind_mount_target() -> None:
+    with pytest.raises(ValueError):
+        spec(mounts=(BindMount("/srv/state", "/state"),), tmpfs=(TmpfsMount("/state"),))
 
 
 def test_spec_without_mounts_has_no_mount_option() -> None:

@@ -22,7 +22,13 @@ from typing import Protocol
 from infra.process import BoundedRunner, CommandResult, Runner
 
 MANAGED_PREFIX = "honeyforge-"
+# Метки идентичности слота общие для всех уровней: по ним драйвер и исполнитель
+# отличают свой контейнер от чужого и от другого экземпляра того же назначения.
 LABEL_MANAGED = "honeyforge.managed"
+LABEL_DEPLOYMENT = "honeyforge.deployment_id"
+LABEL_INSTANCE = "honeyforge.instance_id"
+LABEL_REVISION = "honeyforge.revision"
+LABEL_LEVEL = "honeyforge.level"
 
 _NAME = re.compile(r"honeyforge-[a-z0-9][a-z0-9_.-]{0,100}")
 _CONTAINER_ID = re.compile(r"[a-f0-9]{64}")
@@ -146,6 +152,31 @@ class BindMount:
 
 
 @dataclass(frozen=True)
+class TmpfsMount:
+    """Временный каталог в памяти для ловушки, которой нужен записываемый путь.
+
+    Файловая система контейнера остаётся только для чтения: tmpfs не сохраняется
+    между запусками, ограничена размером и монтируется с `noexec,nosuid,nodev`,
+    поэтому записываемый путь не превращается в место для исполнения кода.
+    Предназначена для каталогов вроде `/tmp`, которые процесс создаёт сам; данные
+    ловушки для сборщика хранятся в bind mount на хосте, а не здесь.
+    """
+
+    target: str
+    size_mb: int = 16
+
+    def __post_init__(self) -> None:
+        if _MOUNT_TARGET.fullmatch(self.target) is None or ".." in self.target.split("/"):
+            raise ValueError("недопустимый путь внутри контейнера")
+        if type(self.size_mb) is not int or not 1 <= self.size_mb <= 512:
+            raise ValueError("размер tmpfs должен быть целым от 1 до 512 МиБ")
+
+    def argument(self) -> str:
+        """Одно значение docker --tmpfs; меры монтирования заданы жёстко."""
+        return f"{self.target}:rw,noexec,nosuid,nodev,size={self.size_mb}m"
+
+
+@dataclass(frozen=True)
 class ContainerSpec:
     """Запуск одного контейнера с обязательными мерами ограничения.
 
@@ -158,6 +189,7 @@ class ContainerSpec:
     command: tuple[str, ...]
     publish: tuple[PortPublish, ...] = ()
     mounts: tuple[BindMount, ...] = ()
+    tmpfs: tuple[TmpfsMount, ...] = ()
     labels: tuple[tuple[str, str], ...] = ()
     network: str | None = None
     user: str = "65532:65532"
@@ -175,11 +207,7 @@ class ContainerSpec:
         self.check_image(self.image)
         if self.network is not None:
             self.check_network(self.network)
-        if _USER.fullmatch(self.user) is None:
-            raise ValueError("пользователь задаётся как uid:gid")
-        # Сравнение чисел, а не строк: «00:5» — тоже root.
-        if any(int(part) == 0 for part in self.user.split(":")):
-            raise ValueError("контейнер не должен работать от root")
+        self.check_user(self.user)
         if _LOG_SIZE.fullmatch(self.log_max_size) is None:
             raise ValueError("размер журнала контейнера задаётся как число с k, m или g")
         if type(self.log_max_files) is not int or not 1 <= self.log_max_files <= 20:
@@ -204,7 +232,7 @@ class ContainerSpec:
                 raise ValueError("недопустимый ключ метки")
             if len(value) > _MAX_LABEL_VALUE or _has_control_character(value):
                 raise ValueError("недопустимое значение метки")
-        targets = [mount.target for mount in self.mounts]
+        targets = [mount.target for mount in self.mounts] + [item.target for item in self.tmpfs]
         if len(set(targets)) != len(targets):
             raise ValueError("цели монтирования повторяются")
         host_ports = [(item.host_ip, item.host_port) for item in self.publish]
@@ -216,6 +244,19 @@ class ContainerSpec:
         """Имя образа не может выглядеть как опция docker или содержать пробелы."""
         if _IMAGE.fullmatch(image) is None:
             raise ValueError("недопустимое имя образа")
+
+    @staticmethod
+    def check_user(user: str) -> None:
+        """Пользователь контейнера задаётся как uid:gid и не может быть root.
+
+        Числа сравниваются как числа, а не как строки: «00:5» — тоже root. Уровень
+        может потребовать другой непривилегированный uid (например, пользователя
+        образа Cowrie), но не root.
+        """
+        if _USER.fullmatch(user) is None:
+            raise ValueError("пользователь задаётся как uid:gid")
+        if any(int(part) == 0 for part in user.split(":")):
+            raise ValueError("контейнер не должен работать от root")
 
     @staticmethod
     def check_network(network: str) -> None:
@@ -306,6 +347,8 @@ class DockerCli:
             argv += ["--publish", item.argument()]
         for mount in spec.mounts:
             argv += ["--mount", mount.argument()]
+        for temporary in spec.tmpfs:
+            argv += ["--tmpfs", temporary.argument()]
         for key, value in spec.labels:
             argv += ["--label", f"{key}={value}"]
         argv.append(spec.image)

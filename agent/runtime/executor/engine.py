@@ -1,4 +1,8 @@
-"""Исполнение Low с долговечным ACK и отдельным разрешением на мутации Docker."""
+"""Исполнение команд центра с долговечным ACK и отдельным разрешением на мутации Docker.
+
+Драйвер выбирается по уровню назначения (`drivers/registry.py`); lease, durable стадии
+и подтверждение фактического состояния одинаковы для всех настроенных уровней.
+"""
 
 from __future__ import annotations
 
@@ -9,40 +13,42 @@ from datetime import UTC, datetime
 
 from agent.runtime.drivers.base import DriverError, DriverState
 from agent.runtime.drivers.containers import (
+    LABEL_DEPLOYMENT,
+    LABEL_INSTANCE,
+    LABEL_LEVEL,
     LABEL_MANAGED,
+    LABEL_REVISION,
     BackendError,
     ContainerBackend,
     ContainerObservation,
     ContainerSpec,
 )
-from agent.runtime.drivers.low import (
-    LABEL_DEPLOYMENT,
-    LABEL_INSTANCE,
-    LABEL_LEVEL,
-    LABEL_REVISION,
-    LowDriver,
-    LowSettings,
-)
+from agent.runtime.drivers.low import LowSettings
+from agent.runtime.drivers.registry import DriverRegistry
 from agent.runtime.executor.client import ClientError, CommandClient
 from agent.runtime.executor.protocol import ClaimedCommand, LeaseReply
 from agent.runtime.executor.store import ExecutionStore, StoredCommand
 
+# Описание фиксировано для кода и не зависит от уровня ловушки: оно попадает в
+# задание центра, а интерфейс переводит в фразы именно код.
 _ERROR_MESSAGES = {
-    "START_FAILED": "Не удалось запустить контейнер Low",
-    "HEALTHCHECK_FAILED": "Low не прошёл проверку ответа на опубликованном порту",
-    "CLEANUP_FAILED": "Не удалось остановить или удалить контейнер Low",
+    "START_FAILED": "Не удалось запустить контейнер ловушки",
+    "HEALTHCHECK_FAILED": "Ловушка не прошла проверку ответа на опубликованном порту",
+    "CLEANUP_FAILED": "Не удалось остановить или удалить контейнер ловушки",
     "BACKEND_UNAVAILABLE": "Docker недоступен для проверки или исполнения команды",
-    "UNSUPPORTED_PROFILE": "Профиль не поддерживается драйвером Low",
+    "UNSUPPORTED_PROFILE": "Профиль не поддерживается драйвером своего уровня",
     "INVALID_STATE": "Состояние или метки контейнера не допускают эту операцию",
     "INSTANCE_MISMATCH": "Наблюдаемый экземпляр не соответствует известному назначению",
-    "RECOVERY_UNCERTAIN": "После восстановления запуск Low нельзя подтвердить без повторного run",
+    "RECOVERY_UNCERTAIN": "После восстановления запуск нельзя подтвердить без повторного run",
     "START_UNCONFIRMED": "После запуска не найден работающий контейнер ожидаемой попытки",
-    "STOP_UNCONFIRMED": "После остановки контейнер Low всё ещё существует",
+    "STOP_UNCONFIRMED": "После остановки контейнер ловушки всё ещё существует",
     "PORT_STILL_OPEN": (
         "Не удалось подтвердить освобождение опубликованных портов после удаления контейнера"
     ),
     "LEASE_LOST": "Право на изменение контейнера потеряно из-за истечения lease",
-    "UNSUPPORTED_COMMAND": "Исполнитель поддерживает только start и stop для Low",
+    "UNSUPPORTED_COMMAND": (
+        "Исполнитель поддерживает только start и stop для настроенных на узле уровней"
+    ),
 }
 
 
@@ -104,12 +110,14 @@ class LeasedBackend:
         deployment_id: str,
         allowed_instances: set[str],
         revision: int,
+        level: str = "low",
     ) -> None:
         self._backend = backend
         self._gate = gate
         self._deployment_id = deployment_id
         self._allowed_instances = allowed_instances
         self._revision = revision
+        self._level = level
         self.run_requested = False
 
     def _authorize(self, labels: dict[str, str]) -> None:
@@ -117,7 +125,7 @@ class LeasedBackend:
         if (
             labels.get(LABEL_MANAGED) != "true"
             or labels.get(LABEL_DEPLOYMENT) != self._deployment_id
-            or labels.get(LABEL_LEVEL) != "low"
+            or labels.get(LABEL_LEVEL) != self._level
             or labels.get(LABEL_INSTANCE) not in self._allowed_instances
             or labels.get(LABEL_REVISION) != str(self._revision)
         ):
@@ -158,7 +166,7 @@ class CommandExecutor:
         client: CommandClient,
         store: ExecutionStore,
         backend: ContainerBackend,
-        settings: LowSettings | None = None,
+        drivers: DriverRegistry | LowSettings | None = None,
         *,
         renew_interval: float = 20.0,
     ) -> None:
@@ -171,9 +179,18 @@ class CommandExecutor:
         self._client = client
         self._store = store
         self._backend = backend
-        self._settings = settings or LowSettings()
+        # Настройки одного Low принимаются как есть: узел без настроенного Medium
+        # остаётся Low-узлом, и вызывающему не нужно собирать реестр.
+        self._drivers = (
+            drivers if isinstance(drivers, DriverRegistry) else DriverRegistry(low=drivers)
+        )
         self._renew_interval = renew_interval
         self._lock = asyncio.Lock()
+
+    @property
+    def levels(self) -> tuple[str, ...]:
+        """Уровни, команды которых этот процесс исполняет; остальные — UNSUPPORTED_COMMAND."""
+        return self._drivers.levels
 
     async def run_once(self) -> bool:
         """Обрабатывает сохранённую операцию раньше следующей команды центра."""
@@ -324,19 +341,20 @@ class CommandExecutor:
                 "message": _ERROR_MESSAGES["UNSUPPORTED_COMMAND"],
             },
         }
-        if command.config.interaction_level != "low" or command.action not in ("start", "stop"):
+        level = command.config.interaction_level
+        if not self._drivers.supports(level) or command.action not in ("start", "stop"):
             return result
         allowed = self._store.known_instances(command.deployment_id)
         if record.attempt_instance_id is not None:
             allowed.add(record.attempt_instance_id)
         leased = LeasedBackend(
-            self._backend, gate, command.deployment_id, allowed, command.revision
+            self._backend, gate, command.deployment_id, allowed, command.revision, level
         )
-        driver = LowDriver(
+        driver = self._drivers.create(
+            level,
             command.deployment_id,
             leased,
-            self._settings,
-            new_instance_id=lambda: record.attempt_instance_id or "",
+            lambda: record.attempt_instance_id or "",
         )
         # После рестарта executing неоднозначен. В текущем процессе mark_executing
         # ещё не доказывает вызов run: подготовка или очистка слота могла отказать.
@@ -396,7 +414,7 @@ class CommandExecutor:
             )
             result["error"] = {
                 "code": code,
-                "message": _ERROR_MESSAGES.get(code, "Исполнение команды Low завершилось ошибкой"),
+                "message": _ERROR_MESSAGES.get(code, "Исполнение команды завершилось ошибкой"),
             }
             try:
                 observed = await driver.observe()

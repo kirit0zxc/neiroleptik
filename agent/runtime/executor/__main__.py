@@ -1,4 +1,9 @@
-"""Polling команд и независимый heartbeat: закрытое состояние и Docker LowDriver."""
+"""Polling команд и независимый heartbeat: закрытое состояние и драйверы Docker.
+
+Уровни узла определяются настройками: Low настроен всегда, Medium — только когда
+оператор задал каталог состояния Cowrie. Команда ненастроенного уровня получает
+failed ACK UNSUPPORTED_COMMAND без обращения к Docker.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +16,8 @@ from types import FrameType
 
 from agent.runtime.drivers.containers import BackendError, DockerCli
 from agent.runtime.drivers.low import LowSettings
+from agent.runtime.drivers.medium import MediumSettings
+from agent.runtime.drivers.registry import DriverRegistry
 from agent.runtime.executor.client import ClientError, HttpCommandClient
 from agent.runtime.executor.engine import CommandExecutor, ExecutionError
 from agent.runtime.executor.store import ExecutionStore, StoreError
@@ -30,30 +37,54 @@ def _retryable(error: ClientError) -> bool:
     return error.code == "NETWORK_ERROR"
 
 
-async def _heartbeat(client: HttpCommandClient) -> None:
-    """Первый heartbeat сразу; Docker и командный lease не задерживают эту задачу."""
+async def _heartbeat(client: HttpCommandClient, levels: tuple[str, ...]) -> None:
+    """Первый heartbeat сразу; Docker и командный lease не задерживают эту задачу.
+
+    Расхождение возможностей узла с настройками процесса не исправляется автоматически:
+    центр может прислать команду уровня, который этот процесс не исполняет.
+    """
+    expected = ", ".join(levels)
     while True:
         try:
             reply = await client.heartbeat()
-            if reply.capabilities != ("low",):
-                print("Возможности узла отличаются от [low]; проверьте регистрацию", flush=True)
+            if set(reply.capabilities) != set(levels):
+                print(
+                    f"Возможности узла отличаются от настроенных [{expected}]; "
+                    "проверьте регистрацию",
+                    flush=True,
+                )
         except ClientError as error:
             print(f"Не удалось отправить heartbeat: {error.code}", flush=True)
         await asyncio.sleep(_HEARTBEAT_INTERVAL)
 
 
-async def _poll(args: argparse.Namespace, token: str) -> None:
-    """Transient сеть повторяется с паузой; конфликты состояния требуют вмешательства."""
-    client = HttpCommandClient(args.center, token, allow_http=args.allow_http_loopback)
-    settings = LowSettings(
+def _registry(args: argparse.Namespace) -> DriverRegistry:
+    """Реестр драйверов по аргументам оператора; Medium включается каталогом состояния."""
+    low = LowSettings(
         image=args.image,
         bind_address=args.bind_address,
         network=args.network,
         journal_root=args.journal_root,
     )
+    medium = None
+    if args.medium_state_root is not None:
+        medium = MediumSettings(
+            state_root=args.medium_state_root,
+            image=args.medium_image,
+            bind_address=args.bind_address,
+            network=args.network,
+            user=args.medium_user,
+        )
+    return DriverRegistry(low=low, medium=medium)
+
+
+async def _poll(args: argparse.Namespace, token: str) -> None:
+    """Transient сеть повторяется с паузой; конфликты состояния требуют вмешательства."""
+    client = HttpCommandClient(args.center, token, allow_http=args.allow_http_loopback)
+    registry = _registry(args)
     with ExecutionStore(args.state) as store:
-        executor = CommandExecutor(client, store, DockerCli(), settings)
-        heartbeat = asyncio.create_task(_heartbeat(client))
+        executor = CommandExecutor(client, store, DockerCli(), registry)
+        heartbeat = asyncio.create_task(_heartbeat(client, registry.levels))
         telemetry = None
         if getattr(args, "telemetry", False):
             telemetry = asyncio.create_task(
@@ -103,7 +134,7 @@ async def run(args: argparse.Namespace, token: str) -> None:
 
 def main() -> None:
     """Аргументы не включают Bearer, конфигурацию профиля и произвольные команды."""
-    parser = argparse.ArgumentParser(description="Исполнитель start/stop Low центра HoneyForge")
+    parser = argparse.ArgumentParser(description="Исполнитель start/stop ловушек центра HoneyForge")
     parser.add_argument("--center", required=True)
     parser.add_argument("--token-file", type=Path, help="Закрытый файл agent_token после enroll")
     parser.add_argument(
@@ -113,6 +144,17 @@ def main() -> None:
     parser.add_argument("--image", default="honeyforge-low:local")
     parser.add_argument("--bind-address", default="127.0.0.1")
     parser.add_argument("--network")
+    parser.add_argument(
+        "--medium-state-root",
+        type=Path,
+        help="Корень состояния Cowrie; задание включает уровень medium на этом узле",
+    )
+    parser.add_argument("--medium-image", default="honeyforge-medium:local")
+    parser.add_argument(
+        "--medium-user",
+        default="1000:1000",
+        help="uid:gid пользователя образа Cowrie; должен совпадать с образом",
+    )
     parser.add_argument("--allow-http-loopback", action="store_true")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--telemetry", action="store_true", help="Постоянный сбор и доставка Low")

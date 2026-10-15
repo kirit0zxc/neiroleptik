@@ -428,6 +428,9 @@ def test_cli_sigterm_waits_for_started_operation_and_durable_ack(
             bind_address="127.0.0.1",
             network=None,
             journal_root=None,
+            medium_state_root=None,
+            medium_image="honeyforge-medium:local",
+            medium_user="1000:1000",
             state=tmp_path / "private" / "state.sqlite3",
             once=False,
         )
@@ -772,6 +775,9 @@ def test_cli_stops_on_protocol_violation_instead_of_retrying(
         bind_address="127.0.0.1",
         network=None,
         journal_root=None,
+        medium_state_root=None,
+        medium_image="honeyforge-medium:local",
+        medium_user="1000:1000",
         state=tmp_path / "private" / "state.sqlite3",
         once=False,
     )

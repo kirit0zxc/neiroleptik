@@ -77,6 +77,9 @@ def test_heartbeat_runs_during_command_and_survives_errors(
         bind_address="127.0.0.1",
         network=None,
         journal_root=None,
+        medium_state_root=None,
+        medium_image="honeyforge-medium:local",
+        medium_user="1000:1000",
         state=tmp_path / "private" / "state.sqlite",
         once=True,
     )
@@ -84,7 +87,7 @@ def test_heartbeat_runs_during_command_and_survives_errors(
     if heartbeat_failure:
         output = capsys.readouterr().out
         assert "HTTP_ERROR" in output
-        assert "отличаются от [low]" in output
+        assert "отличаются от настроенных [low]" in output
 
 
 def test_cli_reads_private_token_file_without_inheritance(

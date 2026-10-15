@@ -112,7 +112,11 @@ def test_enrollment_reuses_url_validation(url: str) -> None:
 
 def args_for(http: HttpHarness, path: Path) -> argparse.Namespace:
     return argparse.Namespace(
-        center=http.url, name="host", token_file=path, allow_http_loopback=True
+        center=http.url,
+        name="host",
+        token_file=path,
+        level=["low"],
+        allow_http_loopback=True,
     )
 
 

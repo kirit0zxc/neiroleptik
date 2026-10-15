@@ -1,3 +1,6 @@
 
 # JSONL-контракт требует LF независимо от core.autocrlf на Windows.
 *.jsonl text eol=lf
+
+# Shell-скрипты образов исполняются в Linux: CRLF сломал бы интерпретатор.
+*.sh text eol=lf

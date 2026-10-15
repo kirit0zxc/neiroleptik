@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../shared/api/client';
 import type { Deployment } from '../../shared/api/types';
-import { availableCommands, commandRejectText, driverErrorText, isFinal, jobLabel } from './commands';
+import { availableCommands, canDelete, commandRejectText, deleteErrorText, driverErrorText, isFinal, jobLabel } from './commands';
 
 const d = (patch: Partial<Deployment>): Pick<Deployment, 'state' | 'interaction_level'> => ({
   state: 'running', interaction_level: 'medium', ...patch,
@@ -82,5 +82,21 @@ describe('отказ при отправке команды (409 с кодом)'
     expect(commandRejectText(err(null, 'Без кода'))).toBe('Без кода');
     expect(commandRejectText(err('toString', 'Прототип'))).toBe('Прототип');
     expect(commandRejectText(new Error('сеть'))).toBe('Команда не отправлена');
+  });
+});
+
+describe('удаление ловушки (F6a)', () => {
+  it('canDelete — только stopped', () => {
+    for (const state of ['stopped'] as const) expect(canDelete({ state })).toBe(true);
+    for (const state of ['failed', 'planned', 'deploying', 'running', 'stopping', 'unknown'] as const) expect(canDelete({ state })).toBe(false);
+  });
+
+  it('deleteErrorText — 409 показывает detail, неизвестный результат просит повторить', () => {
+    expect(deleteErrorText(new ApiError(409, 'Состояние исполнителя не подтверждено', [], 'DELETE_NOT_ALLOWED')))
+      .toBe('Состояние исполнителя не подтверждено');
+    // Сеть/обрыв (0) и 5xx — результат неизвестен.
+    expect(deleteErrorText(new ApiError(0, 'Нет связи с сервером'))).toBe('Нет связи с сервером — результат неизвестен, повторите');
+    expect(deleteErrorText(new ApiError(503, 'Ошибка сервера — попробуйте позже'))).toBe('Ошибка сервера — попробуйте позже — результат неизвестен, повторите');
+    expect(deleteErrorText(new Error('х'))).toBe('Не удалось удалить ловушку');
   });
 });

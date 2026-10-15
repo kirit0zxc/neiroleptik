@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -13,13 +13,13 @@ from honeyforge.api.schemas import (
     DeploymentCreate,
     DeploymentRead,
 )
-from honeyforge.common import DomainError
+from honeyforge.common import DomainError, utcnow
 from honeyforge.config import Settings
 from honeyforge.control.audit import AuditService
 from honeyforge.control.commands import CommandService
 from honeyforge.control.profiles import ProfileService
 from honeyforge.control.registry import RegistryService
-from honeyforge.models import Deployment, Host, PortReservation, User
+from honeyforge.models import Command, Deployment, Host, PortReservation, User
 
 
 class DeploymentService:
@@ -87,18 +87,52 @@ class DeploymentService:
 
     def get(self, deployment_id: UUID) -> DeploymentRead:
         item = self.session.get(Deployment, deployment_id)
-        if item is None:
+        if item is None or item.deleted_at is not None:
             raise DomainError(404, "Назначение не найдено")
         return self.read(item)
 
     def list(self, limit: int, offset: int) -> list[DeploymentRead]:
         items = self.session.scalars(
             select(Deployment)
+            .where(Deployment.deleted_at.is_(None))
             .order_by(Deployment.created_at, Deployment.id)
             .limit(limit)
             .offset(offset)
         )
         return [self.read(item) for item in items]
+
+    def delete(self, deployment_id: UUID, actor: User) -> None:
+        """Освобождаем порт только после подтверждённой остановки, сохраняя историю."""
+        item = self.session.get(Deployment, deployment_id)
+        if item is None:
+            raise DomainError(404, "Назначение не найдено")
+        self.registry.get(item.host_id, lock=True)
+        item = self.commands.lock_deployment(deployment_id)
+        if item.deleted_at is not None:
+            raise DomainError(404, "Назначение не найдено")
+        if self.commands.active(item.id) is not None:
+            raise DomainError(409, "Дождитесь завершения команды", "COMMAND_BUSY")
+        stopped = self.session.scalar(
+            select(Command.id).where(
+                Command.deployment_id == item.id,
+                Command.generation == item.generation,
+                Command.action == "stop",
+                Command.state == "succeeded",
+                Command.ack_digest.is_not(None),
+            )
+        )
+        if item.state != "stopped" or stopped is None:
+            raise DomainError(
+                409,
+                "Сначала выполните Остановить и дождитесь подтверждения агента",
+                "DELETE_NOT_ALLOWED",
+            )
+        item.deleted_at = utcnow()
+        self.session.execute(
+            delete(PortReservation).where(PortReservation.deployment_id == item.id)
+        )
+        AuditService.add(self.session, "deployment.deleted", actor.id, item.id)
+        self.session.commit()
 
     def config(self, host: Host) -> AgentConfigRead:
         """Агент не выбирает host_id извне и получает только свои назначения."""
@@ -106,7 +140,7 @@ class DeploymentService:
 
         items = self.session.scalars(
             select(Deployment)
-            .where(Deployment.host_id == host.id)
+            .where(Deployment.host_id == host.id, Deployment.deleted_at.is_(None))
             .order_by(Deployment.created_at, Deployment.id)
         )
         result = []

@@ -256,6 +256,13 @@ jobs:
           uv run --frozen mypy
           uv run --frozen pytest tests --ignore=tests/telemetry
           uv build --wheel
+      - name: Verify separate Linux users for boundary publication
+        # Родитель меняет идентичность детей: R публикует, C только читает,
+        # L не получает доступа к корням. Решения принимает ядро, не биты в тесте.
+        run: >-
+          sudo env HF_REQUIRE_LINUX_USERS=1
+          "$GITHUB_WORKSPACE/.venv/bin/python" -m pytest
+          tests/runtime/test_boundary_linux_users.py -q
       - name: Validate runtime Compose configuration
         run: docker compose -f compose.runtime.yml config --quiet
 

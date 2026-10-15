@@ -6,6 +6,7 @@ import stat
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from agent.telemetry.adapters.cowrie_tty import CowrieTtyCollector
 from agent.telemetry.adapters.low import SourceRecord
 from agent.telemetry.low_journal.models import JournalBinding
 from agent.telemetry.schemas import Event, compact_json
@@ -36,6 +37,21 @@ class CowrieCollector:
             if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
                 raise ValueError("Cowrie: ссылка вместо локального журнала")
         source = f"cowrie:{binding.deployment_id}:{binding.instance_id}"
+        config = (
+            self._root
+            / "medium-config"
+            / binding.deployment_id
+            / binding.instance_id
+            / "profile.json"
+        )
+        port = 2222
+        if config.exists():
+            if config.stat().st_size > 32768:
+                raise ValueError("Cowrie: слишком большая конфигурация")
+            value = json.loads(config.read_text(encoding="utf-8"))
+            if not isinstance(value, dict) or type(value.get("port")) is not int:
+                raise ValueError("Cowrie: некорректный порт конфигурации")
+            port = value["port"]
         offset = self._spool.checkpoint(source)
         descriptor = os.open(
             path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
@@ -53,11 +69,44 @@ class CowrieCollector:
                     raise ValueError("Cowrie: слишком длинная запись")
                 if not line or not line.endswith(b"\n"):
                     break
-                event = self._event(binding, source, offset, line)
+                event = self._event(binding, source, offset, line, port)
+                raw = json.loads(line)
+                if raw.get("eventid") == "cowrie.session.closed":
+                    # Manifest закрывает гонку: replay не выдаётся раньше всех его записей.
+                    position = stream.tell()
+                    stream.seek(0)
+                    recordings = []
+                    while stream.tell() < offset:
+                        record_offset = stream.tell()
+                        previous = json.loads(stream.readline(65537))
+                        if not isinstance(previous, dict):
+                            raise ValueError("Cowrie: некорректная запись manifest")
+                        if previous.get("eventid") == "cowrie.log.closed" and previous.get(
+                            "session"
+                        ) == raw.get("session"):
+                            record = self._event(
+                                binding,
+                                source,
+                                record_offset,
+                                compact_json(previous).encode(),
+                                port,
+                            )
+                            recordings.append(str(record.event_id))
+                        if len(recordings) > 128:
+                            raise ValueError("Cowrie: превышен лимит записей одной сессии")
+                    stream.seek(position)
+                    event = event.model_copy(
+                        update={"data": {**event.data, "replay_recordings": recordings}}
+                    )
+                if raw.get("eventid") == "cowrie.log.closed":
+                    if not CowrieTtyCollector(self._spool).step(path.parent.parent, raw, event):
+                        break
                 self._spool.append(SourceRecord(source, offset, offset + len(line), event))
                 offset += len(line)
 
-    def _event(self, binding: JournalBinding, source: str, offset: int, line: bytes) -> Event:
+    def _event(
+        self, binding: JournalBinding, source: str, offset: int, line: bytes, port: int = 2222
+    ) -> Event:
         raw = json.loads(line)
         if not isinstance(raw, dict) or not isinstance(raw.get("timestamp"), str):
             raise ValueError("Cowrie: ожидается объект события с timestamp")
@@ -103,7 +152,7 @@ class CowrieCollector:
                 "occurred_at": raw["timestamp"],
                 "type": event_type,
                 "source": peer,
-                "service": {"protocol": "ssh", "port": 2222},
+                "service": {"protocol": "ssh", "port": port},
                 "data": data,
                 "artifact_ids": [],
             }

@@ -84,7 +84,7 @@ HTTP и SQLite выполняются одним worker-потоком. Event lo
 
 Результаты, команды, SHA, числа passed/failed/skipped и ограничения среды
 фиксируются отдельно в `continuous-low-resilience-validation.md` после исполнения.
-Все сценарии входят в root pytest штатных telemetry/runtime CI jobs.
+Все сценарии входят в root pytest штатного telemetry CI job.
 
 ## Локальная приёмка 15.10.2026
 

@@ -57,6 +57,14 @@ export const YUMI_RULES: BridgeRules = {
     const cut = p.bool('truncated') && cmd !== '—' && !cmd.endsWith('…') ? '…' : '';
     return { state: 'analyzing', say: `${ip(p)} выполняет: ${cmd}${cut}` };
   },
+  'attack:http': (p) => {
+    const method = safe(p.str('method'), 8);
+    return { state: 'analyzing', say: `${ip(p)} отправил ${method ? `HTTP-запрос ${method}` : 'HTTP-запрос'}.` };
+  },
+  'attack:tcp': (p) => {
+    const n = p.num('bytes', -1);
+    return { state: 'analyzing', say: n >= 0 ? `${ip(p)} прислал ${n} байт по TCP.` : `${ip(p)} прислал данные по TCP.` };
+  },
   'token:triggered': (p) => ({ state: 'error', say: `Сработал медовый токен! Источник ${ip(p)}.` }),
   'trap:offline': { state: 'gentle', say: 'Одна из ловушек остановилась.' },
 };

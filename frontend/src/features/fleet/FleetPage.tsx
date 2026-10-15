@@ -7,7 +7,7 @@ import { Empty, ErrorState, Loading, Panel, StatusBadge, ui } from '../../shared
 import { canEdit, useMe } from '../auth/auth';
 import { DeploymentActions } from './DeploymentActions';
 import { AddHostButton, RevokeHostButton } from './HostAdmin';
-import { deploymentStatus, hostStatus } from './status';
+import { deploymentStatus, hostStatus, hostUnreachable } from './status';
 import s from './fleet.module.css';
 
 const LEVEL = { low: 'Low', medium: 'Medium', high: 'High' } as const;
@@ -65,13 +65,17 @@ export function FleetPage() {
               <tbody>
                 {deps.data.map((d) => {
                   const st = deploymentStatus(d);
+                  const unreachable = hostUnreachable(hosts.data?.find((h) => h.id === d.host_id)?.status);
                   return (
                     <tr key={d.id}>
                       <td className="mono">{d.id}</td>
                       {/* Уровень назначенной ревизии — из ответа, не из текущей версии профиля. */}
                       <td>{LEVEL[d.interaction_level] ?? '—'}</td>
                       <td className="mono">{d.host_id}</td>
-                      <td><StatusBadge tone={st.tone}>{st.label}</StatusBadge></td>
+                      <td>
+                        <StatusBadge tone={st.tone}>{st.label}</StatusBadge>
+                        {unreachable && <div className={s.unconfirmed}>хост не на связи — состояние не подтверждено</div>}
+                      </td>
                       <td className="mono">{d.profile_id} · r{d.revision}</td>
                       {editable && <td><DeploymentActions deployment={d} /></td>}
                     </tr>

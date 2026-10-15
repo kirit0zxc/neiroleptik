@@ -19,7 +19,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-from agent.runtime.boundary.documents import MAX_SAFE_INTEGER, WriterBinding
+from agent.runtime.boundary.documents import (
+    MAX_JOURNALS,
+    MAX_SAFE_INTEGER,
+    WriterBinding,
+)
 from agent.runtime.boundary.errors import BoundaryError, BoundaryErrorCode
 
 JOURNAL_SCHEMA = "honeyforge-low-journal/1"
@@ -28,7 +32,10 @@ MAX_HEADER_BYTES = 4096
 # Размер блока чтения при подсчёте хеша копии.
 _CHUNK_BYTES = 256 * 1024
 _UUID_TEXT = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-_JOURNAL_NAME = re.compile(rf"low-({_UUID_TEXT})-(\d{{6,}})\.jsonl")
+# Шесть знаков — каноническое заполнение Low, девятнадцать — предел точного целого
+# JavaScript (§4). Более длинное имя считается неизвестным и блокирует переход, а не
+# разбирается в int: имя файла выбирает ловушка, обращённая к атакующему.
+_JOURNAL_NAME = re.compile(rf"low-({_UUID_TEXT})-(\d{{6,19}})\.jsonl")
 
 
 def _unavailable(detail: str) -> BoundaryError:
@@ -365,8 +372,15 @@ class JournalSlot:
         numbers = sorted(number for number in entries if number >= first_journal_seq)
         if not numbers or numbers[0] != first_journal_seq:
             raise _unavailable("первый журнал закрываемого writer отсутствует")
-        if numbers != list(range(first_journal_seq, numbers[-1] + 1)):
-            raise _unavailable("в цепочке журналов writer пропущен номер")
+        # Номера проверяются попарно. Полный диапазон строить нельзя: номер приходит
+        # из имени файла, а каталог слота записывает сама ловушка, поэтому одно имя
+        # с большим номером заставило бы выделить память до любых проверок (§8.5).
+        for position, number in enumerate(numbers):
+            if number != first_journal_seq + position:
+                raise _unavailable("в цепочке журналов writer пропущен номер")
+        if len(numbers) > MAX_JOURNALS:
+            # Предел §8.5 проверяется до чтения заголовков и измерения байтов.
+            raise BoundaryError(BoundaryErrorCode.LIMIT_EXCEEDED, "больше 64 журналов на переход")
         collected: list[JournalFile] = []
         expected_previous: str | None = None
         seen: set[str] = set()

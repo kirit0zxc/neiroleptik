@@ -510,13 +510,21 @@ class BoundaryProducer:
                     BoundaryErrorCode.REGISTRY_UNAVAILABLE,
                     "сохранённые байты выданного документа утрачены",
                 )
+            name = self.document_name(document)
             directory = self._control.open_directory(self._control_parts(binding), create=True)
             try:
-                if self._control.read_published(directory, self.document_name(document)) is None:
-                    self._control.write_once(
-                        directory, self.document_name(document), document.canonical
-                    )
+                existing = self._control.read_published(directory, name)
+                if existing is None:
+                    self._control.write_once(directory, name, document.canonical)
                     restored = document
+                elif existing != document.canonical:
+                    # Опубликованный документ обязан побайтно совпадать с сохранённым
+                    # при фиксации: иначе выданное доказательство подменено, и
+                    # перезаписывать его нельзя (§8.2, §8.4).
+                    raise BoundaryError(
+                        BoundaryErrorCode.BOUNDARY_PUBLICATION_CONFLICT,
+                        "опубликованный документ не совпадает с сохранёнными байтами",
+                    )
             finally:
                 os.close(directory)
         if restored is None:

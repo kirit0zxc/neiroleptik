@@ -425,6 +425,21 @@ def test_counters_stay_inside_the_safe_integer_range() -> None:
         copy_with(boundary, boundary_seq=MAX_SAFE_INTEGER + 1, previous_boundary_id=None)
 
 
+def test_overlong_counter_is_refused_as_a_field_not_as_a_crash() -> None:
+    """Очень длинная строка цифр отвергается до разбора в int (§4).
+
+    Документ приходит из файла, поэтому его поля недоверенные: разбор не должен
+    поднимать ValueError мимо кодов отказа и не должен тратить время на число,
+    которое всё равно больше предела точного целого.
+    """
+    payload = boundary_payload()
+    for value in ("9" * 5000, "9" * 17, str(MAX_SAFE_INTEGER + 1)):
+        payload["boundary_seq"] = value
+        with pytest.raises(BoundaryError) as error:
+            ProcessBoundary.parse(CanonicalJson.encode(payload))
+        assert error.value.code is BoundaryErrorCode.INVALID_DOCUMENT
+
+
 def test_document_above_the_agreed_limit_is_refused_on_decode() -> None:
     """Предел 1 MiB одинаков до и после разбора (§8.5)."""
     with pytest.raises(BoundaryError) as error:

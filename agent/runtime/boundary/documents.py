@@ -29,6 +29,8 @@ BOUNDARY_SCHEMA = "honeyforge-low-process-boundary/1"
 FENCE_CONTAINER_REMOVED = "container_removed"
 # Предел точного целого в JavaScript: выше документ не выдаётся (§4, §8.5).
 MAX_SAFE_INTEGER = 9007199254740991
+# Число знаков в десятичной строке счётчика: ровно столько у MAX_SAFE_INTEGER.
+_MAX_COUNTER_DIGITS = len(str(MAX_SAFE_INTEGER))
 # Общий предел документа consumer; producer не фиксирует документ больше (§8.5).
 DOCUMENT_MAX_BYTES = 1024 * 1024
 # Пределы MVP на один переход (§8.5).
@@ -174,8 +176,17 @@ def counter(value: int, path: str, *, minimum: int = 1) -> str:
 
 
 def _counter_value(value: object, path: str, *, minimum: int = 1) -> int:
-    """Читает десятичную строку без ведущих нулей обратно в int."""
-    if not isinstance(value, str) or _DECIMAL.fullmatch(value) is None:
+    """Читает десятичную строку без ведущих нулей обратно в int.
+
+    Длина проверяется до разбора: у предела точного целого JavaScript шестнадцать
+    знаков, а очень длинная строка цифр поднимала бы из int() ValueError мимо кодов
+    отказа. Документ приходит из файла, поэтому его поля недоверенные.
+    """
+    if (
+        not isinstance(value, str)
+        or len(value) > _MAX_COUNTER_DIGITS
+        or _DECIMAL.fullmatch(value) is None
+    ):
         raise _invalid(path)
     number = int(value)
     if not minimum <= number <= MAX_SAFE_INTEGER:

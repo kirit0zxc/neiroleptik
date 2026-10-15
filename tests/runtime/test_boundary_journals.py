@@ -6,6 +6,7 @@
 """
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -291,3 +292,50 @@ def test_uppercase_instance_prefix_is_not_silently_ignored(tmp_path: Path) -> No
     with pytest.raises(BoundaryError) as error:
         JournalSlot(tmp_path, binding()).collect_writer_chain(identifiers[0], 1)
     assert error.value.code is BoundaryErrorCode.BOUNDARY_SNAPSHOT_UNAVAILABLE
+
+
+def test_huge_generation_number_in_a_name_does_not_allocate_the_range(tmp_path: Path) -> None:
+    """Имя файла не должно приводить к выделению памяти по своему номеру.
+
+    Каталог слота записывает сама ловушка, обращённая к атакующему, поэтому номер
+    в имени недоверенный. Проверка последовательности идёт попарно, а не построением
+    полного диапазона от первого номера до максимального.
+    """
+    identifiers = write_real_journal(tmp_path, 1)
+    # Номер в пределах точного целого, но огромный: разрыв обязан обнаружиться сразу.
+    (tmp_path / journal_name(INSTANCE, 9_000_000_000_000_000)).write_bytes(b"{}\n")
+    slot = JournalSlot(tmp_path, binding())
+    started = time.monotonic()
+    with pytest.raises(BoundaryError) as error:
+        slot.collect_writer_chain(identifiers[0], 1)
+    spent = time.monotonic() - started
+    assert error.value.code is BoundaryErrorCode.BOUNDARY_SNAPSHOT_UNAVAILABLE
+    assert "пропущен номер" in error.value.detail
+    # Построение диапазона заняло бы минуты и гигабайты памяти.
+    assert spent < 5.0
+
+
+@pytest.mark.parametrize(
+    "number",
+    ["9" * 20, "9" * 19, "0" * 30 + "1"],
+)
+def test_name_outside_the_safe_integer_range_blocks_the_transition(
+    tmp_path: Path, number: str
+) -> None:
+    """Слишком длинный или слишком большой номер — неизвестное имя, а не разбор int."""
+    identifiers = write_real_journal(tmp_path, 1)
+    (tmp_path / f"low-{INSTANCE}-{number}.jsonl").write_bytes(b"{}\n")
+    with pytest.raises(BoundaryError) as error:
+        JournalSlot(tmp_path, binding()).collect_writer_chain(identifiers[0], 1)
+    assert error.value.code is BoundaryErrorCode.BOUNDARY_SNAPSHOT_UNAVAILABLE
+
+
+def test_more_than_64_generations_are_refused_before_reading_headers(tmp_path: Path) -> None:
+    """Предел 64 журналов проверяется до чтения заголовков и измерения байтов (§8.5)."""
+    identifiers = write_real_journal(tmp_path, 1)
+    for number in range(2, 67):
+        # Содержимое заведомо негодное: до него проверка доходить не должна.
+        (tmp_path / journal_name(INSTANCE, number)).write_bytes(b"")
+    with pytest.raises(BoundaryError) as error:
+        JournalSlot(tmp_path, binding()).collect_writer_chain(identifiers[0], 1)
+    assert error.value.code is BoundaryErrorCode.LIMIT_EXCEEDED

@@ -31,6 +31,8 @@ from agent.runtime.boundary.producer import (
     build_producer,
 )
 from agent.runtime.boundary.publication import (
+    MODE_PUBLISHED_DIRECTORY,
+    MODE_PUBLISHED_FILE,
     LinuxWriteOnceRename,
     ProtectedTree,
     PublicationRoots,
@@ -1057,5 +1059,65 @@ def test_snapshot_root_quota_stops_the_transition_before_fencing(base: Path) -> 
             assert container not in engine.removed
             assert registry.outstanding_intent(binding()) is None
             assert not (base / "snapshots" / "low-snapshots").exists()
+
+    asyncio.run(scenario())
+
+
+def test_tampered_published_document_is_a_conflict(base: Path) -> None:
+    """Подменённый опубликованный документ не проходит сверку с registry (§8.2, §8.4).
+
+    Строка `exported` §8.4 требует сравнения байтов: пропавший файл публикуется
+    заново, а отличающийся — BOUNDARY_PUBLICATION_CONFLICT без перезаписи.
+    """
+
+    async def scenario() -> None:
+        engine = FakeEngine()
+        with registry_at(base) as registry:
+            runtime, anchor, container = await anchored(base, registry, engine)
+            engine.crash(container)
+            result = await runtime.restart_writer(binding(), deployment())
+            assert result.document is not None
+            proof = ProcessBoundary.parse(result.document.canonical)
+            published = control_file(base, boundary_name(proof.boundary_seq, proof.boundary_id))
+            original = published.read_bytes()
+
+            # Подмена выданного доказательства: байты другие, имя и права те же.
+            # Режим возвращается к опубликованному, иначе отказ пришёл бы раньше —
+            # по битам записи, а проверяется именно сверка байтов.
+            published.parent.chmod(0o750)
+            published.chmod(0o640)
+            tampered = original.replace(b'"footer_present":false', b'"footer_present":true')
+            assert tampered != original
+            published.write_bytes(tampered)
+            published.chmod(MODE_PUBLISHED_FILE)
+            published.parent.chmod(MODE_PUBLISHED_DIRECTORY)
+
+            with pytest.raises(BoundaryError) as error:
+                await runtime.reconcile(binding(), deployment())
+            assert error.value.code is BoundaryErrorCode.BOUNDARY_PUBLICATION_CONFLICT
+            # Перезаписи не было: конфликт разбирает оператор.
+            assert published.read_bytes() == tampered
+
+    asyncio.run(scenario())
+
+
+def test_tampered_published_anchor_is_a_conflict(base: Path) -> None:
+    """Та же сверка относится и к anchor: подмена обнаруживается до новых переходов."""
+
+    async def scenario() -> None:
+        engine = FakeEngine()
+        with registry_at(base) as registry:
+            runtime, anchor, _ = await anchored(base, registry, engine)
+            published = control_file(base, ANCHOR_NAME)
+            published.parent.chmod(0o750)
+            published.chmod(0o640)
+            published.write_bytes(
+                anchor.canonical().replace(b'"profile_revision":1', b'"profile_revision":2')
+            )
+            published.chmod(MODE_PUBLISHED_FILE)
+            published.parent.chmod(MODE_PUBLISHED_DIRECTORY)
+            with pytest.raises(BoundaryError) as error:
+                await runtime.reconcile(binding(), deployment())
+            assert error.value.code is BoundaryErrorCode.BOUNDARY_PUBLICATION_CONFLICT
 
     asyncio.run(scenario())

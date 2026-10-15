@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import sqlite3
+import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from itertools import islice
 from pathlib import Path
@@ -25,7 +28,16 @@ from agent.telemetry.spool import SpoolRepository
 class LowTelemetryWorker:
     """Все соединения создаются, используются и закрываются в одном потоке."""
 
-    def __init__(self, path: Path, root: Path, agent_id: str, transport: BatchTransport) -> None:
+    def __init__(
+        self,
+        path: Path,
+        root: Path,
+        agent_id: str,
+        transport: BatchTransport,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        jitter: Callable[[float, float], float] = random.uniform,
+    ) -> None:
         self._raw = RawJournalRepository(path, agent_id)
         try:
             self._spool = SpoolRepository(path, agent_id)
@@ -34,7 +46,7 @@ class LowTelemetryWorker:
             raise
         self._root = root
         self._mapper = LowProductionMapper(UUID(agent_id))
-        self._sender = TelemetrySender(self._spool, transport)
+        self._sender = TelemetrySender(self._spool, transport, clock=clock, jitter=jitter)
         self._position = 0
 
     def step(self, bindings: tuple[JournalBinding, ...]) -> tuple[str, str]:

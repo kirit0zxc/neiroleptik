@@ -9,12 +9,14 @@ import { eventData } from '../format/source';
  */
 export type MascotSignal =
   | 'trap:online' | 'trap:offline' | 'attack:connect' | 'attack:auth'
-  | 'attack:command' | 'token:triggered' | 'alert';
+  | 'attack:command' | 'attack:http' | 'attack:tcp' | 'token:triggered' | 'alert';
 
 const BY_TYPE: Partial<Record<string, MascotSignal>> = {
   'connection.opened': 'attack:connect',
   'auth.attempt': 'attack:auth',
   'session.command': 'attack:command',
+  'http.request': 'attack:http',
+  'tcp.request': 'attack:tcp',
   'token.triggered': 'token:triggered',
 };
 

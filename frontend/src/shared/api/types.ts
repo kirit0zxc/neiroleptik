@@ -174,7 +174,8 @@ export interface HfEvent {
   /** Время приёма центром. */
   received_at: string;
   type: EventType | string;
-  source: { ip: string; port: number };
+  /** Обязательное поле; null — источник неизвестен (контракт EventV1, PR #35). */
+  source: { ip: string; port: number } | null;
   service: { protocol: string; port: number };
   data: Record<string, unknown>;
   artifact_ids: string[];

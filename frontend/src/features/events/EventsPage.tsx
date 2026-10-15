@@ -2,6 +2,7 @@ import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { sourceLabel } from '../../shared/format/source';
+import { replayEnabled } from '../../app/telemetry';
 import { api, ApiError } from '../../shared/api/client';
 import { EVENT_TYPES, eventKey, type Deployment, type HfEvent } from '../../shared/api/types';
 import { formatTime } from '../../shared/format/time';
@@ -84,16 +85,17 @@ export function EventsPage() {
 
   const recoverOverflow = () => { void reloadHistory().catch(() => {}); };
 
-  // 422 на следующей странице: курсор снимка больше не принимается — перечитать с
-  // начала, но автоматически один раз. Повторный 422 — ошибка: неверные фильтры
-  // перечитыванием не исправить. Новая выборка или успешная страница снимают отметку.
+  // 422 с кодом INVALID_CURSOR: курсор снимка больше не принимается — перечитать с
+  // начала, но автоматически один раз. Другой 422 (ошибка фильтров) курсор не
+  // сбрасывает — остаётся ошибка с «Повторить». Новая выборка или успешная
+  // страница снимают отметку.
   const [restarted, setRestarted] = useState(false);
   const autoReset = useRef(false);
   useEffect(() => { setRestarted(false); autoReset.current = false; }, [key]);
   const loadMore = async () => {
     setRestarted(false);
     const r = await pages.fetchNextPage();
-    if (!(r.error instanceof ApiError && r.error.status === 422)) {
+    if (!(r.error instanceof ApiError && r.error.status === 422 && r.error.code === 'INVALID_CURSOR')) {
       if (!r.error) autoReset.current = false;
       return;
     }
@@ -160,7 +162,8 @@ export function EventsPage() {
                     <td className="mono">{sourceLabel(e)}</td>
                     {/* Только текст: данные атакующего не превращаются в разметку (S1). */}
                     <td className="mono">{describeEvent(e)}</td>
-                    <td>{e.session_id
+                    {/* Пока запись сессии не включена, ссылка вела бы на заглушку — не показываем. */}
+                    <td>{e.session_id && replayEnabled()
                       ? <Link to={`/sessions/${encodeURIComponent(e.session_id)}`} aria-label={`Запись сессии …${e.session_id.slice(-8)}`}>Запись</Link>
                       : '—'}</td>
                   </tr>

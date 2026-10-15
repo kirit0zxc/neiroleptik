@@ -51,13 +51,15 @@ export const streamHandlers = [
 
 // ─── Демо-атаки для режима моков в браузере ───────────────────
 
-const SCRIPT: Array<Pick<HfEvent, 'type' | 'deployment_id' | 'data'> & { ip: string; protocol: string; port: number }> = [
+/** ip: null — источник неизвестен (source: null допустим контрактом EventV1). */
+const SCRIPT: Array<Pick<HfEvent, 'type' | 'deployment_id' | 'data'> & { ip: string | null; protocol: string; port: number }> = [
   { type: 'connection.opened', deployment_id: 'decoy-medium-01', ip: '203.0.113.50', protocol: 'ssh', port: 2222, data: {} },
   { type: 'auth.attempt', deployment_id: 'decoy-medium-01', ip: '203.0.113.50', protocol: 'ssh', port: 2222, data: { username: 'root', password: '123456', success: false } },
   { type: 'auth.attempt', deployment_id: 'decoy-medium-01', ip: '203.0.113.50', protocol: 'ssh', port: 2222, data: { username: 'admin', password: 'admin123', success: true } },
   { type: 'session.command', deployment_id: 'decoy-medium-01', ip: '203.0.113.50', protocol: 'ssh', port: 2222, data: { input: 'uname -a; cat /etc/passwd', truncated: false } },
   { type: 'http.request', deployment_id: 'decoy-low-01', ip: '198.51.100.99', protocol: 'http', port: 8080, data: { method: 'POST', path: '[скрыто]', captured_bytes: 64, mapper_truncated: false, capture_completeness: 'unknown', http_parse_state: 'parsed' } },
   { type: 'tcp.request', deployment_id: 'decoy-low-01', ip: '198.51.100.99', protocol: 'tcp', port: 2222, data: { captured_bytes: 3, mapper_truncated: false, capture_completeness: 'unknown' } },
+  { type: 'tcp.request', deployment_id: 'decoy-low-01', ip: null, protocol: 'tcp', port: 2222, data: { captured_bytes: 5, mapper_truncated: false, capture_completeness: 'unknown' } },
 ];
 
 let demoSeq = 0;
@@ -71,7 +73,7 @@ export function nextDemoEvent(now = new Date()): HfEvent {
     schema_version: 1, event_id: `demo-${demoSeq}`, agent_id: 'agent-runtime-01', deployment_id: step.deployment_id,
     instance_id: ssh ? 'cowrie-0003' : null, session_id: ssh ? DEMO_SESSION : null, source_seq: demoSeq,
     occurred_at: now.toISOString(), received_at: new Date(now.getTime() + 200).toISOString(), type: step.type,
-    source: { ip: step.ip, port: 50000 + demoSeq }, service: { protocol: step.protocol, port: step.port },
+    source: step.ip === null ? null : { ip: step.ip, port: 50000 + demoSeq }, service: { protocol: step.protocol, port: step.port },
     data: step.data, artifact_ids: [], profile_revision: 1,
   };
 }

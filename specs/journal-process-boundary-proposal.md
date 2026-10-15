@@ -654,18 +654,22 @@ writer_id в заголовок не пишется, связь писателя
   вместо ссылок, SOURCE_CHANGED при изменении исходника, сверка опубликованного
   набора, пределы §8.5 до и после копирования.
 
-Фактически выполненные прогоны: `ruff`, `ruff format`, `mypy` (включая
-`--platform win32`) и `pytest tests --ignore=tests/telemetry`:
+Фактически выполненные прогоны на сочетании этой ветки с актуальным main:
+`ruff`, `ruff format`, `mypy` (включая `--platform win32`) и `pytest`:
 
 | Прогон | Результат |
 | --- | --- |
-| Windows | 987 passed, 66 skipped |
-| Контейнер `python:3.12-slim`, root | 929 passed, 2 skipped |
-| Тот же контейнер, непривилегированный `uid 1001` | 929 passed, 2 skipped |
+| Windows, весь набор | 1649 passed, 69 skipped |
+| Контейнер `python:3.12-slim`, root | 862 passed, 2 skipped |
+| Тот же контейнер, непривилегированный `uid 1001` | 862 passed, 2 skipped |
 | `HF_DOCKER_BOUNDARY=1 pytest tests/runtime/test_boundary_docker.py` на Docker 29.5.2 | 2 passed (с Windows и из Linux) |
 
-В контейнере пропущены два файла тестов исполнителя: им нужен собранный под
-Windows `rpds`. Прогон под непривилегированным пользователем добавлен потому, что
+В контейнере не собираются файлы, которым нужны зависимости, установленные в
+локальном окружении под Windows (`pydantic`, `rpds`): `tests/telemetry`,
+`tests/runtime/test_executor*.py` и
+`tests/infra/test_backend_websocket_packaging.py`. На Windows они проходят, а в
+CI их выполняет шаг с установленными зависимостями. Прогон под
+непривилегированным пользователем добавлен потому, что
 шаг CI `runtime` работает именно так: под root биты режима не ограничивают сам
 проверяющий процесс, поэтому root-прогон проверку прав не доказывает. Группа
 чтения collector в тестах — группа процесса, когда он не root

@@ -105,3 +105,10 @@ Ruff/format, mypy Linux/Win32, export_contracts и wheel build прошли на
 повторного цикла рецензентов и итоговый SHA — в PR. Обязательный CI на Linux
 должен выполнить исходный тест без ослабления или пропуска.
 Гипотеза влияния живого порта не подтверждена и не используется как доказательство.
+## Совместимость с Medium replay (PR51)
+
+При обновлении на main e61f6ef рабочий CowrieCollector перенесён целиком, включая
+чтение порта из instance-конфигурации, сбор TTY, checkpoint и manifest закрытой
+сессии. Импорт CowrieCollector сохранён. Чистые CowrieAdapter/CowrieTtyConverter
+остаются самостоятельными компонентами; существующий replay использует
+adapters/cowrie_tty.py. Подключение нового parser не подменяется этим переносом.

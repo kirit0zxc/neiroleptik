@@ -177,7 +177,8 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
                 <Field label="Порт" error={errors.services?.[i]?.port}>
                   {(a) => <input {...a} inputMode="numeric" {...form.register(`services.${i}.port`)} />}
                 </Field>
-                <Field label={bannerLabel(serviceValues[i]?.protocol ?? '')} error={errors.services?.[i]?.banner} wide>
+                <Field label={bannerLabel(serviceValues[i]?.protocol ?? '')} error={errors.services?.[i]?.banner} wide
+                  hint={level === 'medium' && serviceValues[i]?.protocol === 'ssh' ? 'Свой баннер для Medium пока не поддерживается — оставьте пустым.' : undefined}>
                   {(a) => <input {...a} {...form.register(`services.${i}.banner`)} />}
                 </Field>
                 <button type="button" className={s.remove} onClick={() => services.remove(i)}
@@ -290,17 +291,20 @@ function ProfileFormView({ id, initial, name, revision, onReload }: {
 
 let fieldSeq = 0;
 
-/** Поле с подписью и ошибкой вне label (ошибка не входит в название поля). */
-function Field({ label, error, wide, children }: {
-  label: string; error?: { message?: string }; wide?: boolean;
+/** Поле с подписью, подсказкой и ошибкой вне label (ошибка не входит в название поля). */
+function Field({ label, error, wide, hint, children }: {
+  label: string; error?: { message?: string }; wide?: boolean; hint?: string;
   children: (a: { id: string; 'aria-invalid': boolean; 'aria-describedby'?: string }) => React.ReactNode;
 }) {
   const [id] = useState(() => `f${++fieldSeq}`);
+  // Подсказка и ошибка озвучиваются вместе, но ошибка важнее — её id идёт первым.
+  const describedBy = [error ? `${id}-err` : null, hint ? `${id}-hint` : null].filter(Boolean).join(' ') || undefined;
   return (
     <div className={wide ? `${s.field} ${s.wide}` : s.field}>
       <label htmlFor={id}>{label}</label>
-      {children({ id, 'aria-invalid': !!error, 'aria-describedby': error ? `${id}-err` : undefined })}
+      {children({ id, 'aria-invalid': !!error, 'aria-describedby': describedBy })}
       {error?.message && <span id={`${id}-err`} className={s.error}>{error.message}</span>}
+      {hint && <span id={`${id}-hint`} className={s.hint}>{hint}</span>}
     </div>
   );
 }

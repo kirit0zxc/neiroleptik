@@ -60,8 +60,18 @@ describe('схема профиля (F8)', () => {
     expect(tcp(' ~SSH-2.0 x!')).toEqual([]);
     // У HTTP баннер (текст заглушки) может быть пустым и не-ASCII.
     expect(issues({ ...emptyProfile('low'), name: 'x', services: [{ protocol: 'http', port: 80, banner: 'Привет' }] })).toEqual([]);
-    // ASCII-правило только для TCP: баннер SSH на Medium его не проверяет.
-    expect(issues(valid({ services: [{ protocol: 'ssh', port: 2222, banner: 'Привет' }] }))).toEqual([]);
+  });
+
+  it('Medium: свой SSH-баннер агент пока не принимает — поле обязано быть пустым', () => {
+    // Непустой баннер SSH на Medium — ошибка (агент ответил бы UNSUPPORTED_PROFILE).
+    expect(issues(valid({ services: [{ protocol: 'ssh', port: 2222, banner: 'SSH-2.0-OpenSSH_8.9p1' }] })))
+      .toEqual(['services.0.banner: На Medium баннер SSH пока не поддерживается — оставьте пустым']);
+    expect(issues(valid({ services: [{ protocol: 'ssh', port: 2222, banner: '   ' }] }))).toEqual([]);
+    // Шаблон нового Medium-профиля даёт пустой баннер, чтобы ловушка запустилась сразу.
+    expect(emptyProfile('medium').services[0]!.banner).toBe('');
+    // На High своё правило баннера нет — непустой допустим.
+    expect(issues({ ...emptyProfile('high'), name: 'x', credentials: [{ username: 'root', password: 'demo' }],
+      services: [{ protocol: 'ssh', port: 2224, banner: 'SSH-2.0-OpenSSH_8.9p1' }] })).toEqual([]);
   });
 
   it('смена уровня на Low: два HTTP не подходят — набор по умолчанию', () => {
@@ -159,7 +169,7 @@ describe('сборка тела запроса по контракту (formToCr
 
 describe('редактирование прочитанной конфигурации', () => {
   const config = { interaction_level: 'medium' as const, hostname: 'ssh-node',
-    services: [{ protocol: 'ssh' as const, port: 22, banner: 'SSH' }],
+    services: [{ protocol: 'ssh' as const, port: 22, banner: '' }],
     credential_usernames: ['admin'], logging: { max_payload_bytes: 256 } };
 
   it('сохраняет существующие пароли через null без повторного ввода', () => {

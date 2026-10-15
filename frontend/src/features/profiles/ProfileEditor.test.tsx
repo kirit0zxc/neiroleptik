@@ -259,21 +259,22 @@ describe('форма профиля (F8, F9)', () => {
     const name = await screen.findByLabelText('Название');
     await user.clear(name);
     await user.type(name, 'Моя правка');
-    const banner = within(screen.getByRole('group', { name: 'Сервис 1' })).getByLabelText('Баннер');
-    const oldBanner = (banner as HTMLInputElement).value;
+    const host = screen.getByLabelText('Имя хоста (легенда)');
+    const oldHost = (host as HTMLInputElement).value;
+    // Чужая правка меняет легенду узла; баннер SSH на Medium остаётся пустым (агент иной не принимает).
     latest = { ...original, revision: original.revision + 1, name: 'Чужая правка',
-      config: { ...original.config, services: original.config.services.map((svc) => ({ ...svc, banner: 'Новый чужой баннер' })) } };
+      config: { ...original.config, hostname: 'other-node' } };
     await act(async () => { await client.invalidateQueries({ queryKey: ['profiles', original.id], exact: true }); });
     expect(client.getQueryData<Profile>(['profiles', original.id])?.revision).toBe(latest.revision);
     expect(name).toHaveValue('Моя правка');
-    expect(banner).toHaveValue(oldBanner);
+    expect(host).toHaveValue(oldHost);
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Конфликт версии');
     expect(sent).toEqual([original.revision]);
     expect(name).toHaveValue('Моя правка');
     await user.click(screen.getByRole('button', { name: 'Перечитать профиль и сбросить мои изменения' }));
     await waitFor(() => expect(name).toHaveValue('Чужая правка'));
-    expect(within(screen.getByRole('group', { name: 'Сервис 1' })).getByLabelText('Баннер')).toHaveValue('Новый чужой баннер');
+    expect(screen.getByLabelText('Имя хоста (легенда)')).toHaveValue('other-node');
     await user.click(screen.getByRole('button', { name: 'Сохранить новую ревизию' }));
     await waitFor(() => expect(sent).toEqual([original.revision, latest.revision]));
   });

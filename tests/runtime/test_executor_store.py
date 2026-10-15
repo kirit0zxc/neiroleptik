@@ -58,6 +58,45 @@ def store_path(tmp_path: Path) -> Path:
     return tmp_path / "state" / "executor.sqlite"
 
 
+def test_telemetry_exports_only_acked_start_and_retains_stopped_history(tmp_path: Path) -> None:
+    path = store_path(tmp_path)
+    request = metadata()
+    with ExecutionStore(path) as store:
+        accepted = store.accept(request, "a" * 64, "lease")
+        assert store.telemetry_bindings() == ()
+        store.complete(accepted.command_id, result(request, accepted.attempt_instance_id))
+        assert store.telemetry_bindings() == ()
+        store.acknowledge(accepted.command_id)
+        expected = ((accepted.deployment_id, accepted.attempt_instance_id, 3),)
+        assert store.telemetry_bindings() == expected
+        stop = metadata(
+            action="stop",
+            expected=1,
+            deployment=accepted.deployment_id,
+            instance=accepted.attempt_instance_id,
+        )
+        stopped = store.accept(stop, "b" * 64, "lease")
+        store.complete(
+            stopped.command_id, result(stop, accepted.attempt_instance_id, runtime="stopped")
+        )
+        store.acknowledge(stopped.command_id)
+        assert store.telemetry_bindings() == expected
+    with ExecutionStore(path) as store:
+        assert store.telemetry_bindings() == expected
+        assert store.prepare_telemetry_path() != path
+
+
+def test_failed_start_does_not_authorize_collection(tmp_path: Path) -> None:
+    with ExecutionStore(store_path(tmp_path)) as store:
+        request = metadata()
+        accepted = store.accept(request, "a" * 64, "lease")
+        store.complete(
+            accepted.command_id, result(request, None, revision=None, failed=True, runtime="failed")
+        )
+        store.acknowledge(accepted.command_id)
+        assert store.telemetry_bindings() == ()
+
+
 def test_prepared_attempt_and_secret_free_metadata_survive_restart(tmp_path: Path) -> None:
     path = store_path(tmp_path)
     request = metadata()

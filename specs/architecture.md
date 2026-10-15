@@ -6,9 +6,18 @@ writer identity, durable fencing, защищённые crash snapshots и при
 цепочки, начальная привязка writer (anchor), локальная публикация с правами
 runtime/collector и durable registry producer. **Сторона runtime реализована**
 в `agent/runtime/boundary/` вместе со startup-выделением первого поколения в
-CLI Low; потребление proof сборщиком (сторона Димы) не реализовано, поэтому до
-его согласования действуют прежние waiting и обработка проверенного raw.
-Формат журнала, Event DTO и API центра не меняются.
+CLI Low. Со стороны сборщика реализован изолированный слой хранения
+подготовленного перехода ([low-boundary-storage.md](low-boundary-storage.md),
+`agent/telemetry/low_journal/boundary.py`); доверие, файловая валидация и правила
+чтения перехода — отдельное изменение, поэтому до него действуют прежние waiting
+и обработка проверенного raw. Формат журнала, Event DTO и API центра не меняются.
+
+## Постоянный сбор Low
+
+`agent/runtime/executor/telemetry.py` соединяет доверенную историю ACK исполнителя
+с collector, production mapper и sender в отдельном последовательном worker.
+Команды и heartbeat остаются асинхронными; контракт и ограничения описаны в
+[continuous-low-telemetry.md](continuous-low-telemetry.md).
 
 ## Low production mapping, 13.10.2026
 
@@ -369,3 +378,7 @@ Event mapping, HTTP-разбор, sender, backend и UI остаются сле�
 Существующие Event/spool/sender и публичные API не изменяются. Сырьё не попадает
 в pending и не удаляется автоматически. Граница и цена восстановления описаны
 в [low-journal-reader.md](low-journal-reader.md), раздел 7.
+
+## Изолированное хранение Low boundary
+
+agent/telemetry/storage_schema.py владеет атомарной версией SQLite raw/boundary и общим учётом логических байтов. low_journal/durable.py предоставляет raw-запись в транзакции владельца; low_journal/boundary.py сохраняет неизменяемый подготовленный переход в той же spool. Collector и production consumer этот путь не вызывают. Контракт: [low-boundary-storage.md](low-boundary-storage.md).

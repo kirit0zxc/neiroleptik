@@ -35,7 +35,7 @@ async def _heartbeat(client: HttpCommandClient) -> None:
     while True:
         try:
             reply = await client.heartbeat()
-            if reply.capabilities != ("low",):
+            if "low" not in reply.capabilities:
                 print("Возможности узла отличаются от [low]; проверьте регистрацию", flush=True)
         except ClientError as error:
             print(f"Не удалось отправить heartbeat: {error.code}", flush=True)
@@ -52,7 +52,18 @@ async def _poll(args: argparse.Namespace, token: str) -> None:
         journal_root=args.journal_root,
     )
     with ExecutionStore(args.state) as store:
-        executor = CommandExecutor(client, store, DockerCli(), settings)
+        medium = None
+        if getattr(args, "medium_image", None):
+            if not args.network:
+                raise ValueError("Medium требует отдельную сеть Docker")
+            medium = LowSettings(
+                image=args.medium_image,
+                bind_address=args.bind_address,
+                network=args.network,
+                journal_root=args.journal_root / "medium",
+                start_timeout=45.0,
+            )
+        executor = CommandExecutor(client, store, DockerCli(), settings, medium_settings=medium)
         heartbeat = asyncio.create_task(_heartbeat(client))
         telemetry = None
         if getattr(args, "telemetry", False):
@@ -110,6 +121,7 @@ def main() -> None:
         "--state", required=True, type=Path, help="Путь к SQLite на локальном диске"
     )
     parser.add_argument("--journal-root", required=True, type=Path)
+    parser.add_argument("--medium-image", help="Проверенный образ Cowrie; включает Medium")
     parser.add_argument("--image", default="honeyforge-low:local")
     parser.add_argument("--bind-address", default="127.0.0.1")
     parser.add_argument("--network")

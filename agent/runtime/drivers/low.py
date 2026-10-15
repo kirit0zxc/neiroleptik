@@ -447,12 +447,14 @@ class LowDriver(Driver):
         settings: LowSettings | None = None,
         health: LowHealthCheck | None = None,
         new_instance_id: Callable[[], str] = lambda: str(uuid4()),
+        *,
+        translator: LowProfileTranslator | None = None,
     ) -> None:
         super().__init__()
         self.deployment_id = str(UUID(deployment_id))
         self._backend = backend
         self._settings = settings if settings is not None else LowSettings()
-        self._translator = LowProfileTranslator(self._settings)
+        self._translator = translator or LowProfileTranslator(self._settings)
         self._health = (
             health
             if health is not None
@@ -774,7 +776,7 @@ class LowDriver(Driver):
         if (
             observed.name != self._name
             or observed.labels.get(LABEL_DEPLOYMENT) != self.deployment_id
-            or observed.labels.get(LABEL_LEVEL) != "low"
+            or observed.labels.get(LABEL_LEVEL) != self.level
         ):
             return _OTHER_SLOT
         return None

@@ -73,6 +73,33 @@ _STATES = (
     "exported",
     "failed_after_launch",
 )
+# Согласованный граф §8.4: только соседние рёбра своего вида. Документы и неудачу
+# после запуска устанавливают отдельные операции, поэтому их состояний здесь нет.
+_TRANSITIONS: dict[IntentKind, dict[IntentState, IntentState]] = {
+    "anchor": {
+        "intent": "next_created",
+        "next_created": "next_started",
+        "next_started": "next_bound",
+    },
+    "boundary": {
+        "intent": "fenced",
+        "fenced": "snapshots_published",
+        "snapshots_published": "next_created",
+        "next_created": "next_started",
+        "next_started": "next_bound",
+    },
+}
+# Поля, которые закрепляет каждое ребро: ровно они и только на своём ребре.
+_EDGE_FIELDS: dict[IntentState, frozenset[str]] = {
+    "fenced": frozenset({"fenced_at"}),
+    "snapshots_published": frozenset({"first_journal_seq"}),
+    "next_created": frozenset({"container_id"}),
+    "next_started": frozenset(),
+    "next_bound": frozenset({"header_sha256"}),
+}
+# Стадии, на которых новому писателю уже выдавался RW: только из них неудача
+# после запуска закрывает переход (реальные вызовы producer приходят отсюда).
+_FAILABLE_STATES = frozenset({"next_created", "next_started"})
 _OUTSTANDING_INDEX = (
     "CREATE UNIQUE INDEX one_outstanding_intent ON intents "
     "(agent_id, deployment_id, instance_id) "
@@ -635,24 +662,38 @@ class BoundaryRegistry:
         fenced_at: str | None = None,
         header_sha256: str | None = None,
     ) -> StoredIntent:
-        """Переводит intent в следующее состояние строго по порядку §8.4.
+        """Переводит intent в следующее состояние по графу §8.4.
 
-        Движение только вперёд: повтор и откат состояния запрещены, а неудачу после
-        запуска нового writer фиксирует отдельный метод.
+        Разрешены только соседние рёбра согласованного графа своего вида: сравнение
+        номеров состояний допускало скачки, а скачок выдавал документ, минуя create,
+        start или ограждение. Состояния `committed`, `exported` и
+        `failed_after_launch` этим методом не достигаются: их устанавливают
+        `commit_anchor`, `commit_boundary`, `mark_published` и `fail_after_launch`.
+
+        Каждое ребро принимает только свои поля и только когда они ещё не заполнены:
+        иначе поздний параметр чужой стадии переписывал бы уже выделенное значение.
         """
-        if state not in _STATES or state in TERMINAL_STATES:
-            raise _unavailable("неизвестное состояние intent")
         with self._transaction():
             current = self.intent(intent_id)
             if current is None:
                 raise _unavailable("intent не найден")
-            if _STATES.index(state) <= _STATES.index(current.state):
-                raise _unavailable("состояние intent не может повторяться или откатываться")
-            if container_id is not None and current.container_id not in (None, container_id):
-                raise BoundaryError(
-                    BoundaryErrorCode.BOUNDARY_BINDING_MISMATCH,
-                    "intent уже привязан к другому контейнеру",
-                )
+            if _TRANSITIONS.get(current.kind, {}).get(current.state) != state:
+                raise _unavailable("переход не разрешён графом состояний")
+            provided = {
+                "container_id": container_id,
+                "first_journal_seq": first_journal_seq,
+                "fenced_at": fenced_at,
+                "header_sha256": header_sha256,
+            }
+            expected = _EDGE_FIELDS[state]
+            if {name for name, value in provided.items() if value is not None} != expected:
+                raise _unavailable("набор полей не соответствует ребру перехода")
+            for name in expected:
+                if getattr(current, name) is not None:
+                    raise BoundaryError(
+                        BoundaryErrorCode.BOUNDARY_BINDING_MISMATCH,
+                        f"значение {name} уже закреплено за этим intent",
+                    )
             self._connection.execute(
                 "UPDATE intents SET state = ?, "
                 "container_id = COALESCE(?, container_id), "
@@ -742,8 +783,12 @@ class BoundaryRegistry:
             current = self.intent(intent_id)
             if current is None:
                 raise _unavailable("intent не найден")
-            if current.state in TERMINAL_STATES:
-                raise _unavailable("завершённый intent повторно не закрывается")
+            if current.state not in _FAILABLE_STATES:
+                # Зафиксированный документ и стадии до выдачи RW так не закрываются:
+                # иначе поздний вызов блокировал бы привязку с выданным proof.
+                raise _unavailable("состояние intent не допускает закрытие после запуска")
+            if self.document(current.document_id) is not None:
+                raise _unavailable("для intent уже зафиксирован документ")
             self._connection.execute(
                 "UPDATE intents SET state = 'failed_after_launch' WHERE intent_id = ?",
                 (current.intent_id,),
@@ -988,6 +1033,8 @@ class BoundaryRegistry:
         """Отмечает публикацию документа и завершает intent состоянием exported."""
         with self._transaction():
             current = self._require_state(intent_id, "committed", None)
+            if self.document(current.document_id) is None:
+                raise _unavailable("у зафиксированного intent нет сохранённого документа")
             self._connection.execute(
                 "UPDATE documents SET published = 1 WHERE document_id = ?",
                 (current.document_id,),

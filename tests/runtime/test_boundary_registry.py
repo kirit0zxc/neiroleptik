@@ -58,8 +58,14 @@ def entry(seq: int, journal: str) -> SnapshotEntry:
     )
 
 
-def anchor_intent(store: BoundaryRegistry, *, writer: str = "1", journal: str = "2") -> str:
-    """Проводит anchor от intent до next_bound и возвращает intent_id."""
+def anchor_intent(
+    store: BoundaryRegistry, *, writer: str = "1", journal: str = "2", bound: bool = True
+) -> str:
+    """Проводит anchor по графу §8.4 и возвращает intent_id.
+
+    `bound=False` останавливается на `next_started`: это стадия с выданным RW, с
+    которой producer и закрывает непривязанного писателя.
+    """
     intent = store.begin_intent(
         binding(),
         kind="anchor",
@@ -75,7 +81,8 @@ def anchor_intent(store: BoundaryRegistry, *, writer: str = "1", journal: str = 
     )
     store.advance(intent.intent_id, "next_created", container_id=CONTAINER_A)
     store.advance(intent.intent_id, "next_started")
-    store.advance(intent.intent_id, "next_bound", header_sha256=HEADER)
+    if bound:
+        store.advance(intent.intent_id, "next_bound", header_sha256=HEADER)
     return intent.intent_id
 
 
@@ -232,7 +239,7 @@ def test_only_one_outstanding_intent_per_binding(tmp_path: Path) -> None:
 def test_identities_are_burned_even_after_a_failure(tmp_path: Path, reused: str) -> None:
     """boundary_id, anchor_id, writer_id и journal_id повторно не используются (§8.4)."""
     with registry(tmp_path) as store:
-        intent_id = anchor_intent(store)
+        intent_id = anchor_intent(store, bound=False)
         store.fail_after_launch(intent_id, "заголовок не получен")
         arguments = {
             "intent_id": identity("5"),
@@ -269,7 +276,7 @@ def test_identities_are_burned_even_after_a_failure(tmp_path: Path, reused: str)
 def test_failed_launch_blocks_further_transitions_of_the_instance(tmp_path: Path) -> None:
     """После неудачи с выданным RW переход не продолжается автоматически (§8.4)."""
     with registry(tmp_path) as store:
-        intent_id = anchor_intent(store)
+        intent_id = anchor_intent(store, bound=False)
         store.fail_after_launch(intent_id, "заголовок не совпал")
         state = store.binding_state(binding())
         assert state is not None and not state.supported and state.blocked_reason
@@ -288,7 +295,11 @@ def test_states_move_only_forward(tmp_path: Path, state: str) -> None:
 
 
 def test_commit_requires_fencing_header_and_snapshots(tmp_path: Path) -> None:
-    """Переход без ограждения, хеша заголовка или снимков не фиксируется."""
+    """Переход без ограждения или снимков не фиксируется.
+
+    Проверяются две защиты подряд: граф §8.4 не даёт обойти ограждение, а фиксация
+    отказывает на законном пути, если перечень снимков не записан.
+    """
     with registry(tmp_path) as store:
         anchor = publish_anchor(store)
         stored = store.begin_intent(
@@ -304,10 +315,17 @@ def test_commit_requires_fencing_header_and_snapshots(tmp_path: Path) -> None:
             previous_writer_id=anchor.writer_id,
             previous_container_id=CONTAINER_A,
         )
+        # Ограждение нельзя пропустить: это не соседнее ребро графа перехода.
+        with pytest.raises(BoundaryError) as jumped:
+            store.advance(stored.intent_id, "snapshots_published", first_journal_seq=2)
+        assert jumped.value.code is BoundaryErrorCode.REGISTRY_UNAVAILABLE
+
+        store.advance(stored.intent_id, "fenced", fenced_at="2026-10-14T10:00:03Z")
         store.advance(stored.intent_id, "snapshots_published", first_journal_seq=2)
         store.advance(stored.intent_id, "next_created", container_id=CONTAINER_B)
         store.advance(stored.intent_id, "next_started")
         store.advance(stored.intent_id, "next_bound", header_sha256=NEXT_HEADER)
+        # Перечень снимков — отдельная операция: без него документ не выдаётся.
         with pytest.raises(BoundaryError) as error:
             store.commit_boundary(stored.intent_id, EPOCH, moment(4))
         assert error.value.code is BoundaryErrorCode.BOUNDARY_SNAPSHOT_UNAVAILABLE
@@ -491,3 +509,187 @@ def test_completed_intent_is_not_closed_again(tmp_path: Path) -> None:
         assert error.value.code is BoundaryErrorCode.REGISTRY_UNAVAILABLE
         state = store.binding_state(binding())
         assert state is not None and state.supported
+
+
+def boundary_begin(store: BoundaryRegistry, anchor: WriterAnchor) -> str:
+    """Начинает переход от принятой цепочки и возвращает intent_id."""
+    stored = store.begin_intent(
+        binding(),
+        kind="boundary",
+        intent_id=identity("9"),
+        document_id=identity("a"),
+        writer_id=identity("7"),
+        first_journal_id=identity("8"),
+        journal_max_bytes=JOURNAL_MAX,
+        journal_quota_bytes=JOURNAL_QUOTA,
+        engine_identity="engine/29",
+        previous_writer_id=anchor.writer_id,
+        previous_container_id=CONTAINER_A,
+    )
+    return stored.intent_id
+
+
+def anchor_begin(store: BoundaryRegistry) -> str:
+    """Создаёт anchor intent без продвижения по графу."""
+    stored = store.begin_intent(
+        binding(),
+        kind="anchor",
+        intent_id=identity("3"),
+        document_id=identity("4"),
+        writer_id=identity("1"),
+        first_journal_id=identity("2"),
+        first_journal_seq=1,
+        journal_max_bytes=JOURNAL_MAX,
+        journal_quota_bytes=JOURNAL_QUOTA,
+        engine_identity="engine/29",
+    )
+    return stored.intent_id
+
+
+@pytest.mark.parametrize(
+    ("state", "fields"),
+    [
+        ("next_started", {}),
+        ("next_bound", {"header_sha256": NEXT_HEADER}),
+        ("fenced", {"fenced_at": "2026-10-14T10:00:03Z"}),
+        ("snapshots_published", {"first_journal_seq": 2}),
+    ],
+)
+def test_anchor_graph_refuses_jumps_and_foreign_stages(
+    tmp_path: Path, state: str, fields: dict[str, object]
+) -> None:
+    """У anchor есть ровно одно соседнее ребро; остальные стадии ему не принадлежат.
+
+    Сравнение номеров состояний допускало скачки, и документ выдавался в обход
+    create, start или ограждения. Согласованный граф §8.4 это закрывает.
+    """
+    with registry(tmp_path) as store:
+        intent_id = anchor_begin(store)
+        with pytest.raises(BoundaryError) as error:
+            store.advance(intent_id, state, **fields)  # type: ignore[arg-type]
+        assert error.value.code is BoundaryErrorCode.REGISTRY_UNAVAILABLE
+        # Состояние, привязка и отсутствие документа сохраняются.
+        current = store.intent(intent_id)
+        assert current is not None and current.state == "intent"
+        assert current.container_id is None and current.header_sha256 is None
+        assert store.document(identity("4")) is None
+        binding_state = store.binding_state(binding())
+        assert binding_state is not None and binding_state.anchor_id is None
+
+
+@pytest.mark.parametrize(
+    ("state", "fields"),
+    [
+        ("snapshots_published", {"first_journal_seq": 2}),
+        ("next_created", {"container_id": CONTAINER_B}),
+        ("next_started", {}),
+        ("next_bound", {"header_sha256": NEXT_HEADER}),
+    ],
+)
+def test_boundary_graph_requires_fencing_first(
+    tmp_path: Path, state: str, fields: dict[str, object]
+) -> None:
+    """Первое ребро перехода — только ограждение (§3 шаг 2, §8.4)."""
+    with registry(tmp_path) as store:
+        anchor = publish_anchor(store)
+        intent_id = boundary_begin(store, anchor)
+        with pytest.raises(BoundaryError) as error:
+            store.advance(intent_id, state, **fields)  # type: ignore[arg-type]
+        assert error.value.code is BoundaryErrorCode.REGISTRY_UNAVAILABLE
+        current = store.intent(intent_id)
+        assert current is not None and current.state == "intent"
+
+
+def test_boundary_graph_refuses_create_before_snapshots(tmp_path: Path) -> None:
+    """После ограждения следующий шаг — снимки, а не создание контейнера (§3 шаг 3)."""
+    with registry(tmp_path) as store:
+        anchor = publish_anchor(store)
+        intent_id = boundary_begin(store, anchor)
+        store.advance(intent_id, "fenced", fenced_at="2026-10-14T10:00:03Z")
+        with pytest.raises(BoundaryError) as error:
+            store.advance(intent_id, "next_created", container_id=CONTAINER_B)
+        assert error.value.code is BoundaryErrorCode.REGISTRY_UNAVAILABLE
+
+
+@pytest.mark.parametrize("state", ["committed", "exported", "failed_after_launch"])
+def test_advance_cannot_set_states_of_other_operations(tmp_path: Path, state: str) -> None:
+    """Фиксацию, публикацию и неудачу устанавливают только свои операции.
+
+    Иначе `advance(committed)` выдавал состояние зафиксированного перехода без
+    созданных канонических байт, а `mark_published` завершал intent без документа.
+    """
+    with registry(tmp_path) as store:
+        intent_id = anchor_intent(store, bound=False)
+        with pytest.raises(BoundaryError) as error:
+            store.advance(intent_id, state)  # type: ignore[arg-type]
+        assert error.value.code is BoundaryErrorCode.REGISTRY_UNAVAILABLE
+        current = store.intent(intent_id)
+        assert current is not None and current.state == "next_started"
+        assert store.document(identity("4")) is None
+
+
+def test_each_edge_accepts_only_its_own_fields(tmp_path: Path) -> None:
+    """Ребро принимает ровно свои поля: ни лишних, ни отсутствующих."""
+    with registry(tmp_path) as store:
+        intent_id = anchor_begin(store)
+        with pytest.raises(BoundaryError) as missing:
+            store.advance(intent_id, "next_created")
+        assert missing.value.code is BoundaryErrorCode.REGISTRY_UNAVAILABLE
+        with pytest.raises(BoundaryError) as extra:
+            store.advance(intent_id, "next_created", container_id=CONTAINER_A, header_sha256=HEADER)
+        assert extra.value.code is BoundaryErrorCode.REGISTRY_UNAVAILABLE
+        store.advance(intent_id, "next_created", container_id=CONTAINER_A)
+        # Поле следующего ребра на ребре без полей: выделение не переписывается.
+        with pytest.raises(BoundaryError) as late:
+            store.advance(intent_id, "next_started", first_journal_seq=5)
+        assert late.value.code is BoundaryErrorCode.REGISTRY_UNAVAILABLE
+        current = store.intent(intent_id)
+        assert current is not None and current.first_journal_seq == 1
+
+
+def test_fixed_value_of_an_edge_is_not_overwritten(tmp_path: Path) -> None:
+    """Уже закреплённое значение не переписывается повторным проходом ребра."""
+    with registry(tmp_path) as store:
+        anchor = publish_anchor(store)
+        intent_id = boundary_begin(store, anchor)
+        store.advance(intent_id, "fenced", fenced_at="2026-10-14T10:00:03Z")
+        store.advance(intent_id, "snapshots_published", first_journal_seq=2)
+        store.advance(intent_id, "next_created", container_id=CONTAINER_B)
+        with pytest.raises(BoundaryError):
+            store.advance(intent_id, "next_created", container_id=CONTAINER_C)
+        current = store.intent(intent_id)
+        assert current is not None and current.container_id == CONTAINER_B
+        assert current.first_journal_seq == 2
+
+
+def test_committed_intent_is_protected_from_late_failure(tmp_path: Path) -> None:
+    """Зафиксированный документ не закрывается неудачей после запуска.
+
+    Иначе поздний вызов блокировал бы привязку, у которой доказательство уже
+    выдано, и переход становился бы невосстановимым.
+    """
+    with registry(tmp_path) as store:
+        intent_id = anchor_intent(store)
+        document = store.commit_anchor(intent_id, EPOCH, moment(1))
+        with pytest.raises(BoundaryError) as error:
+            store.fail_after_launch(intent_id, "поздняя попытка закрыть")
+        assert error.value.code is BoundaryErrorCode.REGISTRY_UNAVAILABLE
+        state = store.binding_state(binding())
+        assert state is not None and state.supported
+        # Документ остался и доступен для публикации.
+        published = store.mark_published(intent_id)
+        assert published.canonical == document.canonical
+
+
+@pytest.mark.parametrize("state", ["intent", "next_bound"])
+def test_failure_after_launch_requires_a_started_writer(tmp_path: Path, state: str) -> None:
+    """Закрытие после запуска допустимо только со стадий с выданным RW (§8.4)."""
+    with registry(tmp_path) as store:
+        intent_id = anchor_begin(store) if state == "intent" else anchor_intent(store)
+        with pytest.raises(BoundaryError) as error:
+            store.fail_after_launch(intent_id, "неуместное закрытие")
+        assert error.value.code is BoundaryErrorCode.REGISTRY_UNAVAILABLE
+        current = store.intent(intent_id)
+        assert current is not None and current.state == state
+        binding_state = store.binding_state(binding())
+        assert binding_state is not None and binding_state.supported

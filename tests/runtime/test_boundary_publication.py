@@ -309,3 +309,62 @@ def test_overlap_follows_symbolic_links(base: Path) -> None:
         roots.check_outside(journals)
     assert error.value.code is BoundaryErrorCode.PRODUCER_DISABLED
     assert roots.overlaps_any(journals / "slot")
+
+
+def test_rename_through_the_raw_syscall_number_behaves_identically(base: Path) -> None:
+    """Ветвь номера системного вызова ведёт себя как символ glibc (§8.2).
+
+    В production она выбирается только на glibc старше 2.28, поэтому в прогонах
+    оставалась недостижимой: §9.4 отмечал маршалинг шести аргументов как
+    непроверенный. Здесь ветвь выбирается принудительно, а поведение сверяется
+    с тем же примитивом через символ библиотеки.
+    """
+    forced = LinuxWriteOnceRename().without_library_symbol()
+    if not forced.available:
+        pytest.skip(forced.reason or "номер системного вызова неизвестен")
+    (base / "one").write_bytes(b"1")
+    (base / "two").write_bytes(b"2")
+    descriptor = os.open(base, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        # Существующая цель не заменяется: тот же FileExistsError, что и у символа.
+        with pytest.raises(FileExistsError):
+            forced.rename(descriptor, "one", "two")
+        forced.rename(descriptor, "one", "three")
+        # Отсутствующий источник даёт обычную ошибку ядра, а не успех.
+        with pytest.raises(OSError) as error:
+            forced.rename(descriptor, "absent", "four")
+        assert not isinstance(error.value, FileExistsError)
+    finally:
+        os.close(descriptor)
+    assert (base / "three").read_bytes() == b"1"
+    assert (base / "two").read_bytes() == b"2"
+    assert not (base / "one").exists() and not (base / "four").exists()
+
+
+def test_publication_works_through_the_raw_syscall_number(base: Path) -> None:
+    """Публикация write-once целиком проходит на ветви номера системного вызова."""
+    forced = LinuxWriteOnceRename().without_library_symbol()
+    if not forced.available:
+        pytest.skip(forced.reason or "номер системного вызова неизвестен")
+    protected = ProtectedTree(base / "control", COLLECTOR_GID, forced)
+    directory = protected.open_directory(("low-boundaries",), create=True)
+    try:
+        assert protected.write_once(directory, "anchor.json", b'{"a":1}') is True
+        assert protected.write_once(directory, "anchor.json", b'{"a":1}') is False
+        with pytest.raises(BoundaryError) as error:
+            protected.write_once(directory, "anchor.json", b'{"a":2}')
+        assert error.value.code is BoundaryErrorCode.BOUNDARY_PUBLICATION_CONFLICT
+        assert protected.read_published(directory, "anchor.json") == b'{"a":1}'
+    finally:
+        os.close(directory)
+
+
+def test_forced_branch_reports_an_unknown_architecture_instead_of_guessing() -> None:
+    """Без известного номера ветвь объявляет себя недоступной, а не угадывает его."""
+    forced = LinuxWriteOnceRename().without_library_symbol()
+    forced._number = None  # noqa: SLF001 - проверяется именно внутренний выбор ветви
+    forced._syscall = None  # noqa: SLF001
+    assert not forced.available
+    with pytest.raises(BoundaryError) as error:
+        forced.rename(0, "one", "two")
+    assert error.value.code is BoundaryErrorCode.PRODUCER_DISABLED

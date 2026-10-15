@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import copy
 import ctypes
 import ctypes.util
 import os
@@ -64,6 +65,10 @@ class LinuxWriteOnceRename:
     Предпочитается символ glibc; при его отсутствии применяется номер системного вызова
     известной архитектуры. Если ни то, ни другое недоступно, класс сообщает об этом,
     и обходные схемы не используются.
+
+    Обе ветви разрешаются при создании, даже когда символ есть: иначе ветвь номера
+    системного вызова оставалась бы недостижимой на обычной glibc и непроверенной
+    до первой машины со старой библиотекой.
     """
 
     def __init__(self) -> None:
@@ -90,12 +95,25 @@ class LinuxWriteOnceRename:
             ]
             function.restype = ctypes.c_int
             self._renameat2 = function
-        elif self._number is not None and hasattr(library, "syscall"):
+        if self._number is not None and hasattr(library, "syscall"):
             function = library.syscall
             function.restype = ctypes.c_long
             self._syscall = function
-        else:
+        if not self.available:
             self.reason = "renameat2 недоступен в этой системе"
+
+    def without_library_symbol(self) -> LinuxWriteOnceRename:
+        """Тот же доступ, но только через номер системного вызова.
+
+        Нужен проверке ветви, которая в production выбирается лишь на glibc старше
+        2.28: без принудительного выбора её маршалинг остался бы непроверенным.
+        Производственные пути этот метод не используют.
+        """
+        forced = copy.copy(self)
+        forced._renameat2 = None
+        if forced._syscall is None or forced._number is None:
+            forced.reason = "номер системного вызова renameat2 для этой архитектуры неизвестен"
+        return forced
 
     @property
     def available(self) -> bool:

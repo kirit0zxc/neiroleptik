@@ -127,6 +127,7 @@ uv run --frozen python -m infra.vm.preflight
   [подготовка runtime и Cowrie spike](infra/runtime/README.md).
   Старые [предложения общих контрактов](specs/runtime-contract-proposal.md)
   не определяют командный API.
+- [Сценарий демо для защиты](specs/demo-runbook.md): подготовка стенда, показ по минутам, команды атаки, запасной вариант на моках.
 - Правила изменений, ревью и человеческого одобрения: [AGENTS.md](AGENTS.md).
 
 OpenAPI описывает реализованный control API. События, stream и replay — проект

@@ -4,12 +4,18 @@
 
 Для PR #39 head 20f19d2ce3c1aae6ec79205a971a6d358260dfb1 подготовлены
 [формат runtime proof и совместный restart-сценарий](journal-process-boundary-proposal.md).
-Это предложение на согласование: producer/consumer ещё не реализованы.
+Формат остаётся на согласование. Обновление 15.10.2026: сторона runtime
+реализована (producer, startup-выделение Low CLI, registry, снимки и локальная
+публикация write-once), сторона collector — нет. Совместный прогон выполняется
+стендом `python -m infra.runtime.boundary_stand` и ещё не проводился.
 Старый writer закрывается отдельно от instance; новая жизнь в том же instance
 требует другого writer_id, ограждения старого ресурса, защищённого crash snapshot
 и доверенной привязки первого нового journal. До этого collector остаётся в
 waiting, а ранее проверенный raw продолжает conversion/delivery.
 Mapping/DTO/UUID разделов ниже этим дополнением не меняются.
+Ответы runtime на вопросы consumer proposal (формат и источник anchor, канал/права,
+snapshots, восстановление producer, лимиты 1 MiB / 64 / 4 MiB) — в §8 того же
+документа; это тоже предложение на согласование.
 
 ## Согласование MVP, 13.10.2026
 

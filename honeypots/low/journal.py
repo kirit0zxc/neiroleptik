@@ -41,9 +41,24 @@ def _canonical_uuid(value: str, name: str) -> str:
         raise ValueError(f"{name} должен быть UUID") from error
 
 
+class JournalAllocationError(ValueError):
+    """Выделение первого поколения не совпало с каталогом слота.
+
+    Ловушка завершается до открытия слушателей: запуск, который не подтверждает
+    переданную runtime идентичность первого журнала, продолжать нельзя.
+    """
+
+
 @dataclass(frozen=True)
 class JournalSettings:
-    """Параметры журнала экземпляра; каталог должен существовать и быть доступен на запись."""
+    """Параметры журнала экземпляра; каталог должен существовать и быть доступен на запись.
+
+    Необязательное startup-выделение (`first_journal_id`, `first_journal_seq`) передаёт
+    runtime, когда он привязывает нового писателя к новой цепочке журналов. Оно
+    относится только к первому поколению этого процесса: следующие поколения ловушка
+    выбирает сама, как и раньше. Формат журнала не меняется: writer_id в заголовок
+    не пишется, связь писателя и журнала хранит runtime.
+    """
 
     directory: Path
     instance_id: str
@@ -52,6 +67,8 @@ class JournalSettings:
     max_file_bytes: int = DEFAULT_FILE_BYTES
     max_total_bytes: int = DEFAULT_QUOTA_BYTES
     fsync_each_event: bool = False
+    first_journal_id: str | None = None
+    first_journal_seq: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "directory", Path(self.directory))
@@ -65,6 +82,16 @@ class JournalSettings:
             raise ValueError(f"max_file_bytes должен быть целым не меньше {MIN_FILE_BYTES}")
         if type(self.max_total_bytes) is not int or self.max_total_bytes < self.max_file_bytes:
             raise ValueError("max_total_bytes должен быть целым не меньше max_file_bytes")
+        if (self.first_journal_id is None) != (self.first_journal_seq is None):
+            raise ValueError("first_journal_id и first_journal_seq задаются вместе")
+        if self.first_journal_id is not None:
+            object.__setattr__(
+                self,
+                "first_journal_id",
+                _canonical_uuid(self.first_journal_id, "first_journal_id"),
+            )
+            if type(self.first_journal_seq) is not int or self.first_journal_seq < 1:
+                raise ValueError("first_journal_seq должен быть целым не меньше 1")
 
 
 class RotatingJournalSink:
@@ -93,6 +120,12 @@ class RotatingJournalSink:
         self._total = 0
         self._first_seq = 1
         self._last_seq = 0
+        # Выделение расходуется только успешным созданием первого поколения процесса.
+        self._allocation: tuple[str, int] | None = (
+            None
+            if settings.first_journal_id is None or settings.first_journal_seq is None
+            else (settings.first_journal_id, settings.first_journal_seq)
+        )
 
     @property
     def current_journal_id(self) -> str | None:
@@ -224,10 +257,22 @@ class RotatingJournalSink:
         каталоге), поэтому существующий файл никогда не перезаписывается, даже если
         сборщик уже удалил предыдущие. Номер расходуется только при успешном создании
         файла: отказ по квоте или ошибка диска не оставляют пропуска в journal_seq.
+
+        Если runtime передал startup-выделение, первое поколение этого процесса обязано
+        получить именно выделенные номер и journal_id. Другой вычисленный номер означает,
+        что каталог слота не тот, который привязывал runtime, и запуск прекращается.
         """
         total, newest = self._scan()
         journal_seq = max(self._journal_seq, newest) + 1
-        journal_id = self._new_journal_id()
+        if self._allocation is not None:
+            allocated_id, allocated_seq = self._allocation
+            if journal_seq != allocated_seq:
+                raise JournalAllocationError(
+                    "выделенный номер первого поколения не совпадает с каталогом слота"
+                )
+            journal_id = allocated_id
+        else:
+            journal_id = self._new_journal_id()
         header = self._encode(
             {
                 "record": "header",
@@ -263,6 +308,7 @@ class RotatingJournalSink:
         self._current_name = name
         self._journal_seq = journal_seq
         self._journal_id = journal_id
+        self._allocation = None
         self._size = len(header)
         self._total = total + len(header)
         self._first_seq = first_seq

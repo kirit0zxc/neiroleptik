@@ -214,6 +214,31 @@ class LowProfileTranslator:
         root = self._settings.journal_root
         return None if root is None else root / deployment_id
 
+    def prepare_journal_directory(self, deployment_id: str, user: str) -> None:
+        """Готовит каталог для пользователя контейнера, не переходя по ссылке слота.
+
+        Единственный побочный эффект — идемпотентное создание каталога слота, поэтому
+        недоступный каталог обнаруживается до изменения работающего экземпляра. На
+        Windows os.chown отсутствует; локальные тесты используют текущего пользователя
+        вместо пользователя контейнера. Проверка битов доступа не доказывает доступ
+        при ACL или read-only файловой системе. Отказ — OSError для вызывающей стороны.
+        """
+        directory = self.journal_directory(deployment_id)
+        if directory is None:
+            return
+        directory.mkdir(parents=True, exist_ok=True, mode=0o750)
+        observed = directory.lstat()
+        if stat.S_ISLNK(observed.st_mode) or not stat.S_ISDIR(observed.st_mode):
+            raise OSError("каталог журнала не может быть ссылкой или обычным файлом")
+        # Владелец должен читать каталог для расчёта квоты и создавать в нём файлы.
+        # Уже существующие права не расширяем: отказ происходит до остановки ловушки.
+        if observed.st_mode & stat.S_IRWXU != stat.S_IRWXU:
+            raise OSError("владельцу каталога журнала нужны права чтения, записи и прохода")
+        uid, gid = map(int, user.split(":"))
+        chown = getattr(os, "chown", None)
+        if chown is not None and (observed.st_uid, observed.st_gid) != (uid, gid):
+            chown(directory, uid, gid, follow_symlinks=False)
+
     def container_spec(self, blueprint: LowBlueprint, instance_id: str) -> ContainerSpec:
         """Описание запуска нового экземпляра: порты, метки, журнал и меры ограничения."""
         command = blueprint.command
@@ -720,28 +745,9 @@ class LowDriver(Driver):
         return self._status()
 
     def _prepare_journal_directory(self, user: str) -> None:
-        """Готовит каталог для пользователя контейнера, не переходя по ссылке слота.
-
-        Ошибка подготовки не меняет работающий экземпляр. На Windows os.chown отсутствует;
-        локальные тесты используют текущего пользователя вместо пользователя контейнера.
-        Проверка битов доступа не доказывает доступ при ACL или read-only файловой системе.
-        """
-        directory = self._translator.journal_directory(self.deployment_id)
-        if directory is None:
-            return
+        """Готовит каталог слота; ошибка подготовки не меняет работающий экземпляр."""
         try:
-            directory.mkdir(parents=True, exist_ok=True, mode=0o750)
-            observed = directory.lstat()
-            if stat.S_ISLNK(observed.st_mode) or not stat.S_ISDIR(observed.st_mode):
-                raise OSError("каталог журнала не может быть ссылкой или обычным файлом")
-            # Владелец должен читать каталог для расчёта квоты и создавать в нём файлы.
-            # Уже существующие права не расширяем: отказ происходит до остановки ловушки.
-            if observed.st_mode & stat.S_IRWXU != stat.S_IRWXU:
-                raise OSError("владельцу каталога журнала нужны права чтения, записи и прохода")
-            uid, gid = map(int, user.split(":"))
-            chown = getattr(os, "chown", None)
-            if chown is not None and (observed.st_uid, observed.st_gid) != (uid, gid):
-                chown(directory, uid, gid, follow_symlinks=False)
+            self._translator.prepare_journal_directory(self.deployment_id, user)
         except OSError as error:
             raise DriverError(
                 DriverErrorCode.START_FAILED, "каталог журнала недоступен для подготовки"

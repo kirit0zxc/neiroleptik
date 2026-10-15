@@ -1,0 +1,20 @@
+{
+  "schema": "honeyforge-low-writer-anchor/1",
+  "anchor_id": "c04ac8ca-4f92-4ba3-8d73-316581ed963f",
+  "publisher_epoch": "df5c9ee5-19b8-4c6d-8aac-d3d82e787210",
+  "agent_id": "00000000-0000-4000-8000-000000000001",
+  "deployment_id": "e0d692f0-fb4c-4a37-920e-0c8683471639",
+  "instance_id": "a2df557e-785f-48f3-ba6e-348b76730f41",
+  "profile_revision": 1,
+  "writer_id": "44444444-4444-4444-8444-444444444444",
+  "container_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "launch_intent_id": "14141414-1414-4141-8141-141414141414",
+  "first_journal": {
+    "journal_id": "61c4c12f-bcd3-45eb-8498-d04f84d6cc75",
+    "journal_seq": "1",
+    "previous_journal_id": null,
+    "first_seq": "1",
+    "header_sha256": "e0ac29d1eebe54fc294feae7bdb5e0439f84f9c1b1f4c03979fea599441a7a28"
+  },
+  "committed_at": "2026-10-11T20:08:28.942000Z"
+}

@@ -14,6 +14,7 @@ from honeypots.low.events import EventSink
 from honeypots.low.journal import (
     DEFAULT_FILE_BYTES,
     DEFAULT_QUOTA_BYTES,
+    JournalAllocationError,
     JournalSettings,
     RotatingJournalSink,
 )
@@ -111,6 +112,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--journal-max-bytes", type=int, default=DEFAULT_FILE_BYTES)
     parser.add_argument("--journal-quota-bytes", type=int, default=DEFAULT_QUOTA_BYTES)
     parser.add_argument("--journal-fsync", action="store_true")
+    # Startup-выделение первого поколения передаёт runtime, когда привязывает писателя
+    # к новой цепочке журналов. Задаются вместе и только вместе с --journal-dir.
+    parser.add_argument("--journal-first-id")
+    parser.add_argument("--journal-first-seq", type=int)
     return parser
 
 
@@ -127,6 +132,8 @@ def config_from_args(args: argparse.Namespace) -> LowConfig:
 def journal_from_args(args: argparse.Namespace) -> JournalSettings | None:
     """Файловый режим требует полной идентичности назначения и экземпляра."""
     if args.journal_dir is None:
+        if args.journal_first_id is not None or args.journal_first_seq is not None:
+            raise ValueError("journal-first-id и journal-first-seq требуют journal-dir")
         return None
     if args.instance_id is None or args.deployment_id is None or args.profile_revision is None:
         raise ValueError("journal-dir требует instance-id, deployment-id и profile-revision")
@@ -138,6 +145,8 @@ def journal_from_args(args: argparse.Namespace) -> JournalSettings | None:
         args.journal_max_bytes,
         args.journal_quota_bytes,
         args.journal_fsync,
+        args.journal_first_id,
+        args.journal_first_seq,
     )
 
 
@@ -152,6 +161,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error(str(error))
     try:
         asyncio.run(_run(config, journal))
+    except JournalAllocationError as error:
+        # Выделение проверяется до открытия слушателей: ловушка не принимает соединения.
+        print(f"honeyforge-low: {error}", file=sys.stderr)
+        raise SystemExit(2) from error
     except OSError as error:
         print(f"honeyforge-low: не удалось запустить сервис: {error}", file=sys.stderr)
         raise SystemExit(1) from error

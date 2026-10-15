@@ -245,6 +245,11 @@ jobs:
           python -m pip install uv==0.11.28
           uv sync --frozen
       - name: Validate runtime
+        # Проверки границы процесса Low зависят от Linux (renameat2, права POSIX).
+        # Переменная требует их фактического выполнения: на другой ОС они упадут,
+        # а не пропустятся молча.
+        env:
+          HF_REQUIRE_LINUX_BOUNDARY: '1'
         run: |
           uv run --frozen ruff check agent honeypots infra tests
           uv run --frozen ruff format --check agent honeypots infra tests || { uv run --frozen ruff format --diff agent honeypots infra tests; exit 1; }

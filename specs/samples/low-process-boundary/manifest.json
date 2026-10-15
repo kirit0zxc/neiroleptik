@@ -19,8 +19,23 @@
     "boundary identities/counter",
     "publisher_epoch",
     "fencing/commit times",
-    "Docker fencing claim"
+    "Docker fencing claim",
+    "anchor/launch intent identities"
   ],
+  "anchor_example": {
+    "file": "anchor-example.json",
+    "schema": "honeyforge-low-writer-anchor/1",
+    "header_source": "old-crash.jsonl",
+    "header_bytes_with_lf": "336",
+    "canonical_bytes": "780",
+    "canonical_sha256": "21f9d105fd1461e8b7cc96ff2cfd381d1bff9f9dcc95f4aec158bc38453bd5a3",
+    "note": "synthetic writer/container/anchor/launch identities and time; not emitted by runtime"
+  },
+  "proof_example": {
+    "file": "boundary-example.json",
+    "canonical_bytes": "1268",
+    "canonical_sha256": "b5173266fcb379e527a4c24ac6e7387e2eed550100b1f29a1ae750e012e456ab"
+  },
   "files": [
     {
       "file": "old-crash.jsonl",

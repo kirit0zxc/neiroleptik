@@ -12,7 +12,9 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import os
 import re
+import sys
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -58,6 +60,19 @@ _MISSING_MARKERS = ("no such container", "no such object")
 # Компактный шаблон inspect: неизменяемый ID, состояние и метки. Удаление по ID сохраняет
 # контейнер, который занял то же имя после наблюдения.
 _INSPECT_FORMAT = '{"Id":{{json .Id}},"State":{{json .State}},"Labels":{{json .Config.Labels}}}'
+# Наблюдение по полному ID дополнительно возвращает имя: вызывающий его не знает.
+_INSPECT_BY_ID_FORMAT = (
+    '{"Id":{{json .Id}},"State":{{json .State}},"Labels":{{json .Config.Labels}},'
+    '"Name":{{json .Name}}}'
+)
+# Идентичность демона и версия сервера; другой daemon делает исход неизвестным.
+_ENGINE_FORMAT = '{"id":{{json .ID}},"version":{{json .ServerVersion}}}'
+# Только записываемые mounts: их источники сверяются с каталогом журнала слота.
+_MOUNTS_FORMAT = '{"id":{{json .Id}},"mounts":{{json .Mounts}}}'
+# Сверка доступа ограничена: при большем числе контейнеров исход считается неизвестным.
+_MAX_SWEPT_CONTAINERS = 256
+# Размер пачки docker inspect: ответ должен помещаться в предел вывода исполнителя.
+_SWEEP_BATCH = 8
 
 
 class BackendError(Exception):
@@ -268,10 +283,22 @@ class DockerCli:
 
     def run_command(self, spec: ContainerSpec) -> list[str]:
         """Строит аргументы docker run; всё после образа docker передаёт контейнеру как есть."""
+        return self._lifecycle_command("run", spec, detach=True)
+
+    def create_command(self, spec: ContainerSpec) -> list[str]:
+        """Строит аргументы docker create: те же меры ограничения, но без запуска.
+
+        Создание отделено от запуска, потому что доверенная граница процесса сохраняет
+        полный Docker ID из ответа Engine на create **до** первого start (§8.1).
+        """
+        return self._lifecycle_command("create", spec, detach=False)
+
+    def _lifecycle_command(self, action: str, spec: ContainerSpec, *, detach: bool) -> list[str]:
+        """Общая часть run и create; отличаются только подкоманда и --detach."""
         argv = [
             self._executable,
-            "run",
-            "--detach",
+            action,
+            *(["--detach"] if detach else []),
             "--name",
             spec.name,
             "--read-only",
@@ -345,6 +372,247 @@ class DockerCli:
         if self._is_missing(result):
             return
         self._require_success(result, "docker rm")
+
+    async def create(self, spec: ContainerSpec) -> str:
+        """Создаёт контейнер без запуска и возвращает его полный Docker ID.
+
+        ID берётся из ответа Engine, а не из имени: имя может быть занято другим
+        контейнером сразу после наблюдения, а полный ID неизменен.
+        """
+        result = await self._execute(self.create_command(spec))
+        self._require_success(result, "docker create")
+        for line in reversed(result.output.splitlines()):
+            candidate = line.strip()
+            if _CONTAINER_ID.fullmatch(candidate) is not None:
+                return candidate
+        raise BackendError("docker create: ответ не содержит полного Docker ID")
+
+    async def start_created(self, container_id: str) -> None:
+        """Запускает уже созданный контейнер по полному ID; исчезновение ID — ошибка."""
+        target = self._require_container_id(container_id)
+        result = await self._execute([self._executable, "start", target])
+        self._require_success(result, "docker start")
+
+    async def inspect_by_id(self, container_id: str) -> ContainerObservation | None:
+        """Наблюдает контейнер по неизменяемому ID; None — такого контейнера нет.
+
+        Имя приходит из ответа Engine и обязано принадлежать пространству HoneyForge:
+        контейнеры вне него агент не наблюдает и не трогает.
+        """
+        target = self._require_container_id(container_id)
+        result = await self._execute(
+            [
+                self._executable,
+                "inspect",
+                "--type",
+                "container",
+                "--format",
+                _INSPECT_BY_ID_FORMAT,
+                target,
+            ]
+        )
+        if self._is_missing(result):
+            return None
+        self._require_success(result, "docker inspect")
+        name = self._parse_name(result.output)
+        self._require_managed_name(name)
+        observation = self._parse_observation(name, result.output)
+        if observation.container_id != target:
+            raise BackendError("docker inspect: ответ относится к другому контейнеру")
+        return observation
+
+    async def containers_by_label(self, key: str, value: str) -> tuple[str, ...]:
+        """Полные ID контейнеров с указанной меткой, включая остановленные.
+
+        Нужен восстановлению: create, полный ID которого не успел сохраниться, ищется
+        по метке writer_id. Несколько совпадений означают неизвестный исход, поэтому
+        фильтр возвращает весь список, а решение принимает вызывающая сторона.
+        """
+        if _LABEL_KEY.fullmatch(key) is None:
+            raise BackendError("недопустимый ключ метки")
+        if not 1 <= len(value) <= _MAX_LABEL_VALUE or _has_control_character(value):
+            raise BackendError("недопустимое значение метки")
+        result = await self._execute(
+            [
+                self._executable,
+                "ps",
+                "--all",
+                "--no-trunc",
+                "--filter",
+                f"label={key}={value}",
+                "--format",
+                "{{.ID}}",
+            ]
+        )
+        self._require_success(result, "docker ps")
+        found = tuple(
+            line.strip()
+            for line in result.output.splitlines()
+            if _CONTAINER_ID.fullmatch(line.strip()) is not None
+        )
+        if len(found) > _MAX_SWEPT_CONTAINERS:
+            raise BackendError("docker ps: слишком много контейнеров с этой меткой")
+        return found
+
+    async def engine_identity(self) -> str:
+        """Идентичность Engine и демона: другой daemon означает неизвестный исход (§2)."""
+        result = await self._execute([self._executable, "info", "--format", _ENGINE_FORMAT])
+        self._require_success(result, "docker info")
+        try:
+            line = next(
+                item for item in result.output.splitlines() if item.lstrip().startswith("{")
+            )
+            data = json.loads(line)
+            identity = f"{data['id']}/{data['version']}"
+        except (StopIteration, ValueError, KeyError, TypeError) as error:
+            raise BackendError("docker info: неожиданный формат ответа") from error
+        if not 3 <= len(identity) <= 256 or _has_control_character(identity):
+            raise BackendError("docker info: недопустимая идентичность Engine")
+        return identity
+
+    async def writable_mount_holders(self, source: str) -> tuple[str, ...]:
+        """Полные ID контейнеров, у которых есть запись в каталог хоста или его предка.
+
+        Управление одним именем слота не доказывает отсутствие других контейнеров с RW
+        доступом к тому же журналу (§2), поэтому ограждение сверяет весь список Engine.
+        Пересечением считается совпадение каталога, его вложенность в источник mount
+        или обратная вложенность. Сравнение работает с путями хоста, как их сообщает
+        Engine. На Windows Docker Desktop сообщает источник в виде `C:/...`, который
+        не является путём POSIX, поэтому сверка там не выполняется и явно отказывает:
+        молчаливый пустой список выглядел бы как подтверждённое ограждение.
+        """
+        BindMount.check_source(source)
+        if not PurePosixPath(source).is_absolute():
+            raise BackendError("сверка доступа к каталогу поддерживается только на POSIX")
+        listing = await self._execute(
+            [self._executable, "ps", "--all", "--no-trunc", "--format", "{{.ID}}"]
+        )
+        self._require_success(listing, "docker ps")
+        identifiers = [
+            line.strip()
+            for line in listing.output.splitlines()
+            if _CONTAINER_ID.fullmatch(line.strip()) is not None
+        ]
+        if len(identifiers) > _MAX_SWEPT_CONTAINERS:
+            raise BackendError("docker ps: слишком много контейнеров для сверки доступа")
+        holders: list[str] = []
+        target = self._resolve_posix(source)
+        for start in range(0, len(identifiers), _SWEEP_BATCH):
+            holders.extend(await self._sweep(identifiers[start : start + _SWEEP_BATCH], target))
+        return tuple(holders)
+
+    async def _sweep(self, batch: list[str], target: PurePosixPath) -> list[str]:
+        """Наблюдает mounts пачки контейнеров; каждый ID обязан дать свою строку.
+
+        Отсутствие строки означает неполное наблюдение, а по §2 неполный охват
+        писателей — неизвестный исход, не пустой список. Поэтому ID без строки
+        наблюдается отдельно: только явное «нет такого контейнера» считается
+        исчезновением между `docker ps` и `docker inspect`.
+        """
+        result = await self._execute(
+            [
+                self._executable,
+                "inspect",
+                "--type",
+                "container",
+                "--format",
+                _MOUNTS_FORMAT,
+                *batch,
+            ]
+        )
+        missing = self._is_missing(result)
+        if not missing:
+            self._require_success(result, "docker inspect")
+        parsed = self._parse_mounts(result.output, batch)
+        holders = [
+            identifier
+            for identifier, sources in parsed
+            if any(self._overlaps(target, item) for item in sources)
+        ]
+        observed = {identifier for identifier, _ in parsed}
+        absent = [identifier for identifier in batch if identifier not in observed]
+        if not absent:
+            return holders
+        if len(batch) == 1:
+            if not missing:
+                raise BackendError("docker inspect: ответ не содержит наблюдения контейнера")
+            return holders
+        for identifier in absent:
+            holders.extend(await self._sweep([identifier], target))
+        return holders
+
+    @staticmethod
+    def _overlaps(target: PurePosixPath, mounted: str) -> bool:
+        """Каталог журнала и источник mount пересекаются в любую сторону вложенности.
+
+        Пути приводятся к фактическим: второй bind одного каталога или путь через
+        символическую ссылку иначе прошёл бы лексическую сверку, и ограждение было бы
+        объявлено полным. Нормализация опирается на то, что Engine сообщает путь
+        того же хоста, где работает producer.
+        """
+        try:
+            source = DockerCli._resolve_posix(mounted)
+        except (TypeError, ValueError):
+            return False
+        if not source.is_absolute():
+            return False
+        return source == target or source in target.parents or target in source.parents
+
+    @staticmethod
+    def _resolve_posix(path: str) -> PurePosixPath:
+        """Приводит путь POSIX к фактическому; на Windows только разбирает его.
+
+        Разыменование ссылок имеет смысл лишь на том хосте, где работает Engine, а
+        producer поддерживается только на Linux. На Windows остаётся лексический
+        разбор: сверка там всё равно отказывает раньше, в writable_mount_holders.
+        """
+        if sys.platform == "win32":
+            return PurePosixPath(path)
+        return PurePosixPath(os.path.realpath(path))
+
+    @staticmethod
+    def _parse_mounts(output: str, batch: list[str]) -> list[tuple[str, tuple[str, ...]]]:
+        """Разбирает по строке на контейнер: ID и источники его записываемых mounts."""
+        known = set(batch)
+        parsed: list[tuple[str, tuple[str, ...]]] = []
+        for line in output.splitlines():
+            item = line.strip()
+            if not item.startswith("{"):
+                continue
+            try:
+                data = json.loads(item)
+                identifier = data["id"]
+                mounts = data["mounts"] or []
+                if identifier not in known or not isinstance(mounts, list):
+                    raise ValueError("состав ответа")
+                sources = tuple(
+                    str(mount["Source"])
+                    for mount in mounts
+                    if isinstance(mount, dict) and mount.get("RW") is True
+                )
+            except (ValueError, KeyError, TypeError) as error:
+                raise BackendError("docker inspect: неожиданный формат mounts") from error
+            parsed.append((identifier, sources))
+        return parsed
+
+    @staticmethod
+    def _parse_name(output: str) -> str:
+        """Имя из ответа Engine приходит с ведущей косой чертой."""
+        try:
+            line = next(item for item in output.splitlines() if item.lstrip().startswith("{"))
+            name = json.loads(line)["Name"]
+            if not isinstance(name, str):
+                raise ValueError("имя контейнера")
+        except (StopIteration, ValueError, KeyError, TypeError) as error:
+            raise BackendError("docker inspect: неожиданный формат ответа") from error
+        return name[1:] if name.startswith("/") else name
+
+    @staticmethod
+    def _require_container_id(container_id: str) -> str:
+        """Операции доверенной границы адресуют контейнер только полным Docker ID."""
+        if not isinstance(container_id, str) or _CONTAINER_ID.fullmatch(container_id) is None:
+            raise BackendError("операция требует полного Docker ID контейнера")
+        return container_id
 
     async def _execute(self, argv: list[str]) -> CommandResult:
         """Блокирующий исполнитель уходит в поток: цикл событий агента не должен ждать docker."""

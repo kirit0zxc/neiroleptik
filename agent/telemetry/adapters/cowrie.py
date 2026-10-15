@@ -1,110 +1,156 @@
-"""Ограниченный сбор JSON Cowrie с атомарным checkpoint в общей очереди."""
+"""Чистое отображение Cowrie JSONL; прежний collector доступен по старому импорту."""
 
 import json
-import os
-import stat
-from pathlib import Path
+from dataclasses import dataclass
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from agent.telemetry.adapters.low import SourceRecord
-from agent.telemetry.low_journal.models import JournalBinding
-from agent.telemetry.schemas import Event, compact_json
-from agent.telemetry.spool import SpoolRepository
+from agent.telemetry.adapters.cowrie_collector import CowrieCollector as CowrieCollector
+from agent.telemetry.schemas import MAX_DATA_BYTES, Event, Source, compact_json
 
 
-class CowrieCollector:
-    """Идентичность только из подтверждённого ACK; файл не задаёт deployment/instance."""
+class CowrieMappingError(ValueError):
+    """Стабильный код без исходных полей и сообщений внешних валидаторов."""
 
-    def __init__(self, spool: SpoolRepository, root: Path) -> None:
-        self._spool, self._root = spool, root
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
 
-    def step(self, binding: JournalBinding) -> None:
-        path = (
-            self._root
-            / "medium"
-            / binding.deployment_id
-            / binding.instance_id
-            / "log"
-            / "cowrie.json"
-        )
-        if not path.exists():
-            return
-        if not stat.S_ISREG(path.lstat().st_mode):
-            raise ValueError("Cowrie: ожидается обычный файл")
-        for part in (path, *path.parents):
-            info = part.lstat()
-            if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
-                raise ValueError("Cowrie: ссылка вместо локального журнала")
-        source = f"cowrie:{binding.deployment_id}:{binding.instance_id}"
-        offset = self._spool.checkpoint(source)
-        descriptor = os.open(
-            path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-        )
-        with os.fdopen(descriptor, "rb") as stream:
-            info = os.fstat(stream.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size < offset:
-                raise ValueError("Cowrie: журнал заменён или усечён")
-            if info.st_size > 64 * 1024 * 1024:
-                raise ValueError("Cowrie: превышен предел журнала")
-            stream.seek(offset)
-            for _ in range(100):
-                line = stream.readline(65537)
-                if len(line) > 65536:
-                    raise ValueError("Cowrie: слишком длинная запись")
-                if not line or not line.endswith(b"\n"):
-                    break
-                event = self._event(binding, source, offset, line)
-                self._spool.append(SourceRecord(source, offset, offset + len(line), event))
-                offset += len(line)
 
-    def _event(self, binding: JournalBinding, source: str, offset: int, line: bytes) -> Event:
-        raw = json.loads(line)
-        if not isinstance(raw, dict) or not isinstance(raw.get("timestamp"), str):
-            raise ValueError("Cowrie: ожидается объект события с timestamp")
-        if not isinstance(raw.get("eventid"), str):
-            raise ValueError("Cowrie: ожидается строковый eventid")
-        kind = str(raw["eventid"])
-        types = {
-            "cowrie.session.connect": "connection.opened",
-            "cowrie.login.success": "auth.attempt",
-            "cowrie.login.failed": "auth.attempt",
-            "cowrie.command.input": "session.command",
-            "cowrie.session.closed": "session.closed",
-        }
-        event_type = types.get(kind, "runtime.state")
-        data: dict[str, object] = {"capture_completeness": "unknown"}
-        if event_type == "auth.attempt":
-            data.update(
-                username=str(raw.get("username", ""))[:128], success=kind == "cowrie.login.success"
+@dataclass(frozen=True)
+class CowrieBinding:
+    """Доверенная привязка; подтверждение start выполняет будущий runtime wiring."""
+
+    agent_id: UUID
+    deployment_id: UUID
+    instance_id: UUID
+    profile_revision: int
+    service_port: int
+
+    def __post_init__(self) -> None:
+        if not all(
+            isinstance(v, UUID) for v in (self.agent_id, self.deployment_id, self.instance_id)
+        ):
+            raise ValueError("Нужны UUID доверенной привязки")
+        if type(self.profile_revision) is not int or self.profile_revision < 1:
+            raise ValueError("Нужна положительная целая revision")
+        if type(self.service_port) is not int or not 1 <= self.service_port <= 65535:
+            raise ValueError("Нужен целый порт 1..65535")
+
+
+class CowrieAdapter:
+    """Не читает файлы и не меняет storage; идентичность задаётся физической позицией."""
+
+    _TYPES = {
+        "cowrie.session.connect": "connection.opened",
+        "cowrie.login.failed": "auth.attempt",
+        "cowrie.login.success": "auth.attempt",
+        "cowrie.command.input": "session.command",
+        "cowrie.session.closed": "session.closed",
+    }
+
+    @staticmethod
+    def _object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Повтор ключа")
+            result[key] = value
+        return result
+
+    @staticmethod
+    def _constant(value: str) -> None:
+        raise ValueError("Нечисловая константа JSON")
+
+    @staticmethod
+    def _name(value: object) -> str:
+        if not isinstance(value, str) or not 1 <= len(value.encode("utf-8")) <= 128:
+            raise ValueError("Неверное имя")
+        return value
+
+    def map_record(
+        self, raw: bytes, *, binding: CowrieBinding, journal_id: UUID, offset: int
+    ) -> Event | None:
+        """Полная неверная строка даёт безопасную ошибку, неизвестный тип — None."""
+        if (
+            not isinstance(journal_id, UUID)
+            or type(offset) is not int
+            or not 0 <= offset <= 9007199254740991
+        ):
+            raise CowrieMappingError("INVALID_POSITION")
+        if not isinstance(raw, bytes):
+            raise CowrieMappingError("INVALID_RECORD")
+        if len(raw) > 65536:
+            raise CowrieMappingError("RECORD_LIMIT")
+        # Исключение поднимается за пределами except: traceback не хранит цепочку
+        # JSONDecodeError/ValidationError, способную раскрыть пароль и исходник.
+        code = "INVALID_RECORD"
+        try:
+            if not isinstance(binding, CowrieBinding):
+                raise ValueError("Неверная привязка")
+            if not raw.endswith(b"\n") or b"\n" in raw[:-1]:
+                raise ValueError("Нужна одна строка")
+            record = json.loads(
+                raw.decode("utf-8"), object_pairs_hook=self._object, parse_constant=self._constant
             )
-            if "password" in raw:
-                data["password"] = "[REDACTED]"
-        elif event_type == "session.command":
-            command = str(raw.get("input", ""))
-            data.update(input=command[:2048], truncated=len(command) > 2048)
-        peer = None
-        if raw.get("src_ip"):
-            peer = {"ip": raw["src_ip"], "port": raw.get("src_port", 0)}
-        identity = [str(self._spool.agent_id), binding.deployment_id, binding.instance_id]
-        session = raw.get("session")
-        return Event.model_validate(
-            {
-                "event_id": str(uuid5(NAMESPACE_URL, compact_json(identity + [source, offset]))),
-                "agent_id": self._spool.agent_id,
-                "deployment_id": UUID(binding.deployment_id),
-                "instance_id": UUID(binding.instance_id),
-                "profile_revision": binding.profile_revision,
-                "session_id": str(
-                    uuid5(NAMESPACE_URL, compact_json(identity + ["cowrie", session]))
-                )
-                if session
-                else None,
-                "source_seq": offset,
-                "occurred_at": raw["timestamp"],
-                "type": event_type,
-                "source": peer,
-                "service": {"protocol": "ssh", "port": 2222},
-                "data": data,
-                "artifact_ids": [],
-            }
-        )
+            if not isinstance(record, dict):
+                raise ValueError("Нужен объект")
+            # Проверяет суррогаты также в неизвестных полях и именах ключей.
+            compact_json(record).encode("utf-8")
+            eventid = self._name(record.get("eventid"))
+            session = self._name(record.get("session"))
+            ip, port = record.get("src_ip"), record.get("src_port")
+            if ("src_ip" in record) != ("src_port" in record):
+                raise ValueError("Неполная пара источника")
+            source = (
+                None
+                if ip is None and port is None
+                else Source.model_validate({"ip": ip, "port": port})
+            )
+            # Сначала общий конверт через тот же Event validator, даже для ignored.
+            identity = [str(binding.agent_id), str(binding.deployment_id), str(binding.instance_id)]
+            event = Event.model_validate(
+                {
+                    "event_id": uuid5(
+                        NAMESPACE_URL,
+                        compact_json(identity + ["cowrie-jsonl/1", str(journal_id), offset]),
+                    ),
+                    "agent_id": binding.agent_id,
+                    "deployment_id": binding.deployment_id,
+                    "instance_id": binding.instance_id,
+                    "profile_revision": binding.profile_revision,
+                    "session_id": uuid5(
+                        NAMESPACE_URL, compact_json(identity + ["cowrie-session/1", session])
+                    ),
+                    "source_seq": offset,
+                    "occurred_at": record.get("timestamp"),
+                    "source": source,
+                    "service": {"protocol": "ssh", "port": binding.service_port},
+                    "type": self._TYPES.get(eventid, "runtime.state"),
+                    "data": {},
+                    "artifact_ids": [],
+                }
+            )
+            if eventid not in self._TYPES:
+                return None
+            data: dict[str, str | bool] = {}
+            fields = (
+                ("username", "password")
+                if event.type == "auth.attempt"
+                else ("input",)
+                if event.type == "session.command"
+                else ()
+            )
+            for field in fields:
+                value = record.get(field)
+                if not isinstance(value, str):
+                    raise ValueError("Нужна строка")
+                data[field] = value
+            if event.type == "auth.attempt":
+                data["success"] = eventid == "cowrie.login.success"
+            if len(compact_json(data).encode("utf-8")) > MAX_DATA_BYTES:
+                code = "DATA_LIMIT"
+            else:
+                return Event.model_validate({**event.model_dump(), "data": data})
+        except (ValueError, TypeError, RecursionError, OverflowError):
+            pass
+        raise CowrieMappingError(code)

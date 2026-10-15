@@ -1,5 +1,22 @@
 # Архитектура HoneyForge
 
+## Чистая конверсия Cowrie, 15.10.2026
+
+[cowrie-telemetry.md](cowrie-telemetry.md) задаёт доверенный runtime binding,
+JSONL → Event v1 и ограниченный parser настоящего TTY Cowrie. Модуль
+`agent/telemetry/adapters/cowrie.py` реализует неизменяемый CowrieBinding и
+CowrieAdapter без чтения файлов или записи в spool. `agent/telemetry/cowrie_tty.py`
+разбирает ограниченный поток OPEN/WRITE/CLOSE в chunks существующей replay schema.
+Исходные acceptance-тесты перенесены в `tests/telemetry/test_cowrie_*_contract.py`
+и входят в штатный pytest/CI. Прежний минимальный CowrieCollector из актуального
+main перенесён без изменения поведения в `adapters/cowrie_collector.py` и
+реэкспортируется по старому пути для runtime. Новый mapper к нему не подключён:
+нужны отдельные durable raw/ledger, доверенный реестр поколений и bindings.
+Replay transport/storage и read API остаются следующими этапами. Существующий
+`tty_fixture.py` остаётся отдельным синтетическим форматом. Промпт первого PR
+и готовый текст передачи runtime: [cowrie-implementation-prompt.md](cowrie-implementation-prompt.md).
+Проверки и ограничения: [cowrie-validation.md](cowrie-validation.md).
+
 ## Постоянный сбор Low
 
 `agent/runtime/executor/telemetry.py` соединяет доверенную историю ACK исполнителя
@@ -371,7 +388,8 @@ Receiver не заменяет production backend и не проверяет bou
 `agent/runtime/drivers/medium.py` переводит ограниченный SSH-профиль в контейнер
 Cowrie и повторно использует lifecycle LowDriver с отдельными именами и метками.
 `honeypots/medium/launch.py` создаёт отдельное постоянное состояние instance.
-`agent/telemetry/adapters/cowrie.py` преобразует JSON в существующий Event v1;
+Прежний `agent/telemetry/adapters/cowrie_collector.py` (реэкспорт из `cowrie.py`)
+преобразует JSON в существующий Event v1 по минимальному демо-контракту;
 executor telemetry передаёт только подтверждённые ACK bindings. Checkpoint и события
 атомарно сохраняются в общей SQLite-очереди, далее работает прежний batch sender.
 Границы демо и запуск описаны в [medium-cowrie-executor.md](medium-cowrie-executor.md).

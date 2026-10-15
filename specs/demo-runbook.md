@@ -8,8 +8,9 @@
 
 ## 1. Подготовка (за 30 минут до показа)
 
-Команды — из корня репозитория `neiroleptik`. Нужны Docker Desktop, Node.js 22+,
-Python 3.12 и `uv 0.11.28` (`python -m pip install --user uv==0.11.28`;
+Все команды — для **Git Bash** (на Windows), из корня репозитория `neiroleptik`;
+в PowerShell синтаксис переменных окружения и `/dev/tcp` другой. Нужны Docker
+Desktop, Node.js 22.12+ (или 24, или 26+), Python 3.12 и `uv 0.11.28` (`python -m pip install --user uv==0.11.28`;
 на Windows при ошибке установки Python задайте `UV_PYTHON_INSTALL_DIR` на
 локальный диск, не OneDrive и не Roaming).
 
@@ -27,8 +28,17 @@ docker compose --env-file .env -f infra/compose.center.yml up -d api
 `/app/.venv/bin/alembic` подменится путём Windows. Готовность:
 `http://127.0.0.1:8000/readyz` → 200.
 
-**Интерфейс на настоящем центре** (origin `127.0.0.1:5175` должен быть в
-`HF_ALLOWED_ORIGINS`):
+**Интерфейс на настоящем центре.** По умолчанию центр пускает только
+`http://localhost:5173`; origin `http://127.0.0.1:5175` добавить вручную в `.env`
+и пересоздать API, иначе запросы и WebSocket отклонятся (CORS):
+
+```sh
+# в .env, одной строкой (JSON-массив):
+HF_ALLOWED_ORIGINS=["http://localhost:5173","http://localhost:8000","http://127.0.0.1:5175"]
+docker compose --env-file .env -f infra/compose.center.yml up -d api
+```
+
+Запуск фронта:
 
 ```sh
 cd frontend

@@ -1,4 +1,4 @@
-import { ApiError } from '../../shared/api/client';
+import { api, ApiError } from '../../shared/api/client';
 import type { Deployment } from '../../shared/api/types';
 
 /**
@@ -103,4 +103,37 @@ const REJECTS: Readonly<Record<string, string>> = {
 export function commandRejectText(error: unknown): string {
   if (!(error instanceof ApiError)) return 'Команда не отправлена';
   return error.code && Object.hasOwn(REJECTS, error.code) ? REJECTS[error.code]! : error.message;
+}
+
+/**
+ * Удаление ловушки доступно (F6a) только из stopped/failed: только тогда
+ * исполнитель точно не держит порт. В других состояниях сервер всё равно
+ * откажет (409) — кнопку просто не показываем.
+ */
+export function canDelete(d: Pick<Deployment, 'state'>): boolean {
+  return d.state === 'stopped' || d.state === 'failed';
+}
+
+/**
+ * Удалить ловушку (F6a). 204 и 404 — успех (ловушки больше нет), резерв порта
+ * освобождён. 409 и прочее — пробрасываем `ApiError`, чтобы показать `detail`.
+ */
+export async function deleteDeployment(id: string): Promise<void> {
+  try {
+    await api<void>(`/api/v1/deployments/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return;
+    throw error;
+  }
+}
+
+/**
+ * Сообщение об отказе удаления: 404 — ловушки уже нет (не ошибка, вызывающий
+ * трактует как успех), иначе текст `detail` сервера (409 и прочее), а при
+ * неизвестном результате (сеть/обрыв/5xx) — что запрос мог не дойти.
+ */
+export function deleteErrorText(error: unknown): string {
+  if (!(error instanceof ApiError)) return 'Не удалось удалить ловушку';
+  if (error.status === 0) return `${error.message} — результат неизвестен, повторите`;
+  return error.message;
 }

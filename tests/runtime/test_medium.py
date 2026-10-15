@@ -1,6 +1,7 @@
 """Medium использует общие ACK/lease и не принимает публичные адреса стенда."""
 
 import asyncio
+import os
 from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
@@ -55,6 +56,11 @@ def center_command():
 
 @pytest.mark.parametrize("enabled", [False, True])
 def test_medium_start_ack_retry_stop(tmp_path, monkeypatch, enabled):
+    # Здесь Docker подменён: root-права для смены владельца каталога не нужны.
+    # Production-проверки владельца проверяются отдельно тестами LowDriver.
+    if hasattr(os, "chown"):
+        monkeypatch.setattr(os, "chown", lambda *args, **kwargs: None)
+
     async def healthy(self, target):
         assert target.tcp_port == 2222
 

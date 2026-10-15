@@ -69,7 +69,9 @@ class EnrollmentClient(BoundedHttpTransport):
         except (ValueError, UnicodeError):
             raise ClientError("INVALID_REQUEST") from None
 
-    async def enroll(self, enrollment_token: str, name: str) -> EnrollmentReply:
+    async def enroll(
+        self, enrollment_token: str, name: str, *, medium: bool = False
+    ) -> EnrollmentReply:
         """Ответ не повторяется автоматически: одноразовый token мог быть уже израсходован."""
         self.validate_input(enrollment_token, name)
         value = await self._send(
@@ -78,7 +80,7 @@ class EnrollmentClient(BoundedHttpTransport):
             {
                 "enrollment_token": enrollment_token,
                 "name": name,
-                "capabilities": ["low"],
+                "capabilities": ["low", "medium"] if medium else ["low"],
             },
         )
         return EnrollmentReply.parse(value)
@@ -89,7 +91,9 @@ async def run(args: argparse.Namespace, enrollment_token: str) -> EnrollmentRepl
     client = EnrollmentClient(args.center, allow_http=args.allow_http_loopback)
     client.validate_input(enrollment_token, args.name)
     with TokenFile(args.token_file).reserve() as destination:
-        reply = await client.enroll(enrollment_token, args.name)
+        reply = await client.enroll(
+            enrollment_token, args.name, medium=getattr(args, "medium", False)
+        )
         destination.write(reply.agent_token)
         return reply
 
@@ -97,6 +101,9 @@ async def run(args: argparse.Namespace, enrollment_token: str) -> EnrollmentRepl
 def main() -> None:
     """Секрет принимается только из окружения и не наследуется дочерними процессами."""
     parser = argparse.ArgumentParser(description="Регистрация Low-агента HoneyForge")
+    parser.add_argument(
+        "--medium", action="store_true", help="После проверки Cowrie объявить Medium"
+    )
     parser.add_argument("--center", required=True)
     parser.add_argument("--name", required=True)
     parser.add_argument("--token-file", required=True, type=Path)

@@ -365,3 +365,13 @@ UUID/DTO из входных строк и запуск дочернего worke
 Внутренние clock/jitter worker передаются существующему sender; рабочие defaults,
 последовательность операций, лимиты и публичные контракты сохраняются.
 Receiver не заменяет production backend и не проверяет boundary consumer.
+
+## Локальный Medium Cowrie
+
+`agent/runtime/drivers/medium.py` переводит ограниченный SSH-профиль в контейнер
+Cowrie и повторно использует lifecycle LowDriver с отдельными именами и метками.
+`honeypots/medium/launch.py` создаёт отдельное постоянное состояние instance.
+`agent/telemetry/adapters/cowrie.py` преобразует JSON в существующий Event v1;
+executor telemetry передаёт только подтверждённые ACK bindings. Checkpoint и события
+атомарно сохраняются в общей SQLite-очереди, далее работает прежний batch sender.
+Границы демо и запуск описаны в [medium-cowrie-executor.md](medium-cowrie-executor.md).

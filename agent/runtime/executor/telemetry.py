@@ -16,6 +16,7 @@ from pydantic import SecretStr
 
 from agent.runtime.executor.client import ClientError, HttpCommandClient
 from agent.runtime.executor.store import ExecutionStore, StoreError
+from agent.telemetry.adapters.cowrie import CowrieCollector
 from agent.telemetry.low_journal.collector import LowJournalCollector
 from agent.telemetry.low_journal.conversion import LowRawConverter
 from agent.telemetry.low_journal.durable import RawJournalError, RawJournalRepository
@@ -56,6 +57,7 @@ class LowTelemetryWorker:
             binding = bindings[self._position % len(bindings)]
             self._position += 1
             try:
+                CowrieCollector(self._spool, self._root).step(binding)
                 paths = list(
                     islice(
                         (self._root / binding.deployment_id).glob(

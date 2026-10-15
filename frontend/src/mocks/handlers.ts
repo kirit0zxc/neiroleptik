@@ -134,6 +134,10 @@ export const handlers = [
   http.get('/api/v1/events', ({ request }) => {
     const q = new URL(request.url).searchParams;
     const from = q.get('from'); const to = q.get('to');
+    // Как центр: неверные фильтры — обычный 422 без code (не повод сбрасывать курсор).
+    if (from && to && !(Date.parse(from) < Date.parse(to))) {
+      return HttpResponse.json({ detail: 'Некорректные фильтры истории' }, { status: 422 });
+    }
     const filter = JSON.stringify(['deployment_id', 'type', 'source_ip', 'from', 'to'].map((key) => q.get(key)));
     // Порядок центра: received_at DESC, event_id DESC, agent_id DESC.
     const desc = (a: string, b: string) => (a < b ? 1 : a > b ? -1 : 0);

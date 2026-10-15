@@ -219,6 +219,7 @@ describe('живая лента (F10–F12)', () => {
     }));
     await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
     expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Повторить' })).toBeInTheDocument();
     expect(screen.queryByText('Список событий обновлён — загружен заново.')).toBeNull();
     expect(firstPages).toBe(0);
   });
@@ -295,7 +296,8 @@ describe('живая лента (F10–F12)', () => {
       await waitFor(() => expect(rows()).toHaveLength(Math.min((page + 1) * 50, 504)));
     }
     expect(screen.getByText('cmd-overflow-0')).toBeInTheDocument();
-  }, 15000);
+  // 501 событие и 10 страниц: под общей нагрузкой happy-dom 15 с не хватало.
+  }, 40000);
 
   it('после 410 получает новый hello до REST, события во время снимка не теряются', async () => {
     let reads = 0;

@@ -60,8 +60,17 @@ describe('схема профиля (F8)', () => {
     expect(tcp(' ~SSH-2.0 x!')).toEqual([]);
     // У HTTP баннер (текст заглушки) может быть пустым и не-ASCII.
     expect(issues({ ...emptyProfile('low'), name: 'x', services: [{ protocol: 'http', port: 80, banner: 'Привет' }] })).toEqual([]);
-    // ASCII-правило только для TCP: баннер SSH на Medium его не проверяет.
-    expect(issues(valid({ services: [{ protocol: 'ssh', port: 2222, banner: 'Привет' }] }))).toEqual([]);
+  });
+
+  it('Medium: принимает пустой и настраиваемый SSH-баннер как исполнитель', () => {
+    for (const banner of ['', 'SSH-2.0-OpenSSH_9.6', 'SSH-2.0-test server']) {
+      expect(issues(valid({ services: [{ protocol: 'ssh', port: 2224, banner }] }))).toEqual([]);
+    }
+    for (const banner of ['   ', 'SSH', 'Привет', 'SSH-2.0-сервер', 'SSH-2.0-\u007f']) {
+      expect(issues(valid({ services: [{ protocol: 'ssh', port: 2222, banner }] })))
+        .toContain('services.0.banner: Баннер Medium: пустой или SSH-2.0- с печатными ASCII-символами');
+    }
+    expect(emptyProfile('medium').services[0]!.banner).toBe('');
   });
 
   it('смена уровня на Low: два HTTP не подходят — набор по умолчанию', () => {
@@ -159,7 +168,7 @@ describe('сборка тела запроса по контракту (formToCr
 
 describe('редактирование прочитанной конфигурации', () => {
   const config = { interaction_level: 'medium' as const, hostname: 'ssh-node',
-    services: [{ protocol: 'ssh' as const, port: 22, banner: 'SSH' }],
+    services: [{ protocol: 'ssh' as const, port: 22, banner: '' }],
     credential_usernames: ['admin'], logging: { max_payload_bytes: 256 } };
 
   it('сохраняет существующие пароли через null без повторного ввода', () => {

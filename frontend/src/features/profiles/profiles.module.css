@@ -16,6 +16,7 @@
 }
 .remove:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); }
 .error { color: var(--bad); font-size: 12px; }
+.hint { color: var(--text-dim); font-size: 12px; }
 .ok { color: var(--ok); }
 .note { color: var(--text-dim); margin: 0 0 8px; }
 .actions { display: flex; align-items: center; gap: 14px; }

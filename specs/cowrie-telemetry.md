@@ -1,15 +1,18 @@
 # Cowrie: контракт работ участника 4
 
-Дата: 15.10.2026. Первоначальное основание: `9c47c0a`; реализация обновлена
-от удалённого `origin/main` `16791d4da8e658fcf7ef0143d3d80bca48db65c3`.
+Обновлено: 16.10.2026. Первоначальное основание: `9c47c0a`; первый PR проверялся
+с `16791d4`. Совместимость обновлена относительно удалённого `origin/main`
+`6183092dc9234dd35f25c94834dc539b48f078ea`.
 Статус: чистые CowrieAdapter/CowrieBinding и CowrieTtyConverter реализованы;
 acceptance-тесты перенесены в штатный набор. Ожидание ответа Данила не блокирует
 подготовку нашей части. Это не заявление о согласии Данила, готовности нового
-durable collector, существовании replay API или выполненной интеграции.
+durable collector или выполненной интеграции новых чистых интерфейсов.
 Публичные Event/ACK и Low не изменяются. Новый HTTP transport replay данным
-этапом не вводится: описание в frontend-protocol-v1.md пока остаётся проектным.
+этапом не вводится. Актуальный main уже содержит legacy replay через Event и
+GET read API; он сохраняется без изменений. Следующие этапы ниже относятся к
+новому durable/sealed пути, а не отрицают существующий legacy replay.
 
-В обновлённом main уже существует минимальный Medium runtime/collector
+В обновлённом main уже существует Medium runtime/collector с legacy replay
 ([medium-cowrie-executor.md](medium-cowrie-executor.md)). Его поведение и UUID
 сохранены: collector вынесен в `adapters/cowrie_collector.py` с реэкспортом по
 старому импорту. Новые чистые интерфейсы пока не подключены к worker. Успех
@@ -107,7 +110,9 @@ username/password/input — обязательные строки; пустая 
 data ограничен существующими 8192 UTF-8 bytes: превышение DATA_LIMIT,
 без молчаливого усечения или потери исходника. Оригинальный password допустим
 только в закрытом Event; существующая PublicPolicy выдаёт password_present.
-TTY не превращается в session.output: его отдельный transport ещё не реализован.
+Новый pure TTY parser не превращает запись в session.output: отдельный transport
+для новых интерфейсов ещё не реализован. Legacy collector main продолжает
+передавать свой replay через session.output по medium-cowrie-executor.md.
 `cowrie.session.file_download` не подтверждает наличие скачанного артефакта у нас.
 
 Ошибки: INVALID_RECORD, INVALID_POSITION, RECORD_LIMIT, DATA_LIMIT. Сообщение,
@@ -173,7 +178,8 @@ PAYLOAD_LIMIT, IO_ERROR. Код не содержит payload или текст�
 3. Перед введением upload/read replay дополнить этот документ точным transport,
    общим OpenAPI, моделью нескольких каналов, ownership, quotas и миграцией.
    Пока не выдумывать существующий агентский endpoint или разрешение viewer.
-   Раздел Replay frontend-protocol-v1 задаёт проектную пагинацию, но не upload.
+   Существующий раздел Replay frontend-protocol-v1 описывает legacy read API;
+   он не определяет upload новых чистых chunks и доверенного seal.
 4. Проверить PostgreSQL event/outbox/publication и REST/WS/lookup: пароль скрыт
    в каждом пути; origin/cookie/CSRF и Bearer ownership сохранены. Для replay
    отдельно определить и проверить роли до открытия исходных bytes пользователю.

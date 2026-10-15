@@ -1,6 +1,6 @@
 # Cowrie: результаты первого этапа, 15.10.2026
 
-Ветка: `codex/cowrie-implementation`. База после двух успешных fetch:
+Ветка: `codex/cowrie-implementation`. Историческая база первого запуска:
 `origin/main` `16791d4da8e658fcf7ef0143d3d80bca48db65c3`.
 SHA итогового коммита и результаты трёх рецензентов фиксируются в PR, чтобы
 отчёт не изменял уже проверенное дерево. Требуется человеческое одобрение
@@ -79,5 +79,28 @@ Backend/PostgreSQL, frontend/browser и новый сквозной Cowrie smoke
 Pure TTY bytes созданы struct.pack по upstream `<iLiiLL>`; это не захват
 живого Cowrie. Digest/версия установленного runtime и подтверждение Данила
 не получены. Новый durable collector/worker, seal/digest storage, replay upload,
-read API и модель нескольких каналов остаются следующими PR по
+read API для новых чистых chunks и модель доверенного seal остаются следующими PR по
 [cowrie-telemetry.md](cowrie-telemetry.md). Сообщение Данилу не отправлялось.
+
+## Совместимость с main после Medium replay, 16.10.2026
+
+Актуальная база: `6183092dc9234dd35f25c94834dc539b48f078ea`. Исторические SHA,
+числа тестов и ограничения выше описывают предыдущий запуск, а не новую базу.
+Конфликт cowrie.py разрешён сохранением pure mapper и переносом **актуального**
+legacy collector из main в cowrie_collector.py. Он совпадает с main целиком,
+включая profile port, TTY collector, возобновление и manifest. В main уже
+существует legacy replay через Event и GET read API; они сохранены. Будущими
+остаются durable/sealed wiring и transport новых чистых интерфейсов.
+
+Независимые проверки переноса: 195 pure tests и 8 legacy tests прошли;
+один POSIX FIFO skip на Windows. Сценарии service.port=2200/2323 сохранены.
+Ruff/format, mypy Linux/Win32, export_contracts и wheel build прошли на новой базе.
+Первый полный прогон: 1767 passed, 11 skipped, 37 subtests passed и один отказ
+существующего test_executor_client slow-response-body (сервер не увидел закрытие
+соединения за 3 секунды на Windows). Все Medium tests в нём прошли.
+Целевой повтор дал тот же отказ и 5 passed Medium tests. Client, deadline и
+этот тест не изменены относительно main; причина отказа пока не установлена.
+Этот отказ не считается успешным тестом; результаты дальнейших проверок,
+повторного цикла рецензентов и итоговый SHA — в PR. Обязательный CI на Linux
+должен выполнить исходный тест без ослабления или пропуска.
+Гипотеза влияния живого порта не подтверждена и не используется как доказательство.

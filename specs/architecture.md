@@ -12,7 +12,10 @@ CowrieAdapter без чтения файлов или записи в spool. `ag
 main перенесён без изменения поведения в `adapters/cowrie_collector.py` и
 реэкспортируется по старому пути для runtime. Новый mapper к нему не подключён:
 нужны отдельные durable raw/ledger, доверенный реестр поколений и bindings.
-Replay transport/storage и read API остаются следующими этапами. Существующий
+Подключение новых чистых chunks к durable/sealed transport/storage/read API
+остаётся следующим этапом. Существующий legacy Event replay/read API из main
+сохраняется вместе с актуальным collector, manifest и конфигурационным портом.
+Существующий
 `tty_fixture.py` остаётся отдельным синтетическим форматом. Промпт первого PR
 и готовый текст передачи runtime: [cowrie-implementation-prompt.md](cowrie-implementation-prompt.md).
 Проверки и ограничения: [cowrie-validation.md](cowrie-validation.md).

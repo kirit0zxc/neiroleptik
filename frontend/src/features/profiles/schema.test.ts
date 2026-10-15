@@ -66,7 +66,9 @@ describe('схема профиля (F8)', () => {
     // Непустой баннер SSH на Medium — ошибка (агент ответил бы UNSUPPORTED_PROFILE).
     expect(issues(valid({ services: [{ protocol: 'ssh', port: 2222, banner: 'SSH-2.0-OpenSSH_8.9p1' }] })))
       .toEqual(['services.0.banner: На Medium баннер SSH пока не поддерживается — оставьте пустым']);
-    expect(issues(valid({ services: [{ protocol: 'ssh', port: 2222, banner: '   ' }] }))).toEqual([]);
+    // Даже пробелы недопустимы: иначе на сервер ушёл бы непустой баннер.
+    expect(issues(valid({ services: [{ protocol: 'ssh', port: 2222, banner: '   ' }] })))
+      .toEqual(['services.0.banner: На Medium баннер SSH пока не поддерживается — оставьте пустым']);
     // Шаблон нового Medium-профиля даёт пустой баннер, чтобы ловушка запустилась сразу.
     expect(emptyProfile('medium').services[0]!.banner).toBe('');
     // На High своё правило баннера нет — непустой допустим.

@@ -519,6 +519,24 @@ describe('удаление ловушки (F6a)', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it('обрыв связи — «результат неизвестен», строка остаётся, «Повторить» завершает', async () => {
+    const user = userEvent.setup();
+    let first = true;
+    server.use(http.delete('/api/v1/deployments/:id', () => {
+      if (first) { first = false; return broken(500, '{"detail":'); }
+      return undefined; // повтор уходит во встроенный мок
+    }));
+    open();
+    const high = await row('decoy-high-01');
+    await user.click(within(high).getByRole('button', { name: 'Удалить' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Подтвердить' }));
+    expect(await within(dialog).findByText(/результат неизвестен, повторите/)).toBeInTheDocument();
+    expect(screen.getByText('decoy-high-01')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Повторить' }));
+    await waitFor(() => expect(screen.queryByText('decoy-high-01')).toBeNull());
+  });
+
   it('наблюдатель не видит «Удалить» (F2)', async () => {
     server.use(http.get('/api/v1/auth/me', () => HttpResponse.json({ user: { id: 'u-2', username: 'viewer', role: 'viewer' }, csrf_token: 't' })));
     open();

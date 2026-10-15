@@ -134,6 +134,7 @@ export async function deleteDeployment(id: string): Promise<void> {
  */
 export function deleteErrorText(error: unknown): string {
   if (!(error instanceof ApiError)) return 'Не удалось удалить ловушку';
-  if (error.status === 0) return `${error.message} — результат неизвестен, повторите`;
+  // Сеть/обрыв (0) и 5xx — запрос мог дойти; тот же критерий, что в operations.ts и useJob.ts.
+  if (error.status === 0 || error.status >= 500) return `${error.message} — результат неизвестен, повторите`;
   return error.message;
 }

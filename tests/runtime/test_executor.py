@@ -34,6 +34,10 @@ from agent.runtime.executor.engine import CommandExecutor, ExecutionError, Lease
 from agent.runtime.executor.protocol import ClaimedCommand, LeaseReply
 from agent.runtime.executor.store import ExecutionStore
 
+# Пароль профиля центра: у Low он не используется, у Medium попадает в userdb на
+# хосте, но ни на одном уровне не должен попадать в ACK.
+PROFILE_PASSWORD = "profile-password-never-in-ack"
+
 
 class Center:
     """Подмена транспорта; правила окончательного ACK проверяются отдельным backend тестом."""
@@ -88,7 +92,7 @@ class Center:
                             "banner": self.http_text,
                         }
                     ],
-                    "credentials": [{"username": "admin", "password": "secret-no-disk"}],
+                    "credentials": [{"username": "admin", "password": PROFILE_PASSWORD}],
                 },
                 "lease_token": "hf_lease_" + "a" * 64,
                 "lease_expires_at": (now + timedelta(seconds=60)).isoformat(),

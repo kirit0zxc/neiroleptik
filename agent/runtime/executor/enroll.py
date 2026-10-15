@@ -63,11 +63,13 @@ class EnrollmentClient(BoundedHttpTransport):
     def capabilities(levels: Sequence[str]) -> list[str]:
         """Уровни узла в каноническом порядке; неизвестный уровень не объявляется.
 
-        Центр принимает только известные ему значения, а агент — только уровни,
-        для которых у него есть драйвер (`SUPPORTED_LEVELS`).
+        Центр принимает только известные ему значения, а агент — только уровни, для
+        которых у него есть драйвер (`SUPPORTED_LEVELS`). `low` обязателен: исполнитель
+        настраивает его всегда, и узел без него получал бы неустранимое расхождение
+        возможностей в heartbeat.
         """
         unique = set(levels)
-        if not unique or not unique <= set(SUPPORTED_LEVELS):
+        if "low" not in unique or not unique <= set(SUPPORTED_LEVELS):
             raise ClientError("INVALID_REQUEST")
         return [level for level in SUPPORTED_LEVELS if level in unique]
 
@@ -126,12 +128,12 @@ def main() -> None:
         "--level",
         action="append",
         choices=list(SUPPORTED_LEVELS),
-        help="Уровень ловушки этого узла; можно указать несколько раз (по умолчанию low)",
+        help="Уровень ловушки этого узла; можно указать несколько раз. low объявляется "
+        "всегда, потому что исполнитель настраивает его всегда",
     )
     parser.add_argument("--allow-http-loopback", action="store_true")
     args = parser.parse_args()
-    if not args.level:
-        args.level = ["low"]
+    args.level = sorted({"low", *(args.level or ())})
     token = os.environ.pop("HF_ENROLLMENT_TOKEN", None)
     if not token:
         parser.exit(1, "Задайте HF_ENROLLMENT_TOKEN в окружении процесса\n")

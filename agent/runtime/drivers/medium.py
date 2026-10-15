@@ -26,7 +26,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from agent.runtime.contract import CredentialSpec, DeploymentSpec, Level, ServiceSpec
 from agent.runtime.drivers.base import DriverError, DriverErrorCode
@@ -68,6 +68,8 @@ STATE_SUBDIRECTORIES = ("log", "lib", "lib/tty", "lib/downloads", "run", "keys")
 # Символы, которые userdb Cowrie трактует как разделитель или шаблон пароля.
 _USERDB_FORBIDDEN_CHARACTERS = frozenset(":*?")
 _USERDB_FORBIDDEN_PREFIXES = ("!", "/")
+# Сигилы интерполяции configparser: значение из профиля не должно их содержать.
+_CONFIG_SIGILS = frozenset("%$")
 
 
 @dataclass(frozen=True)
@@ -110,6 +112,11 @@ class MediumSettings:
             ContainerSpec.check_network(self.network)
         if type(self.stop_timeout) is not int or not 0 <= self.stop_timeout <= 25:
             raise ValueError("stop_timeout должен быть целым от 0 до 25 секунд")
+        # Пределы контейнера и размер tmpfs проверяются здесь, а не только при
+        # построении ContainerSpec: негодная настройка узла должна отвергаться при
+        # настройке, а не при первой операции.
+        ContainerSpec.check_limits(self.memory_mb, self.cpus, self.pids_limit)
+        TmpfsMount(TMP_CONTAINER_DIR, self.tmp_size_mb)
         object.__setattr__(self, "state_root", Path(self.state_root))
         if not Path(self.state_root).is_absolute():
             raise ValueError("state_root должен быть абсолютным путём текущей ОС")
@@ -271,8 +278,14 @@ class MediumProfileTranslator:
         )
 
     def instance_directory(self, deployment_id: str, instance_id: str) -> Path:
-        """Каталог экземпляра на хосте: `<state_root>/<deployment_id>/<instance_id>`."""
-        return self._settings.state_root / deployment_id / instance_id
+        """Каталог экземпляра на хосте: `<state_root>/<deployment_id>/<instance_id>`.
+
+        Оба идентификатора проверяются как UUID: у Medium они становятся компонентами
+        пути на хосте, и пустое значение или `..` вывели бы каталог с паролями из
+        отведённого ему места. Исполнитель подставляет сохранённый UUID попытки, так
+        что проверка структурная, а не защита от недоверенного ввода.
+        """
+        return self._settings.state_root / str(UUID(deployment_id)) / str(UUID(instance_id))
 
     def container_spec(self, blueprint: MediumBlueprint, instance_id: str) -> ContainerSpec:
         """Описание запуска нового экземпляра: порт, метки, тома и меры ограничения.
@@ -345,15 +358,18 @@ class MediumProfileTranslator:
     def _check_identification(cls, banner: str) -> None:
         """Строка идентификации SSH: иначе ловушка объявила бы не тот протокол.
 
-        `%` исключён, потому что значение попадает в `cowrie.cfg`, где его может
-        истолковать интерполяция configparser; ведущие и завершающие пробелы
-        исключены, потому что configparser их отбрасывает, и проба здоровья
-        сравнивала бы с другой строкой.
+        `%` и `$` исключены, потому что значение попадает в `cowrie.cfg`: первый —
+        сигил `BasicInterpolation`, второй — `ExtendedInterpolation` и подстановок
+        вида `${...}`, которые может добавлять собственный класс конфигурации Cowrie.
+        Какая интерполяция действует на закреплённом релизе, не проверено, поэтому
+        исключены оба сигила: отказ дешевле подстановки чужого значения в баннер,
+        который видит атакующий. Ведущие и завершающие пробелы исключены, потому что
+        configparser их отбрасывает, и проба здоровья сравнивала бы с другой строкой.
         """
         if not banner.startswith(SSH_VERSION_PREFIX):
             raise cls._unsupported(f"баннер ssh должен начинаться с {SSH_VERSION_PREFIX}")
-        if any(not 32 <= ord(char) <= 126 or char == "%" for char in banner):
-            raise cls._unsupported("баннер ssh должен быть печатным ASCII без %")
+        if any(not 32 <= ord(char) <= 126 or char in _CONFIG_SIGILS for char in banner):
+            raise cls._unsupported("баннер ssh должен быть печатным ASCII без % и $")
         if banner != banner.strip():
             raise cls._unsupported("баннер ssh не может начинаться или заканчиваться пробелом")
         if len(banner) + 2 > MAX_IDENTIFICATION_WITH_CRLF:
@@ -363,9 +379,13 @@ class MediumProfileTranslator:
     def _check_credential(cls, item: CredentialSpec) -> None:
         """Пароль должен попасть в userdb как литерал, а не как шаблон Cowrie.
 
-        Сообщение не содержит ни пароля, ни имени пользователя. Центр допускает
-        более широкий набор символов, чем построчный userdb: такие профили драйвер
-        отклоняет, а не искажает смысл проверки пароля.
+        Ведущие и завершающие пробелы исключены по той же причине, что и у баннера:
+        построчный разбор обычно обрезает строку, и пароль из одних пробелов
+        превратился бы в пустой, то есть во вход без пароля. Центр такие пароли
+        допускает (запрещены только CR, LF и NUL), поэтому драйвер отклоняет профиль,
+        а не меняет смысл проверки пароля молча.
+
+        Сообщение не содержит ни пароля, ни имени пользователя.
         """
         password = item.password.reveal()
         if any(not 32 <= ord(char) <= 126 for char in password):
@@ -374,6 +394,8 @@ class MediumProfileTranslator:
             _USERDB_FORBIDDEN_PREFIXES
         ):
             raise cls._unsupported("пароль содержит символ, который userdb Cowrie считает шаблоном")
+        if password != password.strip():
+            raise cls._unsupported("пароль не может начинаться или заканчиваться пробелом")
 
     @staticmethod
     def _unsupported(reason: str) -> DriverError:
@@ -385,18 +407,29 @@ class MediumHostState:
 
     Схема `<state_root>/<deployment_id>/<instance_id>/`:
 
-    - `conf/` — `cowrie.cfg` (0640) и `userdb.txt` (0600), монтируется только для чтения;
+    - `conf/` — `cowrie.cfg` и `userdb.txt` (оба 0640), монтируется только для чтения;
     - `state/` — `log`, `lib/tty`, `lib/downloads`, `run`, `keys`, монтируется записываемым.
 
+    Владение распределено по необходимому доступу. `state/` принадлежит пользователю
+    контейнера: Cowrie обязан там писать. `conf/` и файлы в нём остаются за
+    пользователем агента, а ловушке даётся только группа: читать их достаточно, а
+    владение позволило бы процессу ловушки заменить собственные учётные данные на
+    хосте. Поэтому `userdb.txt` имеет режим 0640, а не 0600: его читает другой
+    пользователь. Для остального мира он закрыт.
+
+    `state_root` должен существовать: его владельца и права задаёт оператор, и драйвер
+    их не меняет. Всё ниже него создаётся драйвером с правами 0750.
+
     Каталоги прежних экземпляров не удаляются: их журнал и TTY-записи могут быть ещё не
-    прочитаны сборщиком. Биты доступа не доказывают доступ при дополнительных ACL или
-    read-only файловой системе; на Windows `os.chown`, `os.fchown` и `O_NOFOLLOW`
-    отсутствуют, и локальные тесты работают от текущего пользователя.
+    прочитаны сборщиком. Это относится и к `conf/`, поэтому учётные данные остановленных
+    экземпляров остаются на хосте — ограничение описано в specs/runtime-drivers.md,
+    раздел 5.3. Биты доступа не доказывают доступ при дополнительных ACL или read-only
+    файловой системе; на Windows `os.chown`, `os.fchown` и `O_NOFOLLOW` отсутствуют, и
+    локальные тесты работают от текущего пользователя.
     """
 
     DIRECTORY_MODE = 0o750
     CONFIG_MODE = 0o640
-    USERDB_MODE = 0o600
 
     def __init__(self, directory: Path, user: str) -> None:
         self._directory = directory
@@ -405,46 +438,65 @@ class MediumHostState:
 
     def prepare(self, configuration: CowrieConfiguration) -> None:
         """Идемпотентно готовит каталоги и файлы одной попытки запуска."""
-        # Каталог назначения и каталог экземпляра создаются явно: иначе промежуточные
-        # уровни получили бы права по umask, а не 0750 и пользователя контейнера.
-        self._make_directory(self._directory.parent)
-        self._make_directory(self._directory)
-        config = self._make_directory(self._directory / "conf")
-        state = self._make_directory(self._directory / "state")
+        root = self._directory.parent.parent
+        if not root.is_dir():
+            raise OSError("корень состояния Medium должен существовать до запуска")
+        # Каждый уровень создаётся явно: `mkdir(parents=True)` применил бы режим только
+        # к последнему каталогу, а промежуточные получили бы права по umask.
+        self._make_directory(self._directory.parent, own=False)
+        self._make_directory(self._directory, own=False)
+        config = self._make_directory(self._directory / "conf", own=False)
+        state = self._make_directory(self._directory / "state", own=True)
         for name in STATE_SUBDIRECTORIES:
-            self._make_directory(state / name)
-        self._write(config / CONFIG_FILE_NAME, configuration.cowrie_cfg(), self.CONFIG_MODE)
-        self._write(config / USERDB_FILE_NAME, configuration.userdb(), self.USERDB_MODE)
+            self._make_directory(state / name, own=True)
+        self._write(config / CONFIG_FILE_NAME, configuration.cowrie_cfg())
+        self._write(config / USERDB_FILE_NAME, configuration.userdb())
 
-    def _make_directory(self, path: Path) -> Path:
-        path.mkdir(parents=True, exist_ok=True, mode=self.DIRECTORY_MODE)
+    def _make_directory(self, path: Path, *, own: bool) -> Path:
+        """Создаёт каталог и проверяет его; `own` отдаёт его пользователю контейнера.
+
+        Без `own` ловушке даётся только группа: пройти и прочитать она сможет,
+        а переименовать или заменить содержимое — нет.
+        """
+        path.mkdir(exist_ok=True, mode=self.DIRECTORY_MODE)
         observed = path.lstat()
         if stat.S_ISLNK(observed.st_mode) or not stat.S_ISDIR(observed.st_mode):
             raise OSError("каталог состояния не может быть ссылкой или обычным файлом")
-        # Владельцу нужны чтение, запись и проход: Cowrie создаёт в них файлы.
+        # Владельцу нужны чтение, запись и проход: в этих каталогах создаются файлы.
         # Уже существующие права не расширяем: отказ происходит до остановки ловушки.
         if observed.st_mode & stat.S_IRWXU != stat.S_IRWXU:
             raise OSError("владельцу каталога состояния нужны права чтения, записи и прохода")
-        chown = getattr(os, "chown", None)
-        if chown is not None and (observed.st_uid, observed.st_gid) != (self._uid, self._gid):
-            chown(path, self._uid, self._gid, follow_symlinks=False)
+        self._own(path, own=own)
         return path
 
-    def _write(self, path: Path, text: str, mode: int) -> None:
+    def _own(self, path: Path, *, own: bool) -> None:
+        """Передаёт владение либо только группу; на платформе без chown ничего не делает."""
+        chown = getattr(os, "chown", None)
+        if chown is None:
+            return
+        uid = self._uid if own else -1
+        chown(path, uid, self._gid, follow_symlinks=False)
+
+    def _write(self, path: Path, text: str) -> None:
         """Создаёт файл с закрытыми правами до записи содержимого.
 
         Режим задаётся повторно: `os.open` применяет его только при создании, а повтор
         подготовки той же попытки запуска перезаписывает уже существующий файл.
+        `O_TRUNC` делает повтор идемпотентным: остатки прежнего содержимого не выживают.
+        Владельцем остаётся пользователь агента, ловушке даётся только группа.
         """
         flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(path, flags, mode)
+        descriptor = os.open(path, flags, self.CONFIG_MODE)
         try:
             handle = os.fdopen(descriptor, "w", encoding="ascii", newline="\n")
         except BaseException:
             os.close(descriptor)
             raise
         with handle:
-            for name, arguments in (("fchmod", (mode,)), ("fchown", (self._uid, self._gid))):
+            for name, arguments in (
+                ("fchmod", (self.CONFIG_MODE,)),
+                ("fchown", (-1, self._gid)),
+            ):
                 operation: Callable[..., None] | None = getattr(os, name, None)
                 if operation is not None:
                     operation(handle.fileno(), *arguments)

@@ -747,6 +747,27 @@ def test_tmpfs_target_cannot_repeat_a_bind_mount_target() -> None:
         spec(mounts=(BindMount("/srv/state", "/state"),), tmpfs=(TmpfsMount("/state"),))
 
 
+@pytest.mark.parametrize(
+    "user", ["0:0", "00:5", "5:000", "4294967296:1", "1:4294967296", "9999999999:1"]
+)
+def test_user_outside_the_allowed_range_is_refused(user: str) -> None:
+    """Root и идентификатор больше предела uid_t отвергаются до вызова docker.
+
+    Иначе `os.chown` при подготовке состояния на хосте поднял бы OverflowError уже
+    после проверки настроек.
+    """
+    with pytest.raises(ValueError):
+        spec(user=user)
+    with pytest.raises(ValueError):
+        ContainerSpec.check_user(user)
+
+
+@pytest.mark.parametrize("user", ["1000:1000", "65532:65532", "4294967295:4294967295"])
+def test_unprivileged_user_inside_the_range_is_accepted(user: str) -> None:
+    ContainerSpec.check_user(user)
+    assert spec(user=user).user == user
+
+
 def test_spec_without_mounts_has_no_mount_option() -> None:
     assert "--mount" not in DockerCli().run_command(spec())
 

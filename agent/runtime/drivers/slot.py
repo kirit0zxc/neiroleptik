@@ -326,6 +326,9 @@ class ContainerSlotDriver[BlueprintT: SlotBlueprint](Driver):
 
         Побочные эффекты ограничены подготовкой состояния этого экземпляра на хосте:
         недоступный каталог обнаруживается, пока исправный экземпляр ещё работает.
+        Любой отказ подготовки становится `START_FAILED`, в том числе исключение, которое
+        уровень не предусмотрел: иначе оно вышло бы из драйвера и уронило цикл
+        исполнителя без ACK центру (правило 3 в specs/runtime-drivers.md, раздел 3).
         """
         instance_id = self._new_instance_id()
         try:
@@ -334,7 +337,14 @@ class ContainerSlotDriver[BlueprintT: SlotBlueprint](Driver):
             raise DriverError(
                 DriverErrorCode.START_FAILED, f"недопустимые параметры запуска: {error}"
             ) from error
-        self._prepare_host(blueprint, instance_id, spec)
+        try:
+            self._prepare_host(blueprint, instance_id, spec)
+        except (OSError, ValueError, OverflowError) as error:
+            # Сообщение не содержит пути и ввода: его формирует уровень, а здесь
+            # остаётся только безопасная причина отказа.
+            raise DriverError(
+                DriverErrorCode.START_FAILED, "состояние экземпляра на хосте не подготовлено"
+            ) from error
         return PreparedLaunch(blueprint, instance_id, spec)
 
     @abstractmethod

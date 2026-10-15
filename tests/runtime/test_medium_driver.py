@@ -107,6 +107,8 @@ def deployment(
 
 
 def settings(root: Path, **changes: Any) -> MediumSettings:
+    # Корень состояния готовит оператор: драйвер его не создаёт и прав не меняет.
+    root.mkdir(parents=True, exist_ok=True)
     values: dict[str, Any] = {
         "state_root": root,
         "start_timeout": 3.0,
@@ -118,10 +120,11 @@ def settings(root: Path, **changes: Any) -> MediumSettings:
 
 
 def read_config(spec: ContainerSpec) -> configparser.ConfigParser:
-    """Читает созданный драйвером cowrie.cfg тем же разбором, что Cowrie.
+    """Читает созданный драйвером cowrie.cfg разбором стандартной библиотеки.
 
-    Интерполяция оставлена по умолчанию: значение с «%» уронило бы чтение, поэтому
-    тест заодно подтверждает смысл запрета «%» в баннере профиля.
+    Интерполяция оставлена по умолчанию (`BasicInterpolation`), поэтому значение с «%»
+    уронило бы чтение. Какой класс интерполяции применяет закреплённый Cowrie, здесь
+    не проверяется и этим тестом не утверждается (specs/runtime-drivers.md, раздел 8).
     """
     source = next(m.source for m in spec.mounts if m.target == CONFIG_CONTAINER_DIR)
     parser = configparser.ConfigParser()
@@ -154,6 +157,9 @@ class CowrieBackend:
     configs: list[configparser.ConfigParser] = field(default_factory=list)
     listen: bool = True
     silent: bool = False
+    # Порт отвечает потоком без перевода строки: StreamReader.readline
+    # упирается в предел буфера и поднимает ValueError.
+    flood: bool = False
     tamper_banner: str | None = None
     run_delay: float = 0.0
     run_error: BackendError | None = None
@@ -218,7 +224,10 @@ class CowrieBackend:
     ) -> Callable[[asyncio.StreamReader, asyncio.StreamWriter], Awaitable[None]]:
         async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
             try:
-                if not self.silent:
+                if self.flood:
+                    writer.write(b"x" * 200_000)
+                    await writer.drain()
+                elif not self.silent:
                     writer.write(banner.encode("ascii") + b"\r\n")
                     await writer.drain()
                 # Cowrie ждёт строку клиента; проба её не отправляет и закрывает связь.
@@ -463,9 +472,18 @@ def test_userdb_and_state_get_closed_posix_permissions(tmp_path: Path) -> None:
         spec = backend.containers[NAME].spec
         config_dir = Path(next(m.source for m in spec.mounts if m.target == CONFIG_CONTAINER_DIR))
         state_dir = Path(next(m.source for m in spec.mounts if m.target == STATE_CONTAINER_DIR))
-        assert stat.S_IMODE((config_dir / "userdb.txt").stat().st_mode) == 0o600
-        assert stat.S_IMODE((config_dir / "cowrie.cfg").stat().st_mode) == 0o640
-        for directory in (config_dir, state_dir, state_dir / "lib" / "tty"):
+        # userdb читает другой пользователь (группа контейнера), поэтому 0640, а не
+        # 0600: владение остаётся за агентом, см. MediumHostState.
+        for name in ("userdb.txt", "cowrie.cfg"):
+            assert stat.S_IMODE((config_dir / name).stat().st_mode) == 0o640
+        instance = config_dir.parent
+        for directory in (
+            instance.parent,
+            instance,
+            config_dir,
+            state_dir,
+            state_dir / "lib" / "tty",
+        ):
             assert stat.S_IMODE(directory.stat().st_mode) == 0o750
 
     run_scenario(scenario, tmp_path)
@@ -494,20 +512,40 @@ def test_userdb_and_state_get_closed_posix_permissions(tmp_path: Path) -> None:
         pytest.param({"banner": "SSH-2.0-" + "x" * 250}, id="слишком длинный баннер"),
         pytest.param({"banner": "SSH-2.0-Опен"}, id="баннер не ASCII"),
         pytest.param({"credentials": ()}, id="нет учётных записей"),
+        pytest.param({"banner": "SSH-2.0-Open$SSH"}, id="доллар в баннере"),
+        pytest.param({"banner": "SSH-2.0-Open${HOME}SSH"}, id="подстановка в баннере"),
+        # Во всех случаях ниже пароль профиля содержит PASSWORD, поэтому проверка
+        # отсутствия его в тексте отказа не бывает пустой.
         pytest.param(
-            {"credentials": (CredentialSpec("admin", Secret("pass:word")),)},
+            {"credentials": (CredentialSpec("admin", Secret(f"{PASSWORD}:tail")),)},
             id="двоеточие в пароле",
         ),
         pytest.param(
-            {"credentials": (CredentialSpec("admin", Secret("*")),)},
-            id="шаблон вместо пароля",
+            {"credentials": (CredentialSpec("admin", Secret(f"{PASSWORD}*")),)},
+            id="шаблон в пароле",
         ),
         pytest.param(
-            {"credentials": (CredentialSpec("admin", Secret("!root")),)},
+            {"credentials": (CredentialSpec("admin", Secret(f"{PASSWORD}?")),)},
+            id="вопрос в пароле",
+        ),
+        pytest.param(
+            {"credentials": (CredentialSpec("admin", Secret(f"!{PASSWORD}")),)},
             id="отрицание в пароле",
         ),
         pytest.param(
-            {"credentials": (CredentialSpec("admin", Secret("па роль")),)},
+            {"credentials": (CredentialSpec("admin", Secret(f"/{PASSWORD}")),)},
+            id="ведущая косая в пароле",
+        ),
+        pytest.param(
+            {"credentials": (CredentialSpec("admin", Secret(f"{PASSWORD} ")),)},
+            id="пробел в конце пароля",
+        ),
+        pytest.param(
+            {"credentials": (CredentialSpec("admin", Secret("   ")),)},
+            id="пароль из одних пробелов",
+        ),
+        pytest.param(
+            {"credentials": (CredentialSpec("admin", Secret(f"{PASSWORD} ё")),)},
             id="пароль не ASCII",
         ),
     ],
@@ -718,6 +756,13 @@ def test_settings_reject_unusable_host_configuration(tmp_path: Path) -> None:
         {"start_timeout": float("nan")},
         {"probe_timeout": float("inf")},
         {"probe_interval": 0},
+        {"user": "9999999999:1"},
+        {"memory_mb": 8},
+        {"memory_mb": 99999},
+        {"cpus": 99.0},
+        {"pids_limit": 0},
+        {"tmp_size_mb": 9999},
+        {"tmp_size_mb": 0},
     ):
         with pytest.raises(ValueError):
             settings(tmp_path / "state", **changes)

@@ -84,7 +84,13 @@ class PortProbe[TargetsT](ABC):
         self._probe_timeout = probe_timeout
 
     async def wait_until_healthy(self, targets: TargetsT) -> None:
-        """Повторяет пробу до успеха или до срока; последняя причина попадает в ошибку."""
+        """Повторяет пробу до успеха или до срока; последняя причина попадает в ошибку.
+
+        `ValueError` перехватывается наравне с сетевыми ошибками: `StreamReader.readline`
+        поднимает его, если ответ превысил внутренний предел строки (64 КиБ) без
+        перевода строки. Иначе ответ порта мог бы вывести исключение из драйвера — без
+        аварийной очистки только что запущенного контейнера и без ACK центру.
+        """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._timeout
         last = "проверка не выполнялась"
@@ -92,7 +98,7 @@ class PortProbe[TargetsT](ABC):
             try:
                 await self._probe_once(targets, deadline)
                 return
-            except (OSError, EOFError, TimeoutError, HealthCheckFailed) as error:
+            except (OSError, EOFError, TimeoutError, ValueError, HealthCheckFailed) as error:
                 last = self._describe(error)
             if loop.time() >= deadline:
                 raise HealthCheckFailed(last)
@@ -153,6 +159,9 @@ class PortProbe[TargetsT](ABC):
             return "порт не принимает соединения"
         if isinstance(error, EOFError):
             return "соединение закрыто до ответа"
+        if isinstance(error, ValueError):
+            # Текст ValueError из asyncio содержит только предел буфера, не данные порта.
+            return "ответ длиннее предела строки"
         return f"ошибка сети ({type(error).__name__})"
 
     @staticmethod

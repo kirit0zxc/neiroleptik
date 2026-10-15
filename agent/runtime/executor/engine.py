@@ -187,11 +187,6 @@ class CommandExecutor:
         self._renew_interval = renew_interval
         self._lock = asyncio.Lock()
 
-    @property
-    def levels(self) -> tuple[str, ...]:
-        """Уровни, команды которых этот процесс исполняет; остальные — UNSUPPORTED_COMMAND."""
-        return self._drivers.levels
-
     async def run_once(self) -> bool:
         """Обрабатывает сохранённую операцию раньше следующей команды центра."""
         async with self._lock:

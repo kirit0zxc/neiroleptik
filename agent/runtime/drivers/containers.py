@@ -36,6 +36,8 @@ _NETWORK = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}")
 _IMAGE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.:/@-]{0,254}")
 _LABEL_KEY = re.compile(r"[a-z0-9][a-z0-9_.-]{0,62}")
 _USER = re.compile(r"\d{1,10}:\d{1,10}")
+# Предел uid_t: 32-битное беззнаковое. Больший «идентификатор» ядро не принимает.
+_MAX_UID = 2**32 - 1
 # Путь к каталогу хоста попадает в одно значение --mount, которое docker разбирает как
 # CSV: запятая разделяет поля, кавычка начинает экранированное поле. «=» безопасен: ключ
 # отделяется по первому знаку. Пробелы и не-ASCII допустимы.
@@ -212,12 +214,7 @@ class ContainerSpec:
             raise ValueError("размер журнала контейнера задаётся как число с k, m или g")
         if type(self.log_max_files) is not int or not 1 <= self.log_max_files <= 20:
             raise ValueError("число файлов журнала контейнера должно быть от 1 до 20")
-        if type(self.memory_mb) is not int or not 16 <= self.memory_mb <= 4096:
-            raise ValueError("память должна быть от 16 до 4096 МиБ")
-        if isinstance(self.cpus, bool) or not 0.1 <= self.cpus <= 8:
-            raise ValueError("число CPU должно быть от 0.1 до 8")
-        if type(self.pids_limit) is not int or not 1 <= self.pids_limit <= 4096:
-            raise ValueError("лимит процессов должен быть от 1 до 4096")
+        self.check_limits(self.memory_mb, self.cpus, self.pids_limit)
         for argument in self.command:
             if (
                 not isinstance(argument, str)
@@ -251,12 +248,32 @@ class ContainerSpec:
 
         Числа сравниваются как числа, а не как строки: «00:5» — тоже root. Уровень
         может потребовать другой непривилегированный uid (например, пользователя
-        образа Cowrie), но не root.
+        образа Cowrie), но не root. Верхняя граница — предел `uid_t`: число больше
+        него не является идентификатором и отвергается здесь, а не поднимает
+        OverflowError из `os.chown` в середине подготовки каталогов на хосте.
         """
         if _USER.fullmatch(user) is None:
             raise ValueError("пользователь задаётся как uid:gid")
-        if any(int(part) == 0 for part in user.split(":")):
-            raise ValueError("контейнер не должен работать от root")
+        for part in user.split(":"):
+            value = int(part)
+            if value == 0:
+                raise ValueError("контейнер не должен работать от root")
+            if value > _MAX_UID:
+                raise ValueError("uid и gid не могут превышать предел uid_t")
+
+    @staticmethod
+    def check_limits(memory_mb: int, cpus: float, pids_limit: int) -> None:
+        """Пределы ресурсов контейнера; уровень может их поднять, но не отменить.
+
+        Отдельный метод нужен, чтобы настройки уровня отвергали негодное значение при
+        настройке узла, а не при первой операции, и чтобы границы не дублировались.
+        """
+        if type(memory_mb) is not int or not 16 <= memory_mb <= 4096:
+            raise ValueError("память должна быть от 16 до 4096 МиБ")
+        if isinstance(cpus, bool) or not isinstance(cpus, (int, float)) or not 0.1 <= cpus <= 8:
+            raise ValueError("число CPU должно быть от 0.1 до 8")
+        if type(pids_limit) is not int or not 1 <= pids_limit <= 4096:
+            raise ValueError("лимит процессов должен быть от 1 до 4096")
 
     @staticmethod
     def check_network(network: str) -> None:

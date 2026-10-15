@@ -13,7 +13,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from test_executor import Center
+from test_executor import PROFILE_PASSWORD, Center
 from test_medium_driver import BANNER, CowrieBackend, container_chown, settings
 
 from agent.runtime.drivers.containers import BackendError, ContainerObservation
@@ -68,6 +68,9 @@ def test_start_and_stop_medium_pass_through_commands(tmp_path: Path) -> None:
                 assert last["applied_revision"] == 1
                 assert store.history(center.deployment_id).generation == 2
                 assert not backend.containers
+                # Пароль профиля попадает только в userdb на хосте, но не в ACK
+                # центру: Medium — первый уровень, где он вообще попадает на диск.
+                assert PROFILE_PASSWORD not in str(center.results)
         finally:
             await backend.close()
 
@@ -222,7 +225,8 @@ def test_enrollment_capabilities_follow_supported_levels() -> None:
     assert EnrollmentClient.capabilities(["low"]) == ["low"]
     # Порядок канонический и не зависит от порядка аргументов оператора.
     assert EnrollmentClient.capabilities(["medium", "low", "medium"]) == ["low", "medium"]
-    for levels in ([], ["high"], ["low", "unknown"]):
+    # low объявляется всегда: без него heartbeat давал бы неустранимое расхождение.
+    for levels in ([], ["high"], ["medium"], ["low", "unknown"]):
         with pytest.raises(ClientError) as failure:
             EnrollmentClient.capabilities(levels)
         assert failure.value.code == "INVALID_REQUEST"

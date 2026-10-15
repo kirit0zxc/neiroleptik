@@ -16,9 +16,11 @@ from honeyforge.api.investigation_schemas import (
     HoneytokenPage,
     LookupInput,
     LookupRead,
+    ReplayPage,
     TriggerPage,
 )
 from honeyforge.common import utcnow
+from honeyforge.investigation.replay import ReplayService
 from honeyforge.investigation.service import InvestigationService
 
 
@@ -36,6 +38,17 @@ Timestamp = Annotated[AwareDatetime, BeforeValidator(rfc3339)]
 
 def create_router(service: InvestigationService) -> APIRouter:
     router = APIRouter(prefix="/api/v1", tags=["investigation"])
+
+    @router.get("/sessions/{session_id}/replay", response_model=ReplayPage)
+    def replay(
+        session_id: UUID,
+        user: Reader,
+        after: str | None = None,
+        limit: int = Query(200, ge=1, le=500),
+    ) -> dict[str, Any]:
+        return ReplayService(service.engine, service.telemetry, service.key).page(
+            session_id, after, limit
+        )
 
     @router.get("/artifacts", response_model=ArtifactPage)
     def artifacts(

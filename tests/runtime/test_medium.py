@@ -105,10 +105,40 @@ def test_medium_rejects_public_bind(tmp_path: Path):
         translator.blueprint(center_command().command.deployment())
 
 
-def test_medium_has_separate_name_and_revision(tmp_path: Path):
+def test_medium_has_separate_name_and_revision(tmp_path: Path, monkeypatch):
+    if hasattr(os, "chown"):
+        monkeypatch.setattr(os, "chown", lambda *args, **kwargs: None)
     translator = MediumProfileTranslator(LowSettings(journal_root=tmp_path, network="demo"))
     command = center_command().command
     spec = translator.container_spec(translator.blueprint(command.deployment()), str(uuid4()))
     assert spec.name.startswith("honeyforge-medium-")
     assert spec.user == "999:999"
     assert spec.publish[0].host_ip == "127.0.0.1"
+
+
+def test_medium_reset_changes_instance_and_keeps_ack_bindings(tmp_path, monkeypatch):
+    async def healthy(self, target):
+        return None
+
+    monkeypatch.setattr(LowHealthCheck, "wait_until_healthy", healthy)
+    if hasattr(os, "chown"):
+        monkeypatch.setattr(os, "chown", lambda *args, **kwargs: None)
+
+    async def scenario():
+        center, backend = center_command(), MemoryDocker()
+        settings = LowSettings(network="demo", journal_root=tmp_path / "journals")
+        with ExecutionStore(tmp_path / "state" / "executor.db") as store:
+            executor = CommandExecutor(center, store, backend, medium_settings=settings)
+            await executor.run_once()
+            original = backend.current.labels["honeyforge.instance_id"]
+            reset = center.request("reset")
+            center.command = replace(reset, config=center_command().command.config)
+            center.lose_ack = True
+            with pytest.raises(ClientError):
+                await executor.run_once()
+            await executor.run_once()
+            assert backend.current.labels["honeyforge.instance_id"] != original
+            assert backend.runs == 2
+            assert len(store.telemetry_bindings()) == 2
+
+    asyncio.run(scenario())

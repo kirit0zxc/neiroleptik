@@ -6,7 +6,8 @@ test.use({ viewport: { width: 360, height: 800 } });
 /** Ширина документа не больше окна; замер — после загрузки данных страницы. */
 async function expectFits(page: Page, label: string) {
   await page.waitForLoadState('networkidle');
-  const { doc, vw } = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, vw: window.innerWidth }));
+  // Строкой: в e2e нет типов DOM, код выполняется в браузере.
+  const { doc, vw } = await page.evaluate<{ doc: number; vw: number }>('({ doc: document.documentElement.scrollWidth, vw: window.innerWidth })');
   expect(doc, label).toBeLessThanOrEqual(vw);
 }
 

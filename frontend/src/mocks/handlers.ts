@@ -141,7 +141,7 @@ export const handlers = [
       || desc(a.event_id, b.event_id) || desc(a.agent_id, b.agent_id)).filter((e) =>
       (!q.get('deployment_id') || e.deployment_id === q.get('deployment_id'))
       && (!q.get('type') || e.type === q.get('type'))
-      && (!q.get('source_ip') || e.source.ip === q.get('source_ip'))
+      && (!q.get('source_ip') || e.source?.ip === q.get('source_ip'))
       // from включительно, to исключительно (согласовано с командой).
       && (!from || Date.parse(e.occurred_at) >= Date.parse(from)) && (!to || Date.parse(e.occurred_at) < Date.parse(to)));
     const cursor = q.get('cursor');
@@ -150,7 +150,7 @@ export const handlers = [
     if (cursor) {
       const parts = /^(s\d+):(\d+)$/.exec(cursor);
       if (!parts || snapshots.get(parts[1]!)?.filter !== filter) {
-        return HttpResponse.json({ detail: 'Курсор не соответствует снимку или фильтрам' }, { status: 422 });
+        return HttpResponse.json({ detail: 'Курсор не соответствует снимку или фильтрам', code: 'INVALID_CURSOR' }, { status: 422 });
       }
       id = parts[1]!;
       start = Number(parts[2]);
@@ -188,7 +188,8 @@ export const handlers = [
     const hourAgo = asOf - 3600_000;
     const recent = publishedEvents().filter((e) => { const t = Date.parse(e.occurred_at); return t >= hourAgo && t < asOf; });
     const counts = new Map<string, number>();
-    for (const e of recent) counts.set(e.source.ip, (counts.get(e.source.ip) ?? 0) + 1);
+    // Событие без источника в топ не входит (specs/investigation-handoff.md).
+    for (const e of recent) if (e.source) counts.set(e.source.ip, (counts.get(e.source.ip) ?? 0) + 1);
     return HttpResponse.json({
       deployments: { total: deps.length, running: deps.filter((d) => d.state === 'running').length, failed: deps.filter((d) => d.state === 'failed').length },
       as_of: new Date(asOf).toISOString(),

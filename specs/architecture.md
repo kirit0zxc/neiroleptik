@@ -352,3 +352,16 @@ Event mapping, HTTP-разбор, sender, backend и UI остаются сле�
 ## Изолированное хранение Low boundary
 
 agent/telemetry/storage_schema.py владеет атомарной версией SQLite raw/boundary и общим учётом логических байтов. low_journal/durable.py предоставляет raw-запись в транзакции владельца; low_journal/boundary.py сохраняет неизменяемый подготовленный переход в той же spool. Collector и production consumer этот путь не вызывают. Контракт: [low-boundary-storage.md](low-boundary-storage.md).
+
+## Проверка отказов непрерывного Low
+
+`tests/telemetry/continuous_low_support.py` — только тестовый стенд: HTTP receiver
+с долговечной SQLite-дедупликацией, read-only SQL snapshots, независимые ожидаемые
+UUID/DTO из входных строк и запуск дочернего worker. `test_continuous_low_resilience.py`
+проверяет worker/collector/production mapper/spool/HTTP при отказах и backoff;
+`test_continuous_low_process.py` — настоящий Low TCP/HTTP и crash/restart;
+`test_continuous_low_executor.py` — trusted ExecutionStore, event loop/deadline
+и shutdown. Тесты входят в root pytest без дополнительных CI-фильтров.
+Внутренние clock/jitter worker передаются существующему sender; рабочие defaults,
+последовательность операций, лимиты и публичные контракты сохраняются.
+Receiver не заменяет production backend и не проверяет boundary consumer.

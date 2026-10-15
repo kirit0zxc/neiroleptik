@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '../../shared/api/client';
 import type { Deployment } from '../../shared/api/types';
 import { StatusBadge, ui, WindowTitle, type Tone } from '../../shared/ui';
-import { availableCommands, COMMAND_LABEL, commandRejectText, CONFIRM, failureText, jobLabel, type Command } from './commands';
+import { availableCommands, canDelete, COMMAND_LABEL, commandRejectText, CONFIRM, deleteDeployment, deleteErrorText, failureText, jobLabel, type Command } from './commands';
 import { useOperation } from './operations';
 import { useYumi } from '../yumi/yumi';
 import { transient, useJob } from './useJob';
@@ -28,6 +29,18 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
     status.current?.focus();
     setFocusStatus(false);
   }, [focusStatus, confirm]);
+
+  // Удаление ловушки (F6a) — разовый запрос вне Operations: освобождает резерв
+  // порта, после успеха перечитываем список (строка исчезает).
+  const client = useQueryClient();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const del = useMutation({
+    mutationFn: () => deleteDeployment(deployment.id),
+    onSuccess: () => setConfirmDelete(false),
+    // Любой исход (успех, 409, неизвестный) перечитывает список — как команды на 409.
+    onSettled: () => client.invalidateQueries({ queryKey: ['deployments'] }),
+  });
+  const askDelete = (from: HTMLButtonElement) => { opener.current = from; del.reset(); setConfirmDelete(true); };
 
   const { job, finished, polling } = useJob(jobId);
   // Задание завершилось — следующее нажатие будет новым действием с новым ключом.
@@ -81,6 +94,9 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
           {COMMAND_LABEL[c]}
         </button>
       ))}
+      {canDelete(deployment) && (
+        <button className={`${ui.button} ${s.small}`} disabled={busy} onClick={(e) => askDelete(e.currentTarget)}>Удалить</button>
+      )}
       <span role="status" ref={status} tabIndex={-1}>
         {progress && <StatusBadge tone={progress.tone}>{progress.text}</StatusBadge>}
       </span>
@@ -107,6 +123,16 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
           text={CONFIRM[confirm]!}
           onCancel={() => { setConfirm(null); opener.current?.focus(); }}
           onConfirm={() => { const c = confirm; setConfirm(null); start(c); }}
+        />
+      )}
+      {confirmDelete && (
+        <ConfirmDialog
+          title={`Удалить ловушку ${deployment.id}?`}
+          text="Ловушка и её резерв порта будут удалены. Собранные события и доказательства остаются."
+          error={del.isError ? deleteErrorText(del.error) : null}
+          busy={del.isPending}
+          onCancel={() => { setConfirmDelete(false); opener.current?.focus(); }}
+          onConfirm={() => del.mutate()}
         />
       )}
     </div>

@@ -45,7 +45,7 @@
         {
           "protocol": "ssh",
           "port": 2222,
-          "banner": "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"
+          "banner": ""
         }
       ],
       "logging": {

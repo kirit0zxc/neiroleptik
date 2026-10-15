@@ -6,7 +6,7 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { App, makeQueryClient } from '../../app/App';
 import { handlers, resetMockSession } from '../../mocks/handlers';
-import { expireNextJobs, failNextJobs } from '../../mocks/jobs';
+import { currentDeployments, expireNextJobs, failNextJobs } from '../../mocks/jobs';
 
 const server = setupServer(...handlers);
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
@@ -439,5 +439,113 @@ describe('команды ловушек на API (F6)', () => {
     expect(screen.queryByRole('columnheader', { name: 'Действия' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Остановить' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Запустить' })).toBeNull();
+  });
+});
+
+// Удаление ловушки (F6a): DELETE /deployments/{id}, освобождает резерв порта.
+describe('удаление ловушки (F6a)', () => {
+  beforeEach(() => {
+    resetMockSession(true);
+    // Начальная фикстура здесь представляет уже подтверждённую остановку.
+    currentDeployments().find((d) => d.id === 'decoy-high-01')!.state = 'stopped';
+  });
+  /** Записывает DELETE и пропускает во встроенный мок (он реально удаляет ловушку). */
+  const recordDelete = (into: string[]) => http.delete('/api/v1/deployments/:id', ({ params, request }) => {
+    into.push(`${request.headers.get('X-CSRF-Token') ?? ''} ${String(params.id)}`);
+    return undefined;
+  });
+
+  it('кнопка «Удалить» только у остановленной ловушки', async () => {
+    open();
+    // decoy-high-01 в состоянии stopped — удалить можно.
+    expect(within(await row('decoy-high-01')).getByRole('button', { name: 'Удалить' })).toBeInTheDocument();
+    // decoy-low-01 работает — удаления нет.
+    expect(within(await row('decoy-low-01')).queryByRole('button', { name: 'Удалить' })).toBeNull();
+  });
+
+  it('подтверждение, затем 204 — строка исчезает', async () => {
+    const user = userEvent.setup();
+    const seen: string[] = [];
+    server.use(recordDelete(seen));
+    open();
+    const high = await row('decoy-high-01');
+    await user.click(within(high).getByRole('button', { name: 'Удалить' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('резерв порта будут удалены');
+    await user.click(within(dialog).getByRole('button', { name: 'Подтвердить' }));
+    await waitFor(() => expect(screen.queryByText('decoy-high-01')).toBeNull());
+    // CSRF-токен ушёл на изменяющий запрос, адресат верный.
+    expect(seen).toEqual(['mock-csrf-token decoy-high-01']);
+  });
+
+  it('отмена не удаляет и возвращает фокус на кнопку', async () => {
+    const user = userEvent.setup();
+    let called = false;
+    server.use(http.delete('/api/v1/deployments/:id', () => { called = true; return new HttpResponse(null, { status: 204 }); }));
+    open();
+    const btn = within(await row('decoy-high-01')).getByRole('button', { name: 'Удалить' });
+    await user.click(btn);
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Отмена' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(btn).toHaveFocus();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(called).toBe(false);
+  });
+
+  it('409 — причина в диалоге, строка остаётся, «Повторить» завершает удаление', async () => {
+    const user = userEvent.setup();
+    let first = true;
+    server.use(http.delete('/api/v1/deployments/:id', () => {
+      if (first) { first = false; return HttpResponse.json({ detail: 'Состояние исполнителя не подтверждено', code: 'DELETE_NOT_ALLOWED' }, { status: 409 }); }
+      return undefined; // повтор уходит во встроенный мок — он удалит ловушку
+    }));
+    open();
+    const high = await row('decoy-high-01');
+    await user.click(within(high).getByRole('button', { name: 'Удалить' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Подтвердить' }));
+    expect(await within(dialog).findByText('Состояние исполнителя не подтверждено')).toBeInTheDocument();
+    expect(screen.getByText('decoy-high-01')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Повторить' }));
+    await waitFor(() => expect(screen.queryByText('decoy-high-01')).toBeNull());
+  });
+
+  it('404 — ловушки уже нет, считаем удалённой без ошибки', async () => {
+    const user = userEvent.setup();
+    server.use(http.delete('/api/v1/deployments/:id', () => HttpResponse.json({ detail: 'Ловушка не найдена' }, { status: 404 })));
+    open();
+    const high = await row('decoy-high-01');
+    await user.click(within(high).getByRole('button', { name: 'Удалить' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Подтвердить' }));
+    // 404 трактуется как успех: диалог закрывается, ошибки нет.
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('обрыв связи — «результат неизвестен», строка остаётся, «Повторить» завершает', async () => {
+    const user = userEvent.setup();
+    let first = true;
+    server.use(http.delete('/api/v1/deployments/:id', () => {
+      if (first) { first = false; return broken(500, '{"detail":'); }
+      return undefined; // повтор уходит во встроенный мок
+    }));
+    open();
+    const high = await row('decoy-high-01');
+    await user.click(within(high).getByRole('button', { name: 'Удалить' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Подтвердить' }));
+    expect(await within(dialog).findByText(/результат неизвестен, повторите/)).toBeInTheDocument();
+    expect(screen.getByText('decoy-high-01')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Повторить' }));
+    await waitFor(() => expect(screen.queryByText('decoy-high-01')).toBeNull());
+  });
+
+  it('наблюдатель не видит «Удалить» (F2)', async () => {
+    server.use(http.get('/api/v1/auth/me', () => HttpResponse.json({ user: { id: 'u-2', username: 'viewer', role: 'viewer' }, csrf_token: 't' })));
+    open();
+    expect(await screen.findByText(/viewer · наблюдатель/)).toBeInTheDocument();
+    await row('decoy-high-01');
+    expect(screen.queryByRole('button', { name: 'Удалить' })).toBeNull();
   });
 });

@@ -75,6 +75,11 @@ export const ProfileSchema = z.object({
     if (!allowed.includes(s.protocol)) {
       ctx.addIssue({ code: 'custom', path: ['services', i, 'protocol'], message: `На уровне ${p.level} нельзя ${s.protocol}` });
     }
+    // Ограничение совпадает с MediumTranslator: пустой или печатный SSH-2.0 banner.
+    if (p.level === 'medium' && s.protocol === 'ssh' && s.banner !== '' &&
+      (!s.banner.startsWith('SSH-2.0-') || !PRINTABLE_ASCII.test(s.banner))) {
+      ctx.addIssue({ code: 'custom', path: ['services', i, 'banner'], message: 'Баннер Medium: пустой или SSH-2.0- с печатными ASCII-символами' });
+    }
     if (s.protocol === 'tcp') {
       if (!s.banner.trim()) ctx.addIssue({ code: 'custom', path: ['services', i, 'banner'], message: 'У TCP баннер обязателен' });
       else if (!PRINTABLE_ASCII.test(s.banner)) {
@@ -165,7 +170,7 @@ export function emptyProfile(level: Level = 'low'): ProfileForm {
   const services: ProfileForm['services'] = level === 'low'
     ? [{ protocol: 'http', port: 8080, banner: 'nginx' }]
     : level === 'medium'
-      ? [{ protocol: 'ssh', port: 2222, banner: 'SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10' }]
+      ? [{ protocol: 'ssh', port: 2222, banner: '' }]
       : [{ protocol: 'ssh', port: 2224, banner: '' }];
   return {
     name: '',

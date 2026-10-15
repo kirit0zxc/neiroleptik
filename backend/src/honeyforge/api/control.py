@@ -127,6 +127,14 @@ def list_deployments(
     return DeploymentService(db, settings).list(limit, offset)
 
 
+@router.delete("/deployments/{deployment_id}", status_code=204)
+def delete_deployment(
+    deployment_id: UUID, user: Operator, db: Database, settings: Configuration
+) -> None:
+    """Удаляем остановленное назначение, сохраняя собранные доказательства."""
+    DeploymentService(db, settings).delete(deployment_id, user)
+
+
 @router.get("/deployments/{deployment_id}", response_model=DeploymentRead)
 def get_deployment(
     deployment_id: UUID, user: Reader, db: Database, settings: Configuration

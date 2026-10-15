@@ -406,3 +406,10 @@ executor telemetry передаёт только подтверждённые AC
 `backend/src/honeyforge/investigation/replay.py` проверяет опубликованные чанки,
 полноту manifest, порядок времени и подписанный cursor. Общая API Reader dependency
 ограничивает доступ; frontend ReplayTape показывает безопасный текст и разрывы.
+
+## Удаление остановленного назначения
+
+DeploymentService.delete выполняет логическое удаление под общими блокировками
+host/deployment, сохраняя исторические связи. Миграция d94b1c5e2f01 добавляет
+nullable deleted_at. CommandService.create запрещает новые команды tombstone;
+повтор ACK и telemetry binding остаются исторически корректными.

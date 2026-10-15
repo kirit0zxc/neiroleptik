@@ -138,6 +138,8 @@ class CommandService:
             raise DomainError(404, "Назначение не найдено")
         host = self.registry.get(item.host_id, lock=True)
         item = self.lock_deployment(deployment_id)
+        if item.deleted_at is not None:
+            raise DomainError(404, "Назначение не найдено")
         previous = self.session.scalar(
             select(Command).where(
                 Command.deployment_id == item.id, Command.idempotency_key == payload.idempotency_key

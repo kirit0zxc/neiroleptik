@@ -90,6 +90,7 @@ class Deployment(Base):
         ForeignKey("profile_revisions.id", name="fk_deployment_applied_revision")
     )
     instance_id: Mapped[UUID | None]
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

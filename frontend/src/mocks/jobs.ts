@@ -121,6 +121,18 @@ export const jobHandlers = (
     byKey.set(key, { job_id: job.job_id, command: body.command, expected_generation: body.expected_generation });
     return HttpResponse.json({ job_id: job.job_id }, { status: 202 });
   }),
+  // Удаление ловушки (F6a): 204 — удалена и резерв порта освобождён; 404 — уже нет;
+  // 409 — только из stopped (иначе исполнитель может держать порт).
+  http.delete('/api/v1/deployments/:id', ({ params, request }) => {
+    const bad = csrfFailure(request); if (bad) return bad;
+    const d = deployments.find((x) => x.id === params.id);
+    if (!d) return HttpResponse.json({ detail: 'Ловушка не найдена' }, { status: 404 });
+    if (d.state !== 'stopped') {
+      return reject('DELETE_NOT_ALLOWED', 'Сначала выполните Остановить и дождитесь подтверждения агента');
+    }
+    deployments = deployments.filter((x) => x.id !== d.id);
+    return new HttpResponse(null, { status: 204 });
+  }),
   // Контракт: создаётся развёртывание в состоянии planned (DeploymentRead).
   http.post('/api/v1/deployments', async ({ request }) => {
     const bad = csrfFailure(request); if (bad) return bad;

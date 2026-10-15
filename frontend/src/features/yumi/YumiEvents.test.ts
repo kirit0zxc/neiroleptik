@@ -71,4 +71,18 @@ describe('Юми: сквозной путь события до реплики',
     expect(reply(e)).toBe('203.0.113.9 выполняет: —');
     expect(mascotSignalFor({ type: 'runtime.state', data: null } as never)).toBeNull();
   });
+
+  it('HTTP-запрос: метод из известного списка (регистр неважен), путь не называется', () => {
+    expect(reply(ev('http.request', { method: 'GET', path: '[скрыто]' }))).toBe('203.0.113.9 шлёт HTTP-запрос GET.');
+    expect(reply(ev('http.request', { method: 'post' }))).toBe('203.0.113.9 шлёт HTTP-запрос POST.');
+    expect(reply(ev('http.request', { method: '<script>', path: '/admin' }))).toBe('203.0.113.9 шлёт HTTP-запрос.');
+    expect(reply(ev('http.request', { method: 'GET', path: '/admin' }))).not.toContain('/admin');
+  });
+
+  it('TCP-запрос: целое число байт больше нуля, иначе «данные»', () => {
+    expect(reply(ev('tcp.request', { captured_bytes: 27 }))).toBe('203.0.113.9 шлёт 27 байт по TCP.');
+    for (const bad of [-1, 0, 27.5, '27', undefined]) {
+      expect(reply(ev('tcp.request', bad === undefined ? {} : { captured_bytes: bad }))).toBe('203.0.113.9 шлёт данные по TCP.');
+    }
+  });
 });

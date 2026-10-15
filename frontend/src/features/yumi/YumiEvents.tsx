@@ -10,6 +10,8 @@ import { useYumi } from './yumi';
  * Имена полей `data` — по согласованному списку (specs/events.md): команда
  * атакующего — `session.command` → `data.input`.
  */
+const HTTP_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'TRACE', 'CONNECT']);
+
 export function attackPayload(signal: MascotSignal, e: Pick<HfEvent, 'type' | 'source' | 'service' | 'data'>) {
   const data = eventData(e);
   const isCommand = signal === 'attack:command' && e.type === 'session.command';
@@ -22,6 +24,12 @@ export function attackPayload(signal: MascotSignal, e: Pick<HfEvent, 'type' | 's
     command: isCommand && typeof data.input === 'string' ? data.input : '',
     // Сервер уже урезал ввод — реплика это показывает, даже если текст короткий.
     truncated: isCommand && data.truncated === true,
+    // HTTP: метод только из известного списка; путь не берём — сервер его скрывает.
+    method: signal === 'attack:http' && typeof data.method === 'string' && HTTP_METHODS.has(data.method.toUpperCase())
+      ? data.method.toUpperCase() : '',
+    // TCP: сколько байт захвачено; отрицательное или нецелое — не называем.
+    bytes: signal === 'attack:tcp' && Number.isSafeInteger(data.captured_bytes) && Number(data.captured_bytes) >= 0
+      ? Number(data.captured_bytes) : null,
   };
 }
 

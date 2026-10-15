@@ -15,3 +15,7 @@
 .cmd { margin: 0 16px 12px; padding: 8px; font: 12px/1.5 var(--font-mono); background: var(--bg); border: 1px solid var(--line-faint); white-space: pre-wrap; overflow-wrap: anywhere; }
 .dialog .note { margin: 0 16px 12px; font-size: 13px; }
 .toolbar { margin-bottom: 10px; }
+
+/* Последнее известное состояние ловушки, хост которой не на связи (F5). */
+.unconfirmed { margin-top: 4px; color: var(--warn); font-size: 12px; }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

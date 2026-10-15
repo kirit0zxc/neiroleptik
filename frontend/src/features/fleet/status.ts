@@ -31,3 +31,11 @@ export function deploymentStatus(d: Pick<Deployment, 'state' | 'desired_revision
     default: return { tone: 'idle', label: 'неизвестно' };
   }
 }
+
+/**
+ * Хост ловушки не на связи (F5): последнее известное состояние не выдаётся за
+ * текущее. Хоста нет в списке (ещё не загружен, удалён) — пометки нет.
+ */
+export function hostUnreachable(status: Host['status'] | undefined): boolean {
+  return status !== undefined && status !== 'online';
+}

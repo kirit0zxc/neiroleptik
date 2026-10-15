@@ -134,6 +134,17 @@ describe('живая лента (F10–F12)', () => {
     expect(within(noRow).queryByRole('link')).toBeNull();
   });
 
+  it('без включённой записи сессии ссылки «Запись» нет — не ведём на заглушку', async () => {
+    vi.stubEnv('VITE_API_MOCK', '0');
+    vi.stubEnv('VITE_EVENTS_ENABLED', '1');
+    vi.stubEnv('VITE_REPLAY_ENABLED', '0');
+    vi.stubEnv('VITE_TELEMETRY_ENABLED', '0');
+    publish(ev('no-replay', { session_id: DEMO_SESSION }));
+    open('/events', controlledStream().create);
+    const row = (await screen.findByText('cmd-no-replay')).closest('tr')!;
+    expect(within(row).queryByRole('link')).toBeNull();
+  });
+
   it('сессии с общим началом UUID (одна минута, UUIDv7) различаются по имени ссылки', async () => {
     publish(ev('v7-a', { session_id: '0192ab3c-0000-7000-8000-00000000aaaa' }));
     publish(ev('v7-b', { session_id: '0192ab3c-0000-7000-8000-00000000bbbb' }));

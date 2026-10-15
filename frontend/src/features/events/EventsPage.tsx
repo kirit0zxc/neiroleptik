@@ -2,6 +2,7 @@ import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { sourceLabel } from '../../shared/format/source';
+import { replayEnabled } from '../../app/telemetry';
 import { api, ApiError } from '../../shared/api/client';
 import { EVENT_TYPES, eventKey, type Deployment, type HfEvent } from '../../shared/api/types';
 import { formatTime } from '../../shared/format/time';
@@ -161,7 +162,8 @@ export function EventsPage() {
                     <td className="mono">{sourceLabel(e)}</td>
                     {/* Только текст: данные атакующего не превращаются в разметку (S1). */}
                     <td className="mono">{describeEvent(e)}</td>
-                    <td>{e.session_id
+                    {/* Пока запись сессии не включена, ссылка вела бы на заглушку — не показываем. */}
+                    <td>{e.session_id && replayEnabled()
                       ? <Link to={`/sessions/${encodeURIComponent(e.session_id)}`} aria-label={`Запись сессии …${e.session_id.slice(-8)}`}>Запись</Link>
                       : '—'}</td>
                   </tr>

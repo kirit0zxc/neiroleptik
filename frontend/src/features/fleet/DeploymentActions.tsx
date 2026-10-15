@@ -36,7 +36,9 @@ export function DeploymentActions({ deployment }: { deployment: Deployment }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const del = useMutation({
     mutationFn: () => deleteDeployment(deployment.id),
-    onSuccess: async () => { setConfirmDelete(false); await client.invalidateQueries({ queryKey: ['deployments'] }); },
+    onSuccess: () => setConfirmDelete(false),
+    // Любой исход (успех, 409, неизвестный) перечитывает список — как команды на 409.
+    onSettled: () => client.invalidateQueries({ queryKey: ['deployments'] }),
   });
   const askDelete = (from: HTMLButtonElement) => { opener.current = from; del.reset(); setConfirmDelete(true); };
 

@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { DEMO_SESSION, replayHandlers } from '../../mocks/replay';
 import { SessionPage } from './ReplayPage';
 
-const server = setupServer(...replayHandlers);
+const server = setupServer(...replayHandlers, http.get('/api/v1/events', () => HttpResponse.json({ items: [], next_cursor: null })));
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => { server.resetHandlers(); vi.unstubAllGlobals(); });
 afterAll(() => server.close());

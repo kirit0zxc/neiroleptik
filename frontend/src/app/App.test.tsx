@@ -100,12 +100,16 @@ describe('приложение на моках (F1, F3, F5, S1, S4)', () => {
     vi.stubEnv('VITE_REPLAY_ENABLED', '1');
     resetMockSession(true);
     stubWebSocket();
+    let eventsHit = 0;
+    server.use(http.get('/api/v1/events', () => { eventsHit++; return HttpResponse.json({ items: [], next_cursor: null }); }));
     // Запись сессии доступна (не Planned); поток при этом не поднимаем.
     go('/sessions/s-1');
     render(<App client={makeQueryClient()} />);
     expect(await screen.findByText((_t, el) => el?.tagName === 'H1' && /сесси/i.test(el.textContent ?? ''))).toBeInTheDocument();
     expect(screen.queryByText(/подключение серверной телеметрии/)).toBeNull();
     expect(wsCount).toBe(0);
+    expect(screen.queryByText('События сессии')).toBeNull();
+    expect(eventsHit).toBe(0);
     // Лента при этом остаётся недоступной.
     go('/events');
     render(<App client={makeQueryClient()} />);

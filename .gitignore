@@ -31,6 +31,7 @@ artifacts/
 *.qcow2
 *.img
 *.iso
+*.dump
 
 # Local Django runtime files
 /backend/media/

@@ -96,6 +96,13 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:ci
       - run: npm run build
+      - name: Build real API frontend image
+        working-directory: .
+        run: >-
+          docker build -f frontend/Dockerfile
+          --build-arg NODE_IMAGE=public.ecr.aws/docker/library/node:24-alpine
+          --build-arg NGINX_IMAGE=public.ecr.aws/docker/library/nginx:1.28-alpine
+          --tag honeyforge-web:ci .
 
   e2e:
     name: Frontend E2E (Chromium, MSW)

@@ -12,10 +12,15 @@ test('живое событие приходит по WebSocket и встаёт 
   await page.getByRole('button', { name: 'Войти' }).click();
 
   await expect(page.getByText('онлайн')).toBeVisible();
-  const before = await page.getByTestId('event-row').count();
-  // Первая демо-атака — подключение к Medium с адреса 203.0.113.50.
-  await expect(page.getByTestId('event-row').first()).toContainText('203.0.113.50', { timeout: 10_000 });
-  expect(await page.getByTestId('event-row').count()).toBeGreaterThan(before);
+  const rows = page.getByTestId('event-row');
+  await rows.first().waitFor();
+  const before = await rows.allTextContents();
+  // Под нагрузкой первая демо-атака могла прийти ещё до snapshot. Ждём именно
+  // новое событие сверху и рост списка, а не повторно узнаём старый IP.
+  await expect.poll(async () => {
+    const current = await rows.allTextContents();
+    return current.length > before.length && !before.includes(current[0]!);
+  }, { timeout: 12_000 }).toBe(true);
 });
 
 test('фильтр по типу: в адресе страницы и после перезагрузки', async ({ page }) => {

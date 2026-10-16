@@ -392,3 +392,7 @@ DeploymentService.delete выполняет логическое удалени�
 host/deployment, сохраняя исторические связи. Миграция d94b1c5e2f01 добавляет
 nullable deleted_at. CommandService.create запрещает новые команды tombstone;
 повтор ACK и telemetry binding остаются исторически корректными.
+
+## Локальный demo web
+
+frontend/Dockerfile собирает UI без MSW; frontend/nginx.conf передаёт REST и WebSocket в api. infra/compose.demo.yml добавляет web к compose.center.yml. scripts/start-demo.ps1 запускает сборку, миграции и healthcheck. SessionEvents читает существующие публичные страницы событий по session_id независимо от ReplayLoader. Новых HTTP-контрактов нет.

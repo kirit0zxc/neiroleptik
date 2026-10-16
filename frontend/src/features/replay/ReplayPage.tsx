@@ -6,6 +6,8 @@ import { formatOffset, ReplayClock, SPEEDS, type Speed } from './clock';
 import type { Direction, Segment } from './tape';
 import { fetchReplay, ReplayLoader, type FetchReplay } from './loader';
 import s from './replay.module.css';
+import { SessionEvents } from './SessionEvents';
+import { eventsEnabled } from '../../app/telemetry';
 
 const LABEL = { in: 'Ввод атакующего', out: 'Вывод ловушки' } as const;
 
@@ -25,13 +27,13 @@ function reducedMotion() {
   return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-/** Экран сессии (F15): пока только проигрыватель записи. */
+/** История опубликованных событий и независимый проигрыватель записи. */
 export function SessionPage({ fetch = fetchReplay }: { fetch?: FetchReplay }) {
   const { id = '' } = useParams();
   return (
     <>
       <h1>Сессия <span className="mono">{id}</span></h1>
-      <Empty>Паспорт сессии появится после согласования формата.</Empty>
+      {eventsEnabled() && <SessionEvents key={`events:${id}`} id={id} />}
       {/* key: другая сессия — новый загрузчик и часы. */}
       <ReplayPlayer key={id} id={id} fetch={fetch} />
     </>

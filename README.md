@@ -1,146 +1,80 @@
-# HoneyForge / neiroleptik
+# HoneyForge
 
-Центр управления ловушками на FastAPI, Python 3.12 и PostgreSQL 17; frontend на
-React + TypeScript ([specs/frontend.md](specs/frontend.md)). Центр реализует
-cookie-сессии, CSRF и роли, версии профилей, регистрацию узлов, heartbeat, назначения,
-команды ловушек и аудит. Команды Low на runtime-узле исполняет исполнитель агента
-(раздел «Runtime ловушек» ниже); Medium и High к нему ещё не подключены.
-High-профиль описывает настройки; реальная VM этим API не запускается.
+Центр управления сетевыми ловушками: создайте профиль, назначьте его узлу, запустите ловушку и наблюдайте обращения в браузере. React + TypeScript, FastAPI + PostgreSQL, Python-агент и Docker; Medium использует Cowrie 3.1.1.
 
-## Локальный запуск
+## Что работает
 
-Нужны Python 3.12, uv 0.11.28 и Docker Compose. Команды выполняются из корня репозитория:
+| Возможность | Реализовано |
+| --- | --- |
+| Low | TCP-баннер и HTTP-страница, start/stop, события |
+| Medium | SSH с заданными hostname, banner и учётными данными; start/stop/reset |
+| Управление | Роли, версии профилей, регистрация узлов, heartbeat, команды, ACK и аудит |
+| Телеметрия | Постоянный сбор, SQLite-очередь агента, повторы доставки, PostgreSQL, live-лента |
+| Расследование | События сессии, текстовый replay после выхода из SSH, алерты, honeytokens, метаданные файлов, экспорт IoC |
+| Удаление назначения | После подтверждённого stop; история сохраняется, порт освобождается |
 
-```sh
-python scripts/init_local_env.py
-docker compose --env-file .env -f infra/compose.center.yml up -d db
-docker compose --env-file .env -f infra/compose.center.yml build api
-docker compose --env-file .env -f infra/compose.center.yml run --rm api /app/.venv/bin/alembic upgrade head
-docker compose --env-file .env -f infra/compose.center.yml run --rm api /app/.venv/bin/python -m honeyforge.cli create-user --username admin --role admin
-docker compose --env-file .env -f infra/compose.center.yml up -d api
+High/KVM, публичная изоляция runtime, внешнее хранилище raw и серверная сводка `/analytics/summary` ещё не завершены. Medium эмулирует SSH-окружение, а не даёт атакующему настоящую ОС. Replay показывает записанные команды и ответы; геометрия терминала не воспроизводится. Linux/server deployment требует отдельной проверки прав и сетевой изоляции; основная приёмка — Windows + Docker Desktop.
+
+## Быстрый запуск Windows
+
+Установите Git, Python 3.12, Docker Desktop (Linux containers), uv 0.11.28. Для собранного интерфейса Node.js на хосте не нужен.
+
+```powershell
+git clone https://github.com/kirit0zxc/neiroleptik.git
+cd neiroleptik
+powershell -ExecutionPolicy Bypass -File scripts/start-demo.ps1 -CreateAdmin admin
 ```
 
-Пароль первого администратора вводится интерактивно (12–256 символов).
-`.env` создаётся один раз со случайными секретами и не коммитится. Сохраняйте
-`HF_CREDENTIAL_KEY`: без него невозможно расшифровать credentials профилей.
-API: http://localhost:8000/docs; готовность: http://localhost:8000/readyz.
-Dev-порты доступны только локально. PostgreSQL — `127.0.0.1:55432`.
-Это dev-стенд; требования к отдельному серверу и TLS — в `specs/server-checklist.md`.
+Введите новый пароль администратора (12–256 символов). Откройте **http://localhost:5173**. Скрипт создаёт `.env` только при первом запуске, собирает API/UI, применяет миграции и ждёт готовности сервисов. Повторный запуск: `powershell -ExecutionPolicy Bypass -File scripts/start-demo.ps1`. Не используйте `-CreateAdmin` повторно для существующего пользователя.
 
-## Разработка и тесты
+Это центр. Чтобы кнопка «Запустить» создавала настоящий контейнер, отдельно зарегистрируйте и запустите исполнитель: **[полная инструкция: центр → агент → SSH → события → replay](docs/deployment.md)**. Там же описаны Linux, TLS/удалённый агент, обновление и сохранение данных.
 
-```sh
-docker compose --env-file .env -f infra/compose.center.yml exec db createdb -U honeyforge honeyforge_test
-cd backend
-uv sync --frozen
-uv run --frozen ruff check . ../scripts
-uv run --frozen ruff format --check . ../scripts
-uv run --frozen mypy
-uv run --frozen pytest
-uv run --frozen python -m honeyforge.cli export-openapi --check
-```
+Порты: UI `127.0.0.1:5173`, API `127.0.0.1:8000`, PostgreSQL `127.0.0.1:55432`; тестовый SSH выбирается в профиле, например `2224`. [API-документация](http://localhost:8000/docs), [готовность](http://localhost:8000/readyz). Frontend в Docker собран **без MSW**; live-события и replay включены.
 
-Создание `honeyforge_test` нужно один раз. Тесты читают `HF_TEST_DATABASE_URL`
-из окружения или корневого `.env`; БД с иным именем отвергается до очистки таблиц.
-Для запуска API вне контейнера из `backend/`:
+## Сценарий демонстрации
+
+1. Зарегистрируйте узел с поддержкой Medium и запустите executor с `--telemetry`.
+2. В «Профилях» создайте Medium: SSH 2224, hostname `accounting-server`, banner `SSH-2.0-OpenSSH_9.6`, тестовый пользователь `root` и собственный пароль.
+3. Назначьте профиль узлу. В «Парке» нажмите «Запустить», дождитесь состояния «работает».
+4. С того же компьютера: `ssh -p 2224 root@127.0.0.1`, выполните `whoami`, `pwd`, `ls`, затем `exit`.
+5. В «Событиях» найдите обращения SSH и откройте сессию: доступны команды и replay.
+6. «Сбросить» создаёт новый экземпляр. «Остановить» закрывает порт; история остаётся.
+
+Для демо используйте отдельные тестовые пароли. Входной SSH-пароль не показывается в replay, но секрет, введённый как shell-команда, становится частью записи. Локальный Medium слушает loopback; доступ из интернета этим стендом не настраивается.
+
+## Разработка и проверки
 
 ```sh
-uv run --env-file ../.env --frozen alembic upgrade head
-uv run --env-file ../.env --frozen uvicorn honeyforge.main:create_app --factory --host 127.0.0.1 --port 8000 --no-proxy-headers
-```
-
-Остановите контейнер `api`, если его порт уже занят. После изменения API обновляйте
-контракт командой `uv run --frozen python -m honeyforge.cli export-openapi`.
-
-## Runtime ловушек (участник 3)
-
-Реализованы ограниченная Low-ловушка, журнал команд, неразрушающий preflight
-Linux/KVM и исполнитель команд центра для Low: claim, renew, ACK, устойчивое
-состояние и восстановление. Запуск описан в [инструкции исполнителя](infra/runtime/executor.md).
-Medium и High в runtime пока не реализованы; совместные тесты API используют
-подмену Docker backend, поэтому запуск настоящего контейнера на согласованном
-сервере и изоляция реальной VM требуют отдельной проверки.
-Код runtime и образ Low не имеют зависимостей времени выполнения
-(pydantic нужен только телеметрии).
-
-Runtime использует тот же корневой проект `honeyforge-agent`, что и телеметрия
-([агент](agent/README.md)): Python 3.12, uv 0.11.28, инструменты из `uv.lock`.
-Команды выполняются из корня репозитория:
-
-```sh
+# Агент/runtime: из корня
 uv sync --frozen
 uv run --frozen pytest
 uv run --frozen ruff check agent honeypots infra tests
-uv run --frozen ruff format --check agent honeypots infra tests
 uv run --frozen mypy
-uv build --wheel
-docker compose -f compose.runtime.yml config --quiet
+
+# Backend: отдельное окружение
+cd backend
+uv sync --frozen
+uv run --frozen pytest
+uv run --frozen python -m honeyforge.cli export-openapi --check
+
+# Frontend: Node.js 24
+cd ../frontend
+npm ci
+npm run typecheck
+npm run test:ci
+npx playwright install chromium
+PW_CHANNEL=chromium npm run e2e
 ```
 
-Backend проверяется отдельно командами из раздела выше.
+Backend-тестам нужна отдельная БД `honeyforge_test` и `HF_TEST_DATABASE_URL` из корневого `.env`. Создать один раз: `docker compose --env-file .env -f infra/compose.center.yml exec db createdb -U honeyforge honeyforge_test`.
+E2E Playwright используют MSW; это отдельная проверка UI, не доказательство настоящего SSH. Живая приёмка описана в [Medium](specs/medium-cowrie-executor.md).
 
-### Low на локальном компьютере
+## Документация
 
-```sh
-uv run --frozen python -m honeypots.low
-```
+- [Установка и развёртывание](docs/deployment.md), [демо-сценарий](specs/demo-runbook.md).
+- [Архитектура](specs/architecture.md), [Control API](specs/control-plane.md), [OpenAPI](contracts/openapi.json).
+- [Medium/Cowrie](specs/medium-cowrie-executor.md), [исполнитель](infra/runtime/executor.md).
+- [События](specs/events.md), [контракт UI](specs/frontend-protocol-v1.md).
+- [Серверные требования](specs/server-checklist.md), [CI](.github/CI.md), [правила проекта](AGENTS.md).
 
-По умолчанию сервис доступен только на loopback: TCP 2222 и HTTP 8080.
-Журнал JSONL выводится в stdout; это диагностический формат, не согласованный
-Event центра и не устойчивый spool. Ctrl-C завершает сервис.
-
-При работающем Docker Engine:
-
-```text
-docker compose -f compose.runtime.yml config --quiet
-docker compose -f compose.runtime.yml up --build
-```
-
-Compose настроен публиковать TCP 13222 и HTTP 18080 только на 127.0.0.1; контейнер
-ограничен по ресурсам и подключён к сети с `internal: true`. Запуск этой
-конфигурации в Docker не проверялся: неизвестно, публикует ли Docker порты для
-контейнера, подключённого только к внутренней сети. Это локальная конфигурация
-разработки; изоляцию хоста и будущего runtime-сервера необходимо отдельно проверить.
-
-### Проверка будущего runtime-хоста
-
-```sh
-uv run --frozen python -m infra.vm.preflight
-```
-
-Команда ничего не создаёт и не изменяет. Linux/KVM/libvirt проверяются статически;
-создание VM, права на изменение сети и матрица изоляции требуют отдельного smoke.
-На Windows ожидается отчёт о неподдерживаемой платформе и ненулевой код возврата.
-
-Сроки сохраняются: D1–D5, 30 человеко-часов (10 / 12 / 8).
-
-## Документация и интеграция
-
-- [Архитектура](specs/architecture.md), [Control API](specs/control-plane.md).
-- [OpenAPI](contracts/openapi.json), [событие v1](contracts/event-v1.schema.json).
-- [Frontend: сессии, stream и replay](specs/frontend-protocol-v1.md).
-- [Передача интерфейсов участникам](specs/integration-handoff.md).
-- [Серверный стенд](specs/server-checklist.md), [CI](.github/CI.md).
-- Runtime: [требования D1](specs/runtime-d1.md),
-  [командный API](specs/commands.md), [исполнитель Low](specs/runtime-agent-executor.md),
-  [handoff журнала Диме](specs/low-telemetry-handoff.md),
-  [подготовка runtime и Cowrie spike](infra/runtime/README.md).
-  Старые [предложения общих контрактов](specs/runtime-contract-proposal.md)
-  не определяют командный API.
-- [Сценарий демо для защиты](specs/demo-runbook.md): подготовка стенда, показ по минутам, команды атаки, запасной вариант на моках.
-- Правила изменений, ревью и человеческого одобрения: [AGENTS.md](AGENTS.md).
-
-OpenAPI описывает реализованный control API. События, stream и replay — проект
-контракта для согласования с участником телеметрии. Для этих экранов frontend
-временно использует MSW; auth/profiles/hosts/deployments подключаются к настоящему
-API. Финальная демонстрация событий требует реального telemetry backend.
-
-В разработке frontend использует origin `http://localhost:5173`, cookie
-`hf_session`, `credentials: "include"` и CSRF из login или `/api/v1/auth/me`.
-Другой origin согласуйте и добавьте в `HF_ALLOWED_ORIGINS`.
-
-## Телеметрия участника 4: старт D1
-
-Локальная очередь SQLite WAL, адаптер Low, схемы и синтетические fixtures:
-[запуск и проверки агента](agent/README.md), [контракт](specs/events.md).
-Этот шаг проверяет сохранность событий; живые ingest/WS подключаются следующим этапом.
+Секреты `.env`, agent token, SQLite агента и raw/TTY журналы не коммитятся. Сохраните `HF_CREDENTIAL_KEY`: без него нельзя расшифровать credentials профилей.

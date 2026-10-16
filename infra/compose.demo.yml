@@ -1,0 +1,21 @@
+# Дополнение к compose.center.yml; запускать оба файла в указанном порядке.
+services:
+  db:
+    restart: unless-stopped
+  api:
+    restart: unless-stopped
+  web:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "127.0.0.1:5173:8080"
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6

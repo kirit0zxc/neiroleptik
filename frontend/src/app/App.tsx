@@ -15,6 +15,7 @@ import { AuditPage } from '../features/audit/AuditPage';
 import { SessionPage } from '../features/replay/ReplayPage';
 import { MascotCore } from '../mascot/core/MascotCore';
 import { Yumi, YumiContext } from '../features/yumi/yumi';
+import { YumiDemo } from '../features/yumi/YumiDemo';
 import { analyticsEnabled, eventsEnabled, investigationEnabled, replayEnabled } from './telemetry';
 import { InvestigationPage } from '../features/investigation/InvestigationPage';
 import { AppShell, NotFound, Planned } from './AppShell';
@@ -60,6 +61,9 @@ function EventsScreen() {
 
 export const routes = [
   { path: '/login', element: <LoginPage /> },
+  // Витрина реакций Юми — только для разработки (ручной просмотр), в прод-сборку
+  // маршрут не попадает: не часть продукта и без входа.
+  ...(import.meta.env.DEV ? [{ path: '/yumi-demo', element: <YumiDemo /> }] : []),
   {
     element: <RequireAuth><LiveShell /></RequireAuth>,
     children: [

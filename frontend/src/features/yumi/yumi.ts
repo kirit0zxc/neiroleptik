@@ -2,6 +2,8 @@ import { createContext, useContext, useSyncExternalStore } from 'react';
 import { MascotBridge } from '../../mascot/bridge/MascotBridge';
 import type { MascotCore } from '../../mascot/core/MascotCore';
 import { getMascot } from '../../mascot/singleton';
+import type { MascotSignal } from '../../shared/mascot-slot/mascotEvents';
+import { ReactionMemory, type AttackPayload } from './reactions';
 import { YUMI_RULES } from './rules';
 
 /** Реплика Юми в консоли. */
@@ -27,6 +29,7 @@ export class Yumi {
   private attackTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingAttack: { event: string; payload: unknown } | null = null;
   private readonly offSay: () => void;
+  private readonly memory = new ReactionMemory();
 
   constructor(core: MascotCore = getMascot()) {
     this.core = core;
@@ -39,6 +42,21 @@ export class Yumi {
   /** Событие интерфейса или центра: реакцию выберет таблица. */
   handle(event: string, payload?: unknown) {
     this.bridge.handle(event, payload);
+  }
+
+  /**
+   * Событие ленты: память считает и усиливает, затем маршрутизация.
+   * Срочные акценты (токен, остановка ловушки, первый вход, опасная
+   * команда, достигнутый порог перебора) показываем сразу, минуя окно
+   * схлопывания; остальной поток схлопывается (specs/frontend.md, р. 9).
+   */
+  react(signal: MascotSignal, payload: AttackPayload) {
+    const enriched = this.memory.enrich(signal, payload);
+    const merged = { ...payload, ...enriched };
+    const urgent = signal === 'token:triggered' || signal === 'trap:offline'
+      || enriched.first || enriched.danger || enriched.milestone;
+    if (urgent) this.handle(signal, merged);
+    else this.attack(signal, merged);
   }
 
   /** Событие атаки: не чаще раза в окно, последнее в окне доходит. */

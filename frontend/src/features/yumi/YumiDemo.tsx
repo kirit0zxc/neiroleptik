@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MascotSlot, YumiConsole } from '../../shared/mascot-slot/MascotSlot';
 import { useYumi } from './yumi';
 import type { AttackPayload } from './reactions';
@@ -105,11 +105,18 @@ export function YumiDemo() {
   const [playing, setPlaying] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  useEffect(() => () => {
+    // Вымышленные события и схлопнутый хвост не должны переживать страницу.
+    if (timer.current !== null) clearInterval(timer.current);
+    timer.current = null;
+    yumi?.cancelPendingAttack();
+  }, [yumi]);
+
   const fire = (r: Row) => yumi?.handle(r.event, r.payload);
 
   // «Проиграть всё»: правила напрямую, с паузой на побуквенную печать.
   const playAll = () => {
-    if (!yumi || playing) return;
+    if (!yumi || timer.current !== null) return;
     setPlaying(true);
     let i = 0;
     timer.current = setInterval(() => {
@@ -127,7 +134,8 @@ export function YumiDemo() {
 
   // «Реальный поток»: через react — настоящая память (нарастание) и схлопывание.
   const playLive = () => {
-    if (!yumi) return;
+    if (!yumi || timer.current !== null) return;
+    setPlaying(true);
     const burst: Array<[string, AttackPayload]> = [
       ['attack:connect', p({})],
       ...Array.from({ length: 6 }, () => ['attack:auth', p({})] as [string, AttackPayload]),
@@ -135,9 +143,14 @@ export function YumiDemo() {
       ['attack:command', p({ command: 'rm -rf /' })],
     ];
     let i = 0;
-    const id = setInterval(() => {
+    timer.current = setInterval(() => {
       const step = burst[i];
-      if (!step) { clearInterval(id); return; }
+      if (!step) {
+        if (timer.current !== null) clearInterval(timer.current);
+        timer.current = null;
+        setPlaying(false);
+        return;
+      }
       yumi.react(step[0] as never, step[1]);
       i += 1;
     }, 400);
@@ -163,7 +176,7 @@ export function YumiDemo() {
           <button type="button" style={{ ...btn, borderColor: 'var(--accent, #ff5fa2)' }} onClick={playAll} disabled={playing}>
             {playing ? 'Проигрываю…' : '▶ Проиграть всё (история атаки)'}
           </button>
-          <button type="button" style={btn} onClick={playLive}>⚡ Реальный поток (память + схлопывание)</button>
+          <button type="button" style={btn} onClick={playLive} disabled={playing}>⚡ Реальный поток (память + схлопывание)</button>
         </div>
 
         {GROUPS.map((g) => (

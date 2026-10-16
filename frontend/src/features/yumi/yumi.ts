@@ -79,6 +79,11 @@ export class Yumi {
   dispose() {
     this.offSay();
     this.bridge.dispose();
+    this.cancelPendingAttack();
+  }
+
+  /** Останавливает отложенную реакцию, например при уходе из dev-витрины. */
+  cancelPendingAttack() {
     if (this.attackTimer) clearTimeout(this.attackTimer);
     this.attackTimer = null;
     this.pendingAttack = null;

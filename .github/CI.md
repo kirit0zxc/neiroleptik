@@ -56,7 +56,9 @@ wheel (`uv build --wheel`) и `docker compose -f compose.runtime.yml config --qu
 ## Frontend
 
 В текущем проекте frontend присутствует: CI выполняет `npm ci`, `typecheck`,
-`test:ci` и `build` на Node.js 24. При отсутствии frontend job явно пропускается;
+`test:ci` и `build` на Node.js 24. Также собирается Docker frontend без MSW с
+общими contracts и nginx proxy (образы Node/nginx берутся из ECR Public).
+При отсутствии frontend job явно пропускается;
 при добавлении нужны package.json, package-lock.json и эти npm-скрипты. Исходники без
 package.json и manifest без lock-файла считаются ошибкой.
 Зелёный backend CI не доказывает интеграцию с ещё не подключённым frontend.

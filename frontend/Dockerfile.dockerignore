@@ -1,0 +1,13 @@
+# Сборка UI использует общие contracts, но не секреты и локальные зависимости.
+**
+!frontend/
+!frontend/**
+!contracts/
+!contracts/**
+frontend/node_modules
+frontend/dist
+frontend/.env
+frontend/.env.*
+frontend/playwright-report
+frontend/test-results
+frontend/coverage

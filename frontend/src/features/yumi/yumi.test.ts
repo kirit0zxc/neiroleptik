@@ -47,4 +47,16 @@ describe('Юми в HoneyForge (раздел 9)', () => {
     yumi.handle('command:done', { command: 'stop' });
     expect(yumi.getLines().at(-1)?.text).toBe('Команда «Остановить» выполнена.');
   });
+
+  it('отмена удаляет схлопнутый хвост и позволяет принимать новые настоящие события', () => {
+    const yumi = new Yumi(new MascotCore());
+    yumi.attack('attack:connect', { ip: '192.0.2.1', protocol: 'ssh' });
+    yumi.attack('attack:connect', { ip: '192.0.2.2', protocol: 'ssh' });
+    yumi.cancelPendingAttack();
+    vi.advanceTimersByTime(5000);
+    expect(yumi.getLines()).toHaveLength(1);
+    yumi.attack('attack:connect', { ip: '192.0.2.3', protocol: 'ssh' });
+    expect(yumi.getLines().at(-1)?.text).toContain('192.0.2.3');
+    yumi.dispose();
+  });
 });

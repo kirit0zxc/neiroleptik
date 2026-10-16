@@ -75,6 +75,11 @@
     "resetAfterMs": 3200,
     "faceTrack": [
       {
+        "at": 0.3,
+        "expression": "happy",
+        "weight": 0.6
+      },
+      {
         "at": 0.6,
         "expression": "neutral",
         "weight": 0.6
@@ -191,6 +196,42 @@
     "trim": [
       10.6,
       12.8
+    ],
+    "glow": {
+      "color": "#9ED8BC",
+      "intensity": 0.5,
+      "pulseHz": 0
+    }
+  },
+  "thinking": {
+    "expression": "relaxed",
+    "weight": 0.4,
+    "action": "thinking",
+    "loop": true,
+    "resetAfterMs": null,
+    "glow": {
+      "color": "#D6457F",
+      "intensity": 0.45,
+      "pulseHz": 0.5
+    }
+  },
+  "welcome": {
+    "expression": "neutral",
+    "weight": 0,
+    "action": "wave",
+    "loop": false,
+    "resetAfterMs": 3200,
+    "faceTrack": [
+      {
+        "at": 0.3,
+        "expression": "happy",
+        "weight": 0.6
+      },
+      {
+        "at": 0.6,
+        "expression": "neutral",
+        "weight": 0.6
+      }
     ],
     "glow": {
       "color": "#9ED8BC",

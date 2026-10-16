@@ -3,6 +3,7 @@ import type { HfEvent } from '../../shared/api/types';
 import { eventData, sourceIp } from '../../shared/format/source';
 import { onMascotEvent, type MascotSignal } from '../../shared/mascot-slot/mascotEvents';
 import { useStreamStatus } from '../../shared/stream/stream';
+import type { AttackPayload } from './reactions';
 import { useYumi } from './yumi';
 
 /**
@@ -12,7 +13,7 @@ import { useYumi } from './yumi';
  */
 const HTTP_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'TRACE', 'CONNECT']);
 
-export function attackPayload(signal: MascotSignal, e: Pick<HfEvent, 'type' | 'source' | 'service' | 'data'>) {
+export function attackPayload(signal: MascotSignal, e: Pick<HfEvent, 'type' | 'source' | 'service' | 'data'>): AttackPayload {
   const data = eventData(e);
   const isCommand = signal === 'attack:command' && e.type === 'session.command';
   return {
@@ -63,11 +64,10 @@ export function YumiEvents({ username }: { username: string }) {
   useEffect(() => {
     if (!yumi) return;
     return onMascotEvent((signal, e) => {
-      // trap:online и alert реплик не дают; медовый токен и остановка ловушки
-      // важнее шторма подключений — идут без схлопывания.
+      // trap:online и alert реплик не дают; остальное отдаём react — он
+      // считает нарастание и решает, показать сразу или схлопнуть.
       if (signal === 'trap:online' || signal === 'alert') return;
-      if (signal === 'trap:offline' || signal === 'token:triggered') yumi.handle(signal, attackPayload(signal, e));
-      else yumi.attack(signal, attackPayload(signal, e));
+      yumi.react(signal, attackPayload(signal, e));
     });
   }, [yumi]);
 

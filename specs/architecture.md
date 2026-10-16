@@ -1,5 +1,25 @@
 # Архитектура HoneyForge
 
+## Durable JSONL Cowrie, 16.10.2026
+
+`agent/telemetry/cowrie_journal/models.py` задаёт доверенный реестр поколений;
+`source.py` открывает read-only файл через проверенные дескрипторы без symlink,
+reparse и hardlink. `repository.py` владеет собственными таблицами `cowrie_*`
+на соединении SpoolRepository, сохраняет raw/checkpoint/неполный tail и закрепляет
+scope. `collector.py` проверяет прежние bytes и bounded snapshot;
+`conversion.py` атомарно пишет Event/ignored и ledger, не воссоздавая pending
+после ACK/quarantine. Raw, ledger и исторические bindings сохраняются.
+
+ExecutorTelemetry получает опциональный доверенный provider; существующий worker
+сверяет его с ACK start/reset и обслуживает Cowrie и Low независимо с одним
+TelemetrySender. Raw backlog восстанавливается без provider/файла. Ошибка
+поколения, provider или Cowrie schema version не блокирует Low и прежний pending.
+Durable scope постоянно исключается из legacy collector; автоматическая смена
+UUID при существующем legacy checkpoint запрещена. Default CLI и старый Event
+replay продолжают прежнее поведение до экспорта runtime реестра. Новый HTTP API
+не создаётся. Контракт и ограничения: [cowrie-telemetry.md](cowrie-telemetry.md),
+проверки: [cowrie-durable-validation.md](cowrie-durable-validation.md).
+
 ## Чистая конверсия Cowrie, 15.10.2026
 
 [cowrie-telemetry.md](cowrie-telemetry.md) задаёт доверенный runtime binding,
@@ -11,7 +31,7 @@ CowrieAdapter без чтения файлов или записи в spool. `ag
 и входят в штатный pytest/CI. Прежний минимальный CowrieCollector из актуального
 main перенесён без изменения поведения в `adapters/cowrie_collector.py` и
 реэкспортируется по старому пути для runtime. Новый mapper к нему не подключён:
-нужны отдельные durable raw/ledger, доверенный реестр поколений и bindings.
+Для него используется отдельный durable путь и доверенные bindings, описанные выше.
 Подключение новых чистых chunks к durable/sealed transport/storage/read API
 остаётся следующим этапом. Существующий legacy Event replay/read API из main
 сохраняется вместе с актуальным collector, manifest и конфигурационным портом.

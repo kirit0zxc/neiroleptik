@@ -4,9 +4,10 @@
 с `16791d4`. Совместимость обновлена относительно удалённого `origin/main`
 `6183092dc9234dd35f25c94834dc539b48f078ea`.
 Статус: чистые CowrieAdapter/CowrieBinding и CowrieTtyConverter реализованы;
-acceptance-тесты перенесены в штатный набор. Ожидание ответа Данила не блокирует
+durable raw/checkpoint/ledger и worker с явным trusted provider добавлены вторым PR.
+Acceptance-тесты перенесены в штатный набор. Ожидание ответа Данила не блокирует
 подготовку нашей части. Это не заявление о согласии Данила, готовности нового
-durable collector или выполненной интеграции новых чистых интерфейсов.
+runtime UUID registry или выполненного живого smoke нового durable пути.
 Публичные Event/ACK и Low не изменяются. Новый HTTP transport replay данным
 этапом не вводится. Актуальный main уже содержит legacy replay через Event и
 GET read API; он сохраняется без изменений. Следующие этапы ниже относятся к
@@ -15,7 +16,7 @@ GET read API; он сохраняется без изменений. Следу�
 В обновлённом main уже существует Medium runtime/collector с legacy replay
 ([medium-cowrie-executor.md](medium-cowrie-executor.md)). Его поведение и UUID
 сохранены: collector вынесен в `adapters/cowrie_collector.py` с реэкспортом по
-старому импорту. Новые чистые интерфейсы пока не подключены к worker. Успех
+старому импорту. Новый durable путь worker требует явного trusted provider. Успех
 старого smoke не считается проверкой нового mapper, seal или TTY replay.
 
 ## Разделение ответственности
@@ -169,7 +170,76 @@ PAYLOAD_LIMIT, IO_ERROR. Код не содержит payload или текст�
 
 ## Последующие этапы и приёмка взаимодействия
 
-1. Подключить durable raw/ledger и worker без второго sender; повтор после ACK
+### Durable JSONL collector/worker — второй PR
+
+Модули `agent.telemetry.cowrie_journal`: models (доверенные входы/лимиты),
+source (read-only открытие), repository (raw/checkpoint/ledger), collector
+(проверенный snapshot), conversion (mapper → spool). Собственная версия
+`cowrie_storage_version` и таблицы `cowrie_*` не меняют схему Low.
+Все SQLite операции выполняются на соединении существующего SpoolRepository
+с WAL/FULL в его worker-потоке; новый sender или HTTP API не создаётся.
+
+Вход `CowrieJournalSource(binding: CowrieBinding, journal_id: UUID, root: Path,
+relative_path: str)` передаётся доверенным runtime provider, а не JSON Cowrie.
+root — абсолютный локальный read-only каталог; относительный POSIX путь без
+пустых частей, `.`/`..`, backslash, ADS/drive и NUL. Генерация UUID выдаётся
+runtime, не выводится из имени, inode или строки JSON. Rename меняет только
+relative_path при сохранении UUID и inode; новый файл требует нового UUID.
+Повтор journal_id с другим scope/inode, Copytruncate, изменение сохранённых
+bytes или привязки revision/port блокируют источник безопасным кодом.
+Предки пути и конечный файл проверяются на symlink/reparse; чтение начинается
+только после проверки дескриптора. Hardlink и не-обычный файл запрещены.
+
+Collector ограничивает число строк (100), новых bytes (4 MiB), перечитываемого
+snapshot (64 MiB) и строку (64 KiB). Он проверяет ранее сохранённый префикс
+и непродвинутый хвост до сохранения новых строк; рост допустим. Снимок ограничен
+size при открытии. EOF без LF сохраняет непрозрачный хвост, не двигая checkpoint;
+его прежние bytes должны совпасть при дописывании и после рестарта. Raw и
+checkpoint фиксируются одной транзакцией до вызова mapper. Неверная полная
+строка остаётся в raw, но не проходит conversion; источник блокируется,
+checkpoint не выдаётся за успешную конверсию. Raw/ledger не удаляются после ACK.
+Логическая квота по raw/неполному хвосту/canonical payload — 256 MiB на spool;
+SQLite индексы/WAL и файлы runtime требуют отдельной общей дисковой квоты.
+Число зарегистрированных поколений и элементов provider snapshot ограничено 4096;
+неверный snapshot не отменяет восстановление существующего backlog и sender.
+Неизвестная версия собственных таблиц Cowrie останавливает только Cowrie, без
+возврата к legacy; Low и существующие pending продолжают работу.
+
+Converter атомарно фиксирует Event+ledger или ignored+ledger на позицию.
+Ledger хранит SHA-256 raw, версию mapper, исходный Event ID/canonical payload;
+повтор сравнивает результат и не создаёт pending повторно, в том числе после
+ACK, quarantine или рестарта. Иной результат/bytes той же позиции — конфликт.
+Откат/сбой между raw и conversion восстанавливается из raw без исходного файла;
+сбой между INSERT pending и ledger откатывает оба. Лимиты conversion:
+100 строк и 4 MiB raw за шаг. Ошибки не включают исходник/пароль/SQL/path.
+
+`LowTelemetryWorker.step(bindings, cowrie_sources=())` проверяет каждый source
+по agent_id и подтверждённым историческим start/reset bindings из ExecutionStore.
+Cowrie обрабатывается round-robin по поколениям независимо от Low; ошибка одного
+поколения не задерживает остальные, Low или существующий sender. Сохранённые raw
+конвертируются даже при временно отсутствующем файле/provider. При отсутствии
+ACK источник не регистрируется и файл не читается. `ExecutorTelemetry` принимает
+необязательный внутренний provider snapshot; его ошибка не отменяет sender.
+Существующий runtime пока не экспортирует этот реестр: автоматическая генерация
+UUID и включение нового пути по наличию файла запрещены; это явный внутренний
+стык для runtime без нового endpoint/CLI/секретного конфигурационного формата.
+
+В актуальном main уже есть legacy Cowrie replay (`medium-cowrie-executor.md`).
+Он сохраняется для незарегистрированных scope. Durable scope закрепляется
+в SQLite навсегда и исключается из legacy collector, даже если provider временно
+пуст. Автоматический переход при существующем legacy checkpoint запрещён
+(`LEGACY_CONFLICT`): нужен новый instance и явный доверенный binding. Новые
+pure события не содержат legacy replay/manifest и не подмешиваются к его UUID.
+TTY/seal/upload/read replay не входят в этот PR; существующие endpoints не меняются.
+
+Приёмка: реальная SQLite, crash/reopen raw→conversion и pending→ledger,
+ACK loss и повтор после ACK без pending, ignored/неверные строки, LF tail после
+restart, rename/new generation, truncation/замена префикса/файла, symlink/FIFO,
+квоты/версии/владелец, исторические ACK и stop/reset, два источника с одним
+испорченным, совместный worker Low+Cowrie+sender. Эти проверки не подменяют
+PostgreSQL или живой runtime smoke.
+
+1. Второй PR подключает durable raw/ledger и worker без второго sender; повтор после ACK
    не создаёт pending; crash между raw и conversion восстанавливается; ACK loss
    повторяет ID/bytes. Один испорченный источник не задерживает остальные.
 2. Сохранить replay по recording_id/seq с конфликтом при иных bytes; повтор seal
